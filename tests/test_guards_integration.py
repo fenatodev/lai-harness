@@ -65,7 +65,7 @@ class GuardIntegrationTest(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def run_agent(self, server, *args):
+    def run_agent(self, server, *args, check=True):
         env = {
             **os.environ,
             "LAI_HOST": server.host,
@@ -81,7 +81,7 @@ class GuardIntegrationTest(unittest.TestCase):
             text=True,
             capture_output=True,
             timeout=20,
-            check=True,
+            check=check,
         )
 
     def test_validation_guard_rejects_early_final_until_check_passes(self):
@@ -97,6 +97,169 @@ class GuardIntegrationTest(unittest.TestCase):
         self.assertIn("VALIDATION REQUIRED", reminder_payload["messages"][-1]["content"])
         self.assertEqual(result.stdout.strip(), "implemented and validated")
         self.assertTrue((self.repo / "result.py").is_file())
+
+    def test_repeated_exploration_is_blocked_and_forces_write_phase(self):
+        repeated = {"paths": ["missing.py"]}
+        responder = SequenceResponder([
+            tool_call("inspect-1", "inspect", repeated),
+            tool_call("inspect-2", "inspect", repeated),
+            completion("implemented successfully"),
+            completion("IMPLEMENTATION_IMPOSSIBLE:"),
+            completion("IMPLEMENTATION_IMPOSSIBLE:   "),
+            completion("IMPLEMENTATION_IMPOSSIBLE: the target file is absent."),
+        ])
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(server, "--implement", "change missing.py")
+
+        self.assertEqual(result.stderr.count("\n[inspect] "), 1)
+        self.assertIn(
+            "BLOCKED: pre-write exploration budget exhausted",
+            responder.payloads[2]["messages"][-2]["content"],
+        )
+        self.assertIn(
+            "PRE-WRITE EXPLORATION ENDED",
+            responder.payloads[2]["messages"][-1]["content"],
+        )
+        offered = {
+            tool["function"]["name"]
+            for tool in responder.payloads[2].get("tools", [])
+        }
+        self.assertEqual(offered, {"patch", "create"})
+        self.assertIn(
+            "PHASE-SHIFT RESPONSE REJECTED",
+            responder.payloads[3]["messages"][-1]["content"],
+        )
+        self.assertIn(
+            "PHASE-SHIFT RESPONSE REJECTED",
+            responder.payloads[4]["messages"][-1]["content"],
+        )
+        self.assertIn(
+            "PHASE-SHIFT RESPONSE REJECTED",
+            responder.payloads[5]["messages"][-1]["content"],
+        )
+        self.assertEqual(
+            result.stdout.strip(),
+            "IMPLEMENTATION_IMPOSSIBLE: the target file is absent.",
+        )
+
+    def test_distinct_read_only_calls_work_within_budget(self):
+        (self.repo / "one.py").write_text("ONE = 1\n")
+        (self.repo / "two.py").write_text("TWO = 2\n")
+        responder = SequenceResponder([
+            tool_call("inspect-1", "inspect", {"paths": ["one.py"]}),
+            tool_call("inspect-2", "inspect", {"paths": ["two.py"]}),
+            completion("No change is needed."),
+        ])
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(server, "--implement", "inspect both files")
+
+        self.assertEqual(result.stderr.count("\n[inspect] "), 2)
+        self.assertNotIn("PRE-WRITE EXPLORATION ENDED", str(responder.payloads))
+
+    def test_validation_bash_remains_available_after_successful_write(self):
+        responder = SequenceResponder([
+            tool_call("inspect", "inspect", {"paths": ["AGENTS.md"]}),
+            tool_call(
+                "create",
+                "create",
+                {"path": "result.py", "content": "value = 1\n"},
+            ),
+            tool_call(
+                "validate",
+                "bash",
+                {"command": "python3 -m py_compile result.py"},
+            ),
+            completion("implemented and validated"),
+        ])
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(server, "--implement", "create result.py")
+
+        self.assertIn("exit_code=0", responder.payloads[3]["messages"][-1]["content"])
+        self.assertEqual(result.stdout.strip(), "implemented and validated")
+
+    def test_budget_exhaustion_records_specific_metric_and_audit_event(self):
+        calls = [
+            tool_call(f"search-{index}", "search", {"query": f"needle-{index}"})
+            for index in range(6)
+        ]
+        responder = SequenceResponder([
+            *calls,
+            completion(
+                "IMPLEMENTATION_IMPOSSIBLE: no target was found in the collected evidence."
+            ),
+        ])
+        with FakeLlamaServer(responder=responder) as server:
+            self.run_agent(server, "--implement", "find a target and change it")
+
+        metric_events = [
+            json.loads(line)
+            for line in (self.data / "metrics" / "events.jsonl").read_text().splitlines()
+        ]
+        audit_events = [
+            json.loads(line)
+            for line in (self.data / "audit" / "events.jsonl").read_text().splitlines()
+        ]
+        for events in (metric_events, audit_events):
+            limits = [event for event in events if event.get("type") == "agent_limit"]
+            self.assertEqual(limits[-1]["reason"], "exploration_budget_exhausted")
+            self.assertEqual(limits[-1]["trigger"], "budget_reached")
+            self.assertEqual(limits[-1]["exploration_calls"], 6)
+            self.assertNotIn("signature", limits[-1])
+            self.assertRegex(limits[-1]["signature_hash"], r"^[0-9a-f]{64}$")
+
+        outcomes = [
+            event
+            for event in metric_events
+            if event.get("type") == "run_outcome"
+        ]
+        self.assertEqual(outcomes[-1]["outcome"], "implementation_impossible")
+
+    def test_overall_round_limit_has_a_distinct_reason(self):
+        responder = SequenceResponder([
+            tool_call(
+                f"search-{index}",
+                "search",
+                {"query": "same-query"},
+            )
+            for index in range(12)
+        ])
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--fix",
+                "change an unknown target",
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("overall round limit reached (12 rounds)", result.stderr)
+        events = [
+            json.loads(line)
+            for line in (self.data / "metrics" / "events.jsonl").read_text().splitlines()
+            if json.loads(line).get("type") == "agent_limit"
+        ]
+        self.assertEqual(events[0]["reason"], "exploration_budget_exhausted")
+        self.assertEqual(events[-1]["reason"], "overall_round_limit_reached")
+
+    def test_simple_implement_still_creates_and_validates(self):
+        responder = SequenceResponder([
+            tool_call(
+                "create",
+                "create",
+                {"path": "simple.py", "content": "VALUE = 1\n"},
+            ),
+            tool_call(
+                "validate",
+                "bash",
+                {"command": "python3 -m py_compile simple.py"},
+            ),
+            completion("done"),
+        ])
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(server, "--implement", "create simple.py")
+
+        self.assertEqual(result.stdout.strip(), "done")
+        self.assertEqual((self.repo / "simple.py").read_text(), "VALUE = 1\n")
 
     def test_acceptance_guard_requires_explicit_test_change(self):
         responder = SequenceResponder([

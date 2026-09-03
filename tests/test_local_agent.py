@@ -1,5 +1,6 @@
 import importlib.util
 from importlib.machinery import SourceFileLoader
+import io
 import json
 import os
 from pathlib import Path
@@ -7,6 +8,7 @@ import subprocess
 import tempfile
 import unittest
 from unittest import mock
+from contextlib import redirect_stdout
 
 
 SOURCE = Path(__file__).parents[1] / "src" / "local-agent"
@@ -216,6 +218,94 @@ class LocalAgentTest(unittest.TestCase):
         agent.record_audit_event({"type": "smoke"})
         self.assertEqual(json.loads(agent.METRICS_FILE.read_text())["type"], "smoke")
         self.assertEqual(json.loads(agent.AUDIT_FILE.read_text())["type"], "smoke")
+
+    def test_tool_signature_is_canonical_and_includes_tool_name(self):
+        first = agent.canonical_tool_signature(
+            "read", {"path": "sample.py", "max_lines": 20}
+        )
+        reordered = agent.canonical_tool_signature(
+            "read", {"max_lines": 20, "path": "sample.py"}
+        )
+        other_tool = agent.canonical_tool_signature(
+            "inspect", {"max_lines": 20, "path": "sample.py"}
+        )
+        self.assertEqual(first, reordered)
+        self.assertNotEqual(first, other_tool)
+
+    def test_pre_write_guard_allows_distinct_calls_and_resets_after_write(self):
+        guard = agent.PreWriteExplorationGuard(enabled=True, budget=3)
+        self.assertIsNone(guard.check("read", {"path": "one.py"}))
+        self.assertIsNone(guard.check("read", {"path": "two.py"}))
+        guard.note_successful_write()
+        self.assertIsNone(guard.check("bash", {"command": "pytest -q"}))
+        self.assertFalse(guard.exhausted)
+
+    def test_pre_write_guard_blocks_repeated_read_only_call(self):
+        guard = agent.PreWriteExplorationGuard(enabled=True)
+        args = {"query": "needle", "path": "."}
+        self.assertIsNone(guard.check("search", args))
+        result = guard.check("search", {"path": ".", "query": "needle"})
+        self.assertTrue(result.startswith("BLOCKED:"))
+        self.assertEqual(guard.reason, "exploration_budget_exhausted")
+        self.assertEqual(guard.trigger, "repeated_read_only_call")
+        self.assertEqual(
+            guard.signature_hash,
+            agent.tool_signature_hash("search", args),
+        )
+        self.assertNotIn("needle", guard.signature_hash)
+
+    def test_metrics_prints_agent_limit_details(self):
+        agent.METRICS_DIR = self.root / "metrics"
+        agent.METRICS_FILE = agent.METRICS_DIR / "events.jsonl"
+        agent.METRICS_PRUNED = False
+        agent.record_metric_event({"type": "run_start"})
+        agent.record_metric_event({
+            "type": "agent_limit",
+            "reason": "exploration_budget_exhausted",
+            "trigger": "budget_reached",
+            "exploration_calls": 6,
+            "exploration_budget": 6,
+        })
+        agent.record_metric_event({
+            "type": "agent_limit",
+            "reason": "overall_round_limit_reached",
+            "round_limit": 12,
+        })
+        output = io.StringIO()
+        with redirect_stdout(output):
+            agent.print_lai_metrics()
+        shown = output.getvalue()
+        self.assertIn("exploration_budget_exhausted", shown)
+        self.assertIn("trigger=budget_reached", shown)
+        self.assertIn("exploration=6/6", shown)
+        self.assertIn("overall_round_limit_reached round_limit=12", shown)
+
+    def test_audit_prints_agent_limit_details_without_signature(self):
+        agent.AUDIT_DIR = self.root / "audit"
+        agent.AUDIT_FILE = agent.AUDIT_DIR / "events.jsonl"
+        agent.record_audit_event({
+            "type": "agent_limit",
+            "reason": "exploration_budget_exhausted",
+            "trigger": "repeated_read_only_call",
+            "exploration_calls": 1,
+            "exploration_budget": 6,
+            "signature_hash": "a" * 64,
+        })
+        agent.record_audit_event({
+            "type": "agent_limit",
+            "reason": "overall_round_limit_reached",
+            "round_limit": 14,
+        })
+        output = io.StringIO()
+        with redirect_stdout(output):
+            agent.print_lai_audit()
+        shown = output.getvalue()
+        self.assertIn("Reason: exploration_budget_exhausted", shown)
+        self.assertIn("Trigger: repeated_read_only_call", shown)
+        self.assertIn("Exploration: 1/6", shown)
+        self.assertIn("Reason: overall_round_limit_reached", shown)
+        self.assertIn("Round limit: 14", shown)
+        self.assertNotIn("a" * 64, shown)
 
     def test_patch_dispatch_records_hashes_and_tool_metric(self):
         target = self.root / "sample.txt"

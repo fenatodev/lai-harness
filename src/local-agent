@@ -143,6 +143,109 @@ except Exception:
 
 MAX_ROUNDS = 8
 MAX_TOOL_OUTPUT = 24000
+PRE_WRITE_EXPLORATION_BUDGET = 6
+
+WRITE_TOOLS = {"edit", "create", "patch"}
+READ_ONLY_TOOLS = {
+    "read",
+    "inspect",
+    "search",
+    "list",
+    "project",
+    "git",
+    "bash",
+}
+
+
+def canonical_tool_signature(name, args):
+    return (
+        str(name)
+        + ":"
+        + json.dumps(
+            args,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+
+
+def tool_signature_hash(name, args):
+    hashlib = __import__("hashlib")
+    signature = canonical_tool_signature(name, args)
+    return hashlib.sha256(signature.encode("utf-8")).hexdigest()
+
+
+class PreWriteExplorationGuard:
+    def __init__(self, enabled, budget=PRE_WRITE_EXPLORATION_BUDGET):
+        self.enabled = enabled
+        self.budget = budget
+        self.calls = 0
+        self.signature_hashes = set()
+        self.write_succeeded = False
+        self.exhausted = False
+        self.reason = None
+        self.trigger = None
+        self.signature_hash = None
+        self.tool_name = None
+
+    def check(self, name, args):
+        if (
+            not self.enabled
+            or self.write_succeeded
+            or name not in READ_ONLY_TOOLS
+        ):
+            return None
+
+        signature_hash = tool_signature_hash(name, args)
+
+        if self.exhausted:
+            return self.blocked_result()
+
+        if signature_hash in self.signature_hashes:
+            self._exhaust("repeated_read_only_call", name, signature_hash)
+            return self.blocked_result()
+
+        self.signature_hashes.add(signature_hash)
+        self.calls += 1
+
+        if self.calls >= self.budget:
+            self._exhaust("budget_reached", name, signature_hash)
+
+        return None
+
+    def note_successful_write(self):
+        self.write_succeeded = True
+        self.signature_hashes.clear()
+
+    def _exhaust(self, trigger, tool_name, signature_hash):
+        if self.exhausted:
+            return
+
+        self.exhausted = True
+        self.reason = "exploration_budget_exhausted"
+        self.trigger = trigger
+        self.tool_name = str(tool_name)
+        self.signature_hash = signature_hash
+
+    def blocked_result(self):
+        return (
+            "BLOCKED: pre-write exploration budget exhausted. "
+            "Do not request more diagnostic tools. Edit the relevant file "
+            "now, or explicitly conclude that implementation is impossible "
+            "from the collected evidence."
+        )
+
+    def phase_message(self):
+        return (
+            "PRE-WRITE EXPLORATION ENDED: the deterministic exploration "
+            f"budget is exhausted ({self.calls}/{self.budget}; "
+            f"trigger={self.trigger}). Do not request read-only or diagnostic "
+            "tools. Your next action must be an edit/create/patch operation, "
+            "or an explicit impossibility conclusion using exactly this prefix: "
+            "IMPLEMENTATION_IMPOSSIBLE: followed by the reason. Any unmarked "
+            "text response will be rejected."
+        )
 
 TOOLS = [
     {
@@ -1660,6 +1763,7 @@ def print_lai_metrics():
                 "api_ms": 0.0,
                 "tool_ms": 0.0,
                 "tools": {},
+                "limits": [],
             },
         )
 
@@ -1696,6 +1800,9 @@ def print_lai_metrics():
                 run["tools"].get(name, 0) + 1
             )
 
+        elif event.get("type") == "agent_limit":
+            run["limits"].append(event)
+
     ordered = sorted(
         runs.values(),
         key=lambda item: item.get("ts") or "",
@@ -1726,6 +1833,24 @@ def print_lai_metrics():
                 in sorted(run["tools"].items())
             ) or "-"
 
+            limits = []
+            for limit in run["limits"]:
+                reason = str(limit.get("reason") or "unknown")
+                if reason == "exploration_budget_exhausted":
+                    limits.append(
+                        reason
+                        + f" trigger={limit.get('trigger', '[unknown]')}"
+                        + f" exploration={limit.get('exploration_calls', 0)}/"
+                        + str(limit.get("exploration_budget", 0))
+                    )
+                elif reason == "overall_round_limit_reached":
+                    limits.append(
+                        reason
+                        + f" round_limit={limit.get('round_limit', 0)}"
+                    )
+
+            limit_text = "; ".join(limits) or "-"
+
             print(
                 f"- {run['ts']} "
                 f"mode={run['mode']} "
@@ -1734,7 +1859,8 @@ def print_lai_metrics():
                 f"prompt={run['prompt_tokens']} "
                 f"completion={run['completion_tokens']} "
                 f"compute={compute_s:.2f}s "
-                f"[{tools}]"
+                f"[{tools}] "
+                f"limits=[{limit_text}]"
             )
 
     print()
@@ -2077,6 +2203,24 @@ def print_lai_audit():
                     or "[none]"
                 ).replace("\n", " ")[:700]
             )
+
+            print()
+
+        elif kind == "agent_limit":
+            reason = str(event.get("reason") or "[unknown]")
+            print("## Agent limit")
+            print("Reason: " + reason)
+
+            if reason == "exploration_budget_exhausted":
+                print("Trigger: " + str(event.get("trigger") or "[unknown]"))
+                print(
+                    "Exploration: "
+                    + str(event.get("exploration_calls", 0))
+                    + "/"
+                    + str(event.get("exploration_budget", 0))
+                )
+            elif reason == "overall_round_limit_reached":
+                print("Round limit: " + str(event.get("round_limit", 0)))
 
             print()
 
@@ -3663,6 +3807,29 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
     modified_paths = set()
     debug_source_inspected = False
     patch_sanity_issue = None
+    exploration_guard = PreWriteExplorationGuard(
+        mode in {"fix", "refactor", "implement"}
+    )
+    exploration_event_recorded = False
+
+    def record_exploration_exhaustion():
+        nonlocal exploration_event_recorded
+
+        if exploration_event_recorded or not exploration_guard.exhausted:
+            return
+
+        event = {
+            "type": "agent_limit",
+            "reason": exploration_guard.reason,
+            "trigger": exploration_guard.trigger,
+            "exploration_calls": exploration_guard.calls,
+            "exploration_budget": exploration_guard.budget,
+            "tool_name": exploration_guard.tool_name,
+            "signature_hash": exploration_guard.signature_hash,
+        }
+        record_metric_event(event)
+        record_audit_event(event)
+        exploration_event_recorded = True
 
     def looks_like_test_path(value):
         rel = str(value or "").replace("\\", "/").lower()
@@ -3726,10 +3893,19 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
         return any(re.search(pattern, command) for pattern in patterns)
 
     for _ in range(max_rounds_by_mode.get(mode, MAX_ROUNDS)):
+        active_tools = mode_tools
+
+        if exploration_guard.exhausted and not exploration_guard.write_succeeded:
+            active_tools = [
+                tool
+                for tool in mode_tools
+                if tool["function"]["name"] in WRITE_TOOLS
+            ]
+
         result = api_call(
             host,
             messages,
-            tools=mode_tools,
+            tools=active_tools,
             max_tokens=mode_max_tokens,
         )
         message = result["choices"][0]["message"]
@@ -3739,6 +3915,41 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
 
         if not tool_calls:
             content = message.get("content", "").strip()
+
+            if (
+                mode in {"fix", "refactor", "implement"}
+                and exploration_guard.exhausted
+                and not exploration_guard.write_succeeded
+            ):
+                impossibility_prefix = "IMPLEMENTATION_IMPOSSIBLE:"
+                impossibility_reason = (
+                    content[len(impossibility_prefix):].strip()
+                    if content.startswith(impossibility_prefix)
+                    else ""
+                )
+
+                if impossibility_reason:
+                    outcome = {
+                        "type": "run_outcome",
+                        "outcome": "implementation_impossible",
+                    }
+                    record_metric_event(outcome)
+                    record_audit_event(outcome)
+                    workspace_state["last_answer"] = content[:1800]
+                    save_workspace_state(workspace_state)
+                    print(content)
+                    return
+
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "PHASE-SHIFT RESPONSE REJECTED: no successful write "
+                        "was recorded. Use edit/create/patch now, or reply with "
+                        "the exact prefix IMPLEMENTATION_IMPOSSIBLE: followed "
+                        "by the reason. Do not claim implementation success."
+                    ),
+                })
+                continue
 
             if mode == "debug" and not debug_source_inspected:
                 messages.append({
@@ -4174,13 +4385,21 @@ KEEP: 1,3"""
             except json.JSONDecodeError as e:
                 tool_result = f"ERROR: invalid tool arguments: {e}"
             else:
-                tool_result = run_tool(name, args)
+                blocked_result = exploration_guard.check(name, args)
+
+                if blocked_result is not None:
+                    tool_result = blocked_result
+                else:
+                    tool_result = run_tool(name, args)
+
+                record_exploration_exhaustion()
 
                 if (
                     mode in {"fix", "refactor", "implement"}
-                    and name in {"edit", "create", "patch"}
+                    and name in WRITE_TOOLS
                     and tool_result.startswith("OK:")
                 ):
+                    exploration_guard.note_successful_write()
                     needs_validation = True
 
                     if name == "patch":
@@ -4316,6 +4535,19 @@ KEEP: 1,3"""
                 "content": tool_result,
             })
 
+        if exploration_guard.exhausted and not exploration_guard.write_succeeded:
+            phase_message = exploration_guard.phase_message()
+
+            if (
+                not messages
+                or messages[-1].get("role") != "user"
+                or messages[-1].get("content") != phase_message
+            ):
+                messages.append({
+                    "role": "user",
+                    "content": phase_message,
+                })
+
     if mode == "plan":
         evidence = []
 
@@ -4372,7 +4604,18 @@ KEEP: 1,3"""
         print(forced_content)
         return
 
-    print("Agent stopped after reaching the tool-call limit.", file=sys.stderr)
+    event = {
+        "type": "agent_limit",
+        "reason": "overall_round_limit_reached",
+        "round_limit": max_rounds_by_mode.get(mode, MAX_ROUNDS),
+    }
+    record_metric_event(event)
+    record_audit_event(event)
+    print(
+        "Agent stopped: overall round limit reached "
+        f"({event['round_limit']} rounds).",
+        file=sys.stderr,
+    )
     raise SystemExit(2)
 
 
