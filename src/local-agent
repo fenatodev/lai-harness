@@ -5,27 +5,131 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
+import urllib.error
 import urllib.request
 from pathlib import Path
 
-VERSION = "0.3.0"
-MODEL = os.environ.get(
-    "LAI_MODEL",
-    "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M",
-)
-LLAMA_PORT = int(os.environ.get("LAI_PORT", "8080"))
-DATA_BASE = Path(
-    os.environ.get(
-        "LAI_DATA_DIR",
-        Path.home() / ".local" / "share" / "lai",
-    )
-).expanduser()
-CONFIG_BASE = Path(
-    os.environ.get(
-        "LAI_CONFIG_DIR",
-        Path.home() / ".config" / "lai",
-    )
-).expanduser()
+VERSION = "0.4.0-alpha.1"
+DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
+
+CONFIG_OPTIONS = {
+    "--config": "config_file",
+    "--config-dir": "config_dir",
+    "--host": "host",
+    "--port": "port",
+    "--model": "model",
+    "--api-key-file": "api_key_file",
+    "--data-dir": "data_dir",
+    "--skills-dir": "skills_dir",
+    "--state-dir": "state_dir",
+    "--metrics-dir": "metrics_dir",
+    "--audit-dir": "audit_dir",
+    "--llama-server": "llama_server",
+    "--server-launcher": "server_launcher",
+    "--chat-template": "chat_template",
+}
+
+
+def load_configuration(argv, environ=None, home=None):
+    environ = dict(os.environ if environ is None else environ)
+    home = Path.home() if home is None else Path(home)
+    remaining = list(argv)
+    cli = {}
+
+    while remaining and remaining[0] in CONFIG_OPTIONS:
+        option = remaining.pop(0)
+        if not remaining:
+            raise SystemExit(f"Missing value for {option}")
+        cli[CONFIG_OPTIONS[option]] = remaining.pop(0)
+
+    default_config_dir = Path(
+        environ.get(
+            "LAI_CONFIG_DIR",
+            Path(environ.get("XDG_CONFIG_HOME", home / ".config")) / "lai",
+        )
+    ).expanduser()
+    config_dir = Path(cli.get("config_dir", default_config_dir)).expanduser()
+    config_file = Path(
+        cli.get(
+            "config_file",
+            environ.get("LAI_CONFIG_FILE", config_dir / "config.toml"),
+        )
+    ).expanduser()
+
+    file_values = {}
+    if config_file.is_file():
+        try:
+            document = tomllib.loads(config_file.read_text(encoding="utf-8"))
+            file_values = document.get("lai", {})
+            if not isinstance(file_values, dict):
+                raise ValueError("[lai] must be a TOML table")
+        except (OSError, tomllib.TOMLDecodeError, ValueError) as exc:
+            raise SystemExit(f"Invalid LAI config {config_file}: {exc}") from exc
+
+    default_data_dir = Path(
+        environ.get(
+            "XDG_DATA_HOME",
+            home / ".local" / "share",
+        )
+    ) / "lai"
+    defaults = {
+        "host": None,
+        "port": 8080,
+        "model": DEFAULT_MODEL,
+        "config_dir": str(config_dir),
+        "config_file": str(config_file),
+        "data_dir": str(default_data_dir),
+        "api_key_file": str(config_dir / "llama-api-key"),
+        "skills_dir": None,
+        "state_dir": None,
+        "metrics_dir": None,
+        "audit_dir": None,
+        "llama_server": None,
+        "server_launcher": "lai-server-start",
+        "chat_template": None,
+    }
+    env_names = {
+        key: "LAI_" + key.upper()
+        for key in defaults
+    }
+    values = {**defaults, **file_values}
+    values.update({
+        key: environ[name]
+        for key, name in env_names.items()
+        if name in environ
+    })
+    values.update(cli)
+
+    try:
+        values["port"] = int(values["port"])
+        if not 1 <= values["port"] <= 65535:
+            raise ValueError
+    except (TypeError, ValueError) as exc:
+        raise SystemExit("LAI port must be an integer from 1 to 65535") from exc
+
+    data_dir = Path(str(values["data_dir"])).expanduser()
+    for key, fallback in {
+        "config_dir": config_dir,
+        "config_file": config_file,
+        "data_dir": data_dir,
+        "api_key_file": config_dir / "llama-api-key",
+        "skills_dir": data_dir / "skills",
+        "state_dir": data_dir / "state",
+        "metrics_dir": data_dir / "metrics",
+        "audit_dir": data_dir / "audit",
+    }.items():
+        values[key] = Path(str(values.get(key) or fallback)).expanduser()
+
+    return values, remaining
+
+
+CONFIG, CLI_ARGS = load_configuration(sys.argv[1:])
+MODEL = str(CONFIG["model"])
+LLAMA_PORT = CONFIG["port"]
+DATA_BASE = CONFIG["data_dir"]
+CONFIG_BASE = CONFIG["config_dir"]
+SKILLS_DIR = CONFIG["skills_dir"]
 
 try:
     ROOT = Path(subprocess.check_output(
@@ -237,7 +341,7 @@ read_paths = set()
 
 
 def gateway():
-    configured = os.environ.get("LAI_HOST")
+    configured = CONFIG.get("host")
 
     if configured:
         return configured
@@ -1306,7 +1410,7 @@ def tool_create(args):
     return f"OK: created {p.relative_to(ROOT)}"
 
 
-METRICS_DIR = DATA_BASE / "metrics"
+METRICS_DIR = CONFIG["metrics_dir"]
 METRICS_FILE = METRICS_DIR / "events.jsonl"
 
 _metrics_time = __import__("time")
@@ -1323,12 +1427,7 @@ METRICS_PRUNED = False
 
 
 def llama_api_key():
-    key_path = Path(
-        os.environ.get(
-            "LAI_API_KEY_FILE",
-            CONFIG_BASE / "llama-api-key",
-        )
-    ).expanduser()
+    key_path = CONFIG["api_key_file"]
 
     if not key_path.is_file():
         raise RuntimeError(
@@ -1355,6 +1454,26 @@ def server_ready(host):
 
     with urllib.request.urlopen(req, timeout=2) as response:
         return response.status == 200
+
+
+def doctor_status(host):
+    url = f"http://{host}:{LLAMA_PORT}/props"
+
+    def request_status(request):
+        try:
+            with urllib.request.urlopen(request, timeout=3) as response:
+                return response.status
+        except urllib.error.HTTPError as exc:
+            return exc.code
+        except Exception:
+            return 0
+
+    unauthenticated = request_status(url)
+    authenticated = request_status(urllib.request.Request(
+        url,
+        headers={"Authorization": f"Bearer {llama_api_key()}"},
+    ))
+    return unauthenticated, authenticated
 
 
 def record_metric_event(event):
@@ -1574,7 +1693,7 @@ def print_lai_metrics():
 
 
 
-AUDIT_DIR = DATA_BASE / "audit"
+AUDIT_DIR = CONFIG["audit_dir"]
 AUDIT_FILE = AUDIT_DIR / "events.jsonl"
 
 LAST_PATCH_HASHES = {}
@@ -2081,7 +2200,7 @@ def api_call(
     return result
 
 
-STATE_BASE = DATA_BASE / "state"
+STATE_BASE = CONFIG["state_dir"]
 
 def classify_patch_sanity(
     host,
@@ -2917,11 +3036,32 @@ def record_workspace_tool(
 
 
 def main():
-    args = sys.argv[1:]
+    args = list(CLI_ARGS)
 
     if args and args[0] in {"--version", "-V"}:
         print(f"lai-local-agent {VERSION}")
         return
+
+    if args and args[0] == "--show-config":
+        visible = {
+            key: str(value) if isinstance(value, Path) else value
+            for key, value in CONFIG.items()
+        }
+        print(json.dumps(visible, indent=2, sort_keys=True))
+        return
+
+    if args and args[0] == "--doctor":
+        host = gateway()
+        unauthenticated, authenticated = doctor_status(host)
+        print("# LAI Doctor")
+        print(f"Server address: {host}:{LLAMA_PORT}")
+        print(f"Unauthenticated /props: HTTP {unauthenticated or '000'}")
+        print(f"Authenticated /props:   HTTP {authenticated or '000'}")
+        if authenticated == 200 and unauthenticated != 200:
+            print("Authentication: OK")
+            return
+        print("Authentication: FAILED")
+        raise SystemExit(1)
 
     if args and args[0] == "--metrics":
         print_lai_metrics()
@@ -3105,7 +3245,12 @@ def main():
         ready = False
 
     if not ready:
-        subprocess.run(["ministral-start"], check=True)
+        launch_env = dict(os.environ)
+        if CONFIG.get("llama_server"):
+            launch_env["LAI_LLAMA_SERVER"] = str(CONFIG["llama_server"])
+        if CONFIG.get("chat_template"):
+            launch_env["LAI_CHAT_TEMPLATE"] = str(CONFIG["chat_template"])
+        subprocess.run([str(CONFIG["server_launcher"])], check=True, env=launch_env)
         host = gateway()
 
     system = f"""You are Local Dev, a fast software development agent.
@@ -3206,7 +3351,7 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
         )
 
     if mode not in {"general", "selection"}:
-        skill_path = DATA_BASE / "skills" / f"{mode}.txt"
+        skill_path = SKILLS_DIR / f"{mode}.txt"
 
         if not skill_path.is_file():
             raise SystemExit(f"Skill não encontrada: {skill_path}")
@@ -3477,6 +3622,7 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
         patterns = [
             r"(^|[;&|]\s*)(python3?|python)\s+[^;&|]*test[^;&|]*\.py(?:\s|$)",
             r"(^|\s)(pytest|python3?\s+-m\s+pytest)(\s|$)",
+            r"(^|\s)python3?\s+-m\s+unittest(\s|$)",
             r"(^|\s)go\s+test(\s|$)",
             r"(^|\s)cargo\s+(test|check)(\s|$)",
             r"(^|\s)(npm|pnpm)\s+(test|run\s+(test|lint|build|check|typecheck))(\s|$)",

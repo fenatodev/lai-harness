@@ -59,7 +59,7 @@ umask 077
 printf '%s' 'replace-with-a-random-local-key' > ~/.config/lai/llama-api-key
 ```
 
-Configure `LAI_HOST`, `LAI_PORT`, and `LAI_MODEL` as needed. Install the extension from source, reload VS Code, open a Git repository, and try:
+Configure `~/.config/lai/config.toml`, `LAI_*` environment variables, or leading CLI flags as needed. Precedence is `CLI > environment > TOML > defaults`. Then run `lai doctor`, install the extension from source, reload VS Code, open a Git repository, and try:
 
 ```text
 @lai /plan add a focused regression test for the parser

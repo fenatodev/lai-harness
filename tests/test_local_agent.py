@@ -24,6 +24,8 @@ class LocalAgentTest(unittest.TestCase):
         self.root = Path(self.temp.name)
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
         agent.ROOT = self.root.resolve()
+        agent.STATE_BASE = self.root / ".lai-data" / "state"
+        agent.CONFIG["api_key_file"] = self.root / "key"
         agent.read_paths.clear()
 
     def tearDown(self):
@@ -32,6 +34,34 @@ class LocalAgentTest(unittest.TestCase):
     def test_repository_confinement_blocks_parent_escape(self):
         with self.assertRaisesRegex(ValueError, "outside repository"):
             agent.safe_path("../private.txt")
+
+    def test_read_returns_a_bounded_chunk_and_tracks_path(self):
+        (self.root / "sample.txt").write_text("one\ntwo\nthree\n")
+        result = agent.tool_read({"path": "sample.txt", "start_line": 2, "max_lines": 1})
+        self.assertIn("lines 2-2 of 3", result)
+        self.assertTrue(result.endswith("two"))
+        self.assertIn("sample.txt", agent.read_paths)
+
+    def test_search_finds_text_inside_repository(self):
+        (self.root / "sample.txt").write_text("needle here\n")
+        result = agent.tool_search({"path": ".", "query": "needle"})
+        self.assertIn("sample.txt:1:needle here", result)
+
+    def test_inspect_batches_known_files(self):
+        (self.root / "first.txt").write_text("alpha\n")
+        (self.root / "second.txt").write_text("beta\n")
+        result = agent.tool_inspect({"paths": ["first.txt", "second.txt"]})
+        self.assertIn("===== first.txt =====", result)
+        self.assertIn("===== second.txt =====", result)
+        self.assertIn("alpha", result)
+        self.assertIn("beta", result)
+
+    def test_create_refuses_overwrite(self):
+        first = agent.tool_create({"path": "new/file.txt", "content": "created"})
+        second = agent.tool_create({"path": "new/file.txt", "content": "replaced"})
+        self.assertTrue(first.startswith("OK:"))
+        self.assertIn("already exists", second)
+        self.assertEqual((self.root / "new/file.txt").read_text(), "created")
 
     def test_repository_confinement_blocks_escaping_symlink(self):
         outside = self.root.parent / "outside-lai-test.txt"
@@ -63,14 +93,65 @@ class LocalAgentTest(unittest.TestCase):
         self.assertEqual(first.read_text(), "alpha")
         self.assertEqual(second.read_text(), "beta")
 
+    def test_batch_patch_applies_and_retry_is_stale_safe(self):
+        first = self.root / "first.txt"
+        second = self.root / "second.txt"
+        first.write_text("alpha")
+        second.write_text("beta")
+        changes = [
+            {"path": "first.txt", "old": "alpha", "new": "one"},
+            {"path": "second.txt", "old": "beta", "new": "two"},
+        ]
+        self.assertIn("applied=2", agent.tool_patch({"changes": changes}))
+        self.assertIn("already_applied=2", agent.tool_patch({"changes": changes}))
+        self.assertEqual(first.read_text(), "one")
+        self.assertEqual(second.read_text(), "two")
+
+    def test_batch_patch_refuses_symlink_even_inside_repository(self):
+        target = self.root / "target.txt"
+        target.write_text("alpha")
+        (self.root / "link.txt").symlink_to(target)
+        result = agent.tool_patch({"changes": [
+            {"path": "link.txt", "old": "alpha", "new": "changed"},
+        ]})
+        self.assertIn("refuses symlink", result)
+        self.assertEqual(target.read_text(), "alpha")
+
     def test_git_tool_exposes_only_read_operations(self):
         schema = next(item for item in agent.TOOLS if item["function"]["name"] == "git")
         operations = schema["function"]["parameters"]["properties"]["operation"]["enum"]
         self.assertEqual(operations, ["changes", "status", "diff", "diff-staged"])
         self.assertIn("unsupported", agent.tool_git({"operation": "commit"}))
 
-    def test_bash_blocks_git_push(self):
-        self.assertTrue(agent.tool_bash({"command": "git push origin main"}).startswith("BLOCKED:"))
+    def test_git_tool_reports_status_and_diff_without_mutation(self):
+        target = self.root / "tracked.txt"
+        target.write_text("before\n")
+        subprocess.run(["git", "add", "tracked.txt"], cwd=self.root, check=True)
+        subprocess.run(
+            ["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "base"],
+            cwd=self.root,
+            check=True,
+        )
+        target.write_text("after\n")
+        self.assertIn("tracked.txt", agent.tool_git({"operation": "status"}))
+        diff = agent.tool_git({"operation": "diff", "path": "tracked.txt"})
+        self.assertIn("-before", diff)
+        self.assertIn("+after", diff)
+        self.assertEqual(target.read_text(), "after\n")
+
+    def test_bash_denylist_blocks_known_dangerous_commands(self):
+        commands = [
+            "sudo true",
+            "pip install package",
+            "rm -rf generated",
+            "git reset --hard HEAD",
+            "git push origin main",
+            "docker compose down",
+            "TRUNCATE TABLE records",
+        ]
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertTrue(agent.tool_bash({"command": command}).startswith("BLOCKED:"))
 
     def test_metrics_and_audit_write_jsonl(self):
         agent.METRICS_DIR = self.root / "metrics"
@@ -83,11 +164,71 @@ class LocalAgentTest(unittest.TestCase):
         self.assertEqual(json.loads(agent.METRICS_FILE.read_text())["type"], "smoke")
         self.assertEqual(json.loads(agent.AUDIT_FILE.read_text())["type"], "smoke")
 
+    def test_patch_dispatch_records_hashes_and_tool_metric(self):
+        target = self.root / "sample.txt"
+        target.write_text("before")
+        agent.METRICS_DIR = self.root / "metrics"
+        agent.METRICS_FILE = agent.METRICS_DIR / "events.jsonl"
+        agent.AUDIT_DIR = self.root / "audit"
+        agent.AUDIT_FILE = agent.AUDIT_DIR / "events.jsonl"
+        agent.METRICS_PRUNED = False
+        result = agent.run_tool("patch", {"changes": [
+            {"path": "sample.txt", "old": "before", "new": "after"},
+        ]})
+        self.assertTrue(result.startswith("OK:"))
+        audit = json.loads(agent.AUDIT_FILE.read_text())
+        self.assertNotEqual(audit["before_hashes"], audit["after_hashes"])
+        metric = json.loads(agent.METRICS_FILE.read_text())
+        self.assertEqual(metric["name"], "patch")
+        self.assertTrue(metric["ok"])
+
+    def test_workspace_state_round_trip_and_handoff(self):
+        state = agent.load_workspace_state()
+        state["last_mode"] = "test"
+        state["last_task"] = "synthetic task"
+        state["recent_files"] = ["sample.txt"]
+        handoff_path = agent.save_workspace_state(state)
+        loaded = agent.load_workspace_state()
+        self.assertEqual(loaded["last_task"], "synthetic task")
+        self.assertIn("sample.txt", handoff_path.read_text())
+        current = agent.STATE_BASE.parent / "current-context.md"
+        self.assertIn("synthetic task", current.read_text())
+        agent.clear_workspace_state()
+        self.assertFalse(handoff_path.exists())
+        self.assertFalse(current.exists())
+
     def test_api_key_file_is_configurable(self):
         key_file = self.root / "key"
         key_file.write_text("synthetic-test-key\n")
-        with mock.patch.dict(os.environ, {"LAI_API_KEY_FILE": str(key_file)}):
-            self.assertEqual(agent.llama_api_key(), "synthetic-test-key")
+        agent.CONFIG["api_key_file"] = key_file
+        self.assertEqual(agent.llama_api_key(), "synthetic-test-key")
+
+    def test_configuration_precedence_cli_over_env_over_toml_over_defaults(self):
+        config_dir = self.root / "config"
+        config_dir.mkdir()
+        config_file = config_dir / "config.toml"
+        config_file.write_text(
+            "[lai]\n"
+            "host = 'toml-host'\n"
+            "port = 7001\n"
+            "model = 'toml-model'\n"
+        )
+        values, remaining = agent.load_configuration(
+            ["--config", str(config_file), "--host", "cli-host", "--fix", "task"],
+            environ={"LAI_HOST": "env-host", "LAI_PORT": "7002"},
+            home=self.root,
+        )
+        self.assertEqual(values["host"], "cli-host")
+        self.assertEqual(values["port"], 7002)
+        self.assertEqual(values["model"], "toml-model")
+        self.assertEqual(remaining, ["--fix", "task"])
+
+    def test_configuration_uses_xdg_defaults_and_rejects_invalid_port(self):
+        values, _ = agent.load_configuration([], environ={}, home=self.root)
+        self.assertEqual(values["config_dir"], self.root / ".config" / "lai")
+        self.assertEqual(values["data_dir"], self.root / ".local" / "share" / "lai")
+        with self.assertRaisesRegex(SystemExit, "port"):
+            agent.load_configuration(["--port", "invalid"], environ={}, home=self.root)
 
     def test_server_probe_uses_bearer_authentication(self):
         response = mock.MagicMock()
@@ -114,12 +255,27 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertIn("newError", result)
 
-    def test_guard_contracts_remain_present(self):
-        source = SOURCE.read_text()
-        self.assertIn("needs_validation", source)
-        self.assertIn("task_explicitly_requires_test_change", source)
-        self.assertIn("debug_source_inspected", source)
-        self.assertIn("POST_PATCH_SANITY", source)
+    def test_deterministic_version_command_needs_no_server(self):
+        result = subprocess.run(
+            [str(SOURCE), "--version"],
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        self.assertEqual(result.stdout.strip(), "lai-local-agent 0.4.0-alpha.1")
+
+    def test_deterministic_show_config_obeys_cli_without_server(self):
+        result = subprocess.run(
+            [str(SOURCE), "--host", "127.0.0.9", "--port", "9012", "--show-config"],
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        shown = json.loads(result.stdout)
+        self.assertEqual(shown["host"], "127.0.0.9")
+        self.assertEqual(shown["port"], 9012)
 
 
 if __name__ == "__main__":

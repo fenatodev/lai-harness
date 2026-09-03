@@ -2,7 +2,7 @@
 
 ## Server does not start
 
-Run `scripts/ministral-doctor`. Confirm `LAI_HOST`, `LAI_PORT`, the Windows launcher path, and that the selected `llama-server` supports API-key authentication. Inspect private server logs locally; do not paste secrets into issues.
+Run `lai doctor`. Confirm `LAI_HOST`, `LAI_PORT`, the Windows launcher path, and that the selected `llama-server` supports API-key authentication. Inspect private server logs locally; do not paste secrets into issues.
 
 ## HTTP 401
 

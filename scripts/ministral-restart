@@ -2,6 +2,15 @@
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-"$script_dir/ministral-stop"
+
+if [[ -x "$script_dir/lai-server-stop" ]]; then
+    stop_command="$script_dir/lai-server-stop"
+    start_command="$script_dir/lai-server-start"
+else
+    stop_command="$script_dir/ministral-stop"
+    start_command="$script_dir/ministral-start"
+fi
+
+"$stop_command"
 sleep 1
-"$script_dir/ministral-start"
+"$start_command"

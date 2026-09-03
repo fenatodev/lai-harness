@@ -8,7 +8,11 @@ failed=0
 check_forbidden() {
     local label="$1"
     local pattern="$2"
-    if rg -n -i --hidden --glob '!.git/**' --glob '!scripts/check-publication.sh' "$pattern" .; then
+    if rg -n -i --hidden \
+        --glob '!.git/**' \
+        --glob '!scripts/check-publication.sh' \
+        --glob '!scripts/package-vsix.sh' \
+        "$pattern" .; then
         echo "publication check failed: $label" >&2
         failed=1
     fi

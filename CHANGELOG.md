@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.0-alpha.1] - Unreleased
+
+### Added
+
+- Behavioral integration tests for tools, guards, state, handoff, configuration, and extension settings.
+- Authenticated fake llama.cpp-compatible server for readiness, chat, failure, and doctor tests.
+- Isolated install smoke covering `lai version`, `lai status`, and `lai doctor` in a synthetic repository.
+- Public TOML configuration with explicit CLI, environment, file, and default precedence.
+- Real VSIX packaging and archive-content inspection gate.
+
+### Changed
+
+- Added the `lai` command wrapper and isolated-install server helpers.
+- Made skills, state, metrics, audit, server launcher, llama-server, and chat-template paths configurable.
+- Recognize `python -m unittest` as a successful validation command.
+
+### Security
+
+- Added regression tests for traversal, symlinks, overwrite refusal, Git inspection, shell denylist, API authentication, and publication scanning.
+- Git mutation through guarded shell execution remains under review and is not changed in this candidate.
+
 ## [0.3.0] - 2026-09-03
 
 ### Added

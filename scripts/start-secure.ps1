@@ -7,6 +7,7 @@ $ErrorActionPreference = "Stop"
 $exe = $env:LAI_LLAMA_SERVER
 $keyFile = $env:LAI_API_KEY_FILE_WINDOWS
 $model = if ($env:LAI_MODEL) { $env:LAI_MODEL } else { "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M" }
+$chatTemplate = $env:LAI_CHAT_TEMPLATE
 $logDir = if ($env:LAI_LOG_DIR) { $env:LAI_LOG_DIR } else { Join-Path $env:LOCALAPPDATA "lai-local-agent" }
 
 if (-not $exe -or -not (Test-Path $exe)) { throw "Set LAI_LLAMA_SERVER to llama-server.exe." }
@@ -19,6 +20,11 @@ $argsList = @(
     "--flash-attn", "on", "--cache-type-k", "q8_0", "--cache-type-v", "q8_0",
     "--jinja", "--load-mode", "none"
 )
+
+if ($chatTemplate) {
+    if (-not (Test-Path $chatTemplate)) { throw "LAI_CHAT_TEMPLATE does not exist." }
+    $argsList += @("--chat-template-file", $chatTemplate)
+}
 
 if ($helpText -match "--api-key-file") {
     $argsList += @("--api-key-file", $keyFile)

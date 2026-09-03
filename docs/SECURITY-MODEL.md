@@ -38,3 +38,5 @@ Model prompt injection from repository files, malicious dependencies invoked by 
 ## Security claims deliberately not made
 
 LAI does not claim complete shell containment, prompt-injection resistance, tenant isolation, deterministic model behavior, or proof that passing tests imply a secure program.
+
+The proposed Git-mutation policy for guarded shell execution is documented separately in [Git shell hardening](GIT-SHELL-HARDENING.md) and remains intentionally unapplied pending compatibility approval.

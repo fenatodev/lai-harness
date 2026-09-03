@@ -3,6 +3,15 @@ const cp = require('child_process');
 const path = require('path');
 const os = require('os');
 
+function resolveAgentPath() {
+    const configuredAgentPath = vscode.workspace
+        .getConfiguration('lai')
+        .get('agentPath', '');
+    return configuredAgentPath || path.join(
+        os.homedir(), '.local', 'bin', 'local-agent'
+    );
+}
+
 function activate(context) {
     const handler = async (request, chatContext, stream, token) => {
         const isExplain = request.command === 'explain';
@@ -143,12 +152,7 @@ function activate(context) {
                 extraContext.join('\n\n');
         }
 
-        const configuredAgentPath = vscode.workspace
-            .getConfiguration('lai')
-            .get('agentPath', '');
-        const agentPath = configuredAgentPath || path.join(
-            os.homedir(), '.local', 'bin', 'local-agent'
-        );
+        const agentPath = resolveAgentPath();
 
         const commandModes = {
             explain: '--selection',
@@ -290,5 +294,6 @@ function deactivate() {}
 
 module.exports = {
     activate,
-    deactivate
+    deactivate,
+    resolveAgentPath
 };

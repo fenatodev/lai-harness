@@ -1,8 +1,8 @@
 {
   "name": "lai-chat",
   "displayName": "Local AI Chat",
-  "description": "Ministral local rápido no Chat do VS Code",
-  "version": "0.3.0",
+  "description": "Compact VS Code coding agent for local OpenAI-compatible LLM servers",
+  "version": "0.4.0-alpha.1",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -35,7 +35,7 @@
         "id": "lai-local-agent.lai",
         "name": "lai",
         "fullName": "Local AI",
-        "description": "Agente local rápido usando Ministral 8B",
+        "description": "Compact coding agent for a local LLM",
         "commands": [
           {
             "name": "explain",
@@ -98,6 +98,8 @@
     ]
   },
   "files": [
-    "extension.js"
+    "extension.js",
+    "README.md",
+    "LICENSE"
   ]
 }

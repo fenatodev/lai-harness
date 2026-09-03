@@ -15,7 +15,7 @@
 ./scripts/install-local.sh
 ```
 
-This installs the active harness in `~/.local/bin` and skills in `~/.local/share/lai` by default. Override `LAI_BIN_DIR` or `LAI_DATA_DIR` before running the script. Ensure the bin directory is on `PATH`.
+This installs `lai`, the active harness, server helpers, and skills in `~/.local` by default. Override `LAI_BIN_DIR` or `LAI_DATA_DIR` before running the script. Ensure the bin directory is on `PATH`. Tests use temporary overrides and never require changing an active installation.
 
 Create a private API-key file without putting the value in shell history:
 
@@ -27,7 +27,19 @@ printf '%s' "$key_value" > ~/.config/lai/llama-api-key
 unset key_value
 ```
 
-Supported environment variables:
+Configuration precedence is:
+
+```text
+leading CLI flags > LAI_* environment variables > [lai] in config.toml > defaults
+```
+
+The default file is `$XDG_CONFIG_HOME/lai/config.toml`, falling back to `~/.config/lai/config.toml`. Start from `config.example.toml`. Configuration flags must precede the mode, for example:
+
+```bash
+lai --config /private/lai.toml --host 127.0.0.1 --port 8080 --doctor
+```
+
+Supported settings include:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -37,6 +49,14 @@ Supported environment variables:
 | `LAI_API_KEY_FILE` | `~/.config/lai/llama-api-key` | Private key file |
 | `LAI_DATA_DIR` | `~/.local/share/lai` | Skills and runtime records |
 | `LAI_CONFIG_DIR` | `~/.config/lai` | Configuration root |
+| `LAI_CONFIG_FILE` | `$LAI_CONFIG_DIR/config.toml` | TOML configuration file |
+| `LAI_SKILLS_DIR` | `$LAI_DATA_DIR/skills` | Mode skills |
+| `LAI_STATE_DIR` | `$LAI_DATA_DIR/state` | Workspace state/handoff source |
+| `LAI_METRICS_DIR` | `$LAI_DATA_DIR/metrics` | Metrics JSONL |
+| `LAI_AUDIT_DIR` | `$LAI_DATA_DIR/audit` | Audit JSONL |
+| `LAI_SERVER_LAUNCHER` | `lai-server-start` | Command invoked when readiness fails |
+| `LAI_LLAMA_SERVER` | unset | Server executable passed to the launcher |
+| `LAI_CHAT_TEMPLATE` | unset | User-supplied authorized template |
 
 ## llama.cpp on Windows with WSL
 
@@ -57,7 +77,7 @@ Reload the VS Code window after installation, open a trusted Git repository, and
 With the endpoint running:
 
 ```bash
-./scripts/ministral-doctor
+lai doctor
 ```
 
 Success requires authenticated `/props` to return HTTP 200 while the unauthenticated request does not. The doctor prints status codes, never the key.

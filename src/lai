@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+bin_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+command_name="${1:-}"
+
+case "$command_name" in
+    doctor)
+        shift
+        exec "$bin_dir/local-agent" "$@" --doctor
+        ;;
+    server-start|server-stop|server-restart)
+        shift
+        exec "$bin_dir/lai-$command_name" "$@"
+        ;;
+    status|metrics|audit|handoff|clear-context)
+        shift
+        exec "$bin_dir/local-agent" "--$command_name" "$@"
+        ;;
+    version)
+        exec "$bin_dir/local-agent" --version
+        ;;
+    "")
+        exec "$bin_dir/local-agent"
+        ;;
+    *)
+        exec "$bin_dir/local-agent" "$@"
+        ;;
+esac
