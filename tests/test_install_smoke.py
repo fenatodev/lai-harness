@@ -83,5 +83,54 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertIn("Authentication: OK", doctor.stdout)
 
 
+    def test_server_start_requires_authentication_enforcement(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            key_file = root / "key"
+            key_file.write_text("synthetic-test-key")
+
+            base_env = {
+                **os.environ,
+                "LAI_API_KEY_FILE": str(key_file),
+                "LAI_WINDOWS_LAUNCHER": "/tmp/synthetic-start-secure.ps1",
+            }
+
+            with FakeLlamaServer() as secure_server:
+                secure = subprocess.run(
+                    [str(REPO / "scripts" / "ministral-start")],
+                    env={
+                        **base_env,
+                        "LAI_HOST": secure_server.host,
+                        "LAI_PORT": str(secure_server.port),
+                    },
+                    text=True,
+                    capture_output=True,
+                )
+
+            self.assertEqual(secure.returncode, 0)
+            self.assertIn(
+                "already running securely",
+                secure.stdout,
+            )
+
+            with FakeLlamaServer(require_auth=False) as insecure_server:
+                insecure = subprocess.run(
+                    [str(REPO / "scripts" / "ministral-start")],
+                    env={
+                        **base_env,
+                        "LAI_HOST": insecure_server.host,
+                        "LAI_PORT": str(insecure_server.port),
+                    },
+                    text=True,
+                    capture_output=True,
+                )
+
+            self.assertEqual(insecure.returncode, 1)
+            self.assertIn(
+                "Refusing insecure LAI model server",
+                insecure.stderr,
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

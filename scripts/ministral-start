@@ -22,19 +22,46 @@ probe_auth() {
         2>/dev/null
 }
 
-if [[ "$(probe_auth 2>/dev/null || true)" == "200" ]]; then
-    echo "LAI model server is already running."
+probe_unauth() {
+    curl -sS --connect-timeout 1 --max-time 2 -o /dev/null -w '%{http_code}' \
+        "http://${host}:${port}/props" \
+        2>/dev/null
+}
+
+server_is_secure() {
+    local authenticated
+    local unauthenticated
+
+    authenticated="$(probe_auth 2>/dev/null || true)"
+    unauthenticated="$(probe_unauth 2>/dev/null || true)"
+
+    [[ "$authenticated" == "200" && "$unauthenticated" != "200" ]]
+}
+
+if server_is_secure; then
+    echo "LAI model server is already running securely."
     exit 0
+fi
+
+if [[ "$(probe_unauth 2>/dev/null || true)" == "200" ]]; then
+    echo "Refusing insecure LAI model server: /props accepts unauthenticated requests." >&2
+    exit 1
 fi
 
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
     -File "$windows_launcher" -HostIp "$host" -Port "$port"
 
 for _ in $(seq 1 60); do
-    if [[ "$(probe_auth 2>/dev/null || true)" == "200" ]]; then
-        echo "LAI model server is ready."
+    if server_is_secure; then
+        echo "LAI model server is ready and authentication is enforced."
         exit 0
     fi
+
+    if [[ "$(probe_unauth 2>/dev/null || true)" == "200" ]]; then
+        echo "Refusing insecure LAI model server: /props accepts unauthenticated requests." >&2
+        exit 1
+    fi
+
     sleep 1
 done
 

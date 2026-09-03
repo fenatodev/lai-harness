@@ -4,8 +4,14 @@ from threading import Thread
 
 
 class FakeLlamaServer:
-    def __init__(self, api_key="synthetic-test-key", responder=None):
+    def __init__(
+        self,
+        api_key="synthetic-test-key",
+        responder=None,
+        require_auth=True,
+    ):
         self.api_key = api_key
+        self.require_auth = require_auth
         self.responder = responder or self.default_responder
         self.requests = []
         owner = self
@@ -20,7 +26,10 @@ class FakeLlamaServer:
                 self.wfile.write(body)
 
             def authorized(self):
-                return self.headers.get("Authorization") == f"Bearer {owner.api_key}"
+                return (
+                    not owner.require_auth
+                    or self.headers.get("Authorization") == f"Bearer {owner.api_key}"
+                )
 
             def do_GET(self):
                 owner.requests.append(("GET", self.path, dict(self.headers), None))
