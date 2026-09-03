@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## [0.4.0-alpha.2] - Unreleased
+## [0.4.0-alpha.2] - 2026-09-03
 
 ### Added
 
