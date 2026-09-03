@@ -1,14 +1,14 @@
 # Git mutation through guarded shell execution
 
-**Status:** decision required before implementation in the v0.4 line.
+**Status:** implemented for the v0.4.0-alpha.1 candidate.
 
-The dedicated `git` tool exposes only `changes`, `status`, `diff`, and `diff-staged`. The separate `bash` tool can still invoke Git commands that are not matched by its denylist. Therefore LAI is not globally Git read-only.
+The dedicated `git` tool exposes only `changes`, `status`, `diff`, and `diff-staged`. Guarded shell execution now recognizes direct Git invocations and blocks known mutating subcommands before starting `bash`.
 
-## Recommendation
+## Implemented policy
 
-Block Git mutation subcommands in guarded shell execution while retaining common inspection commands. This makes accidental model-driven commits and index/history changes less likely without describing the shell as a sandbox.
+Git mutation subcommands are blocked in guarded shell execution while common inspection commands remain available. This makes accidental model-driven commits and index/history changes less likely without describing the shell as a sandbox.
 
-Suggested blocked set:
+Blocked set:
 
 - `add`, `commit`, `am`;
 - `merge`, `rebase`, `cherry-pick`, `revert`;
@@ -18,7 +18,7 @@ Suggested blocked set:
 - mutating forms of `branch`, `remote`, `config`, `update-ref`, and `symbolic-ref`;
 - `init` and `clone`, because they write repository or filesystem state.
 
-Suggested inspection set:
+Tested inspection set:
 
 - `status`, `diff`, `show`, `log`;
 - `rev-parse`, `ls-files`, `grep`, `blame`;
@@ -34,13 +34,13 @@ Repository tests sometimes create synthetic Git histories with `git init`, `add`
 
 Regex-only blocking remains bypassable through scripts, aliases, alternate executables, command construction, or another interpreter. A denylist improvement is defense in depth, not containment.
 
-## Required regression tests
+## Regression tests
 
-- table-driven block tests for every mutating subcommand;
-- options before subcommands, such as `git -C path add` and `git --git-dir=... commit`;
-- command chains, newlines, and absolute executable paths;
-- allowed read commands with common flags;
-- aliases and wrapper limitations documented as residual risk;
-- existing project validation commands verified not to require Git mutation.
+- table-driven blocking covers every required mutation plus `fetch`;
+- options before subcommands include `git -C path add`, `git -c key=value commit`, and `git --git-dir=... reset`;
+- command chains, newlines, and absolute executable paths are covered;
+- status, diff, rev-parse, branch inspection, and config reads are allowed;
+- mutating branch, remote, and config forms are covered;
+- the full project suite verifies that existing validation does not require Git mutation through the agent shell.
 
-Longer term, prefer structured validation commands or an allowlisted command runner over expanding a regex denylist indefinitely.
+The parser is defense in depth, not a complete shell parser or containment boundary. Aliases, wrapper scripts, alternate executables, and indirect interpreter execution remain residual risks. Longer term, prefer structured validation commands or an allowlisted command runner over expanding command detection indefinitely.

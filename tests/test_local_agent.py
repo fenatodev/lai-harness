@@ -153,6 +153,59 @@ class LocalAgentTest(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertTrue(agent.tool_bash({"command": command}).startswith("BLOCKED:"))
 
+    def test_bash_blocks_git_mutation_subcommands(self):
+        subcommands = [
+            "add", "commit", "am", "merge", "rebase", "cherry-pick",
+            "revert", "tag", "push", "pull", "reset", "clean",
+            "checkout", "switch", "restore", "rm", "mv", "init", "clone",
+            "update-ref", "symbolic-ref", "fetch",
+        ]
+        for subcommand in subcommands:
+            with self.subTest(subcommand=subcommand):
+                result = agent.tool_bash({"command": f"git {subcommand} synthetic-target"})
+                self.assertTrue(result.startswith("BLOCKED:"), result)
+                self.assertIn(f"git {subcommand}", result)
+
+    def test_bash_blocks_git_mutation_with_global_options_paths_and_chains(self):
+        git_path = __import__("shutil").which("git")
+        commands = [
+            f"git -C {self.root} add sample.txt",
+            "git -c user.name=Synthetic commit -m test",
+            "git --git-dir=.git reset HEAD",
+            f"{git_path} commit -m test",
+            "git status && git add sample.txt",
+            "printf ok\ngit switch other",
+        ]
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertTrue(agent.tool_bash({"command": command}).startswith("BLOCKED:"))
+
+    def test_bash_preserves_git_inspection_commands(self):
+        commands = [
+            "git status --short",
+            "git diff --check",
+            "git rev-parse --show-toplevel",
+            "git branch --show-current",
+            "git config --get user.name",
+        ]
+        for command in commands:
+            with self.subTest(command=command):
+                result = agent.tool_bash({"command": command})
+                self.assertTrue(result.startswith("exit_code="), result)
+
+    def test_bash_blocks_mutating_branch_remote_and_config_forms(self):
+        commands = [
+            "git branch new-branch",
+            "git branch -D old-branch",
+            "git remote add origin https://example.invalid/repo.git",
+            "git remote remove origin",
+            "git config user.name Synthetic",
+            "git config --unset user.name",
+        ]
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertTrue(agent.tool_bash({"command": command}).startswith("BLOCKED:"))
+
     def test_metrics_and_audit_write_jsonl(self):
         agent.METRICS_DIR = self.root / "metrics"
         agent.METRICS_FILE = agent.METRICS_DIR / "events.jsonl"

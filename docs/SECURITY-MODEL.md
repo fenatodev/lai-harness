@@ -15,13 +15,13 @@ The user, opened repository, installed LAI code, and local endpoint are assumed 
 - The dedicated Git tool exposes status and diff operations only.
 - `AGENTS.md` must be read before file edits when present.
 - Mode-specific schemas keep write tools away from review/security/plan/debug/test modes.
-- A command denylist blocks selected package installation, destructive filesystem/Git/Docker/database/system commands, and Git push.
+- A command denylist blocks selected package installation, destructive filesystem/Docker/database/system commands, and direct Git mutations including index, history, branch, remote, and configuration changes.
 - Validation, acceptance, evidence, debug-evidence, and sanity gates constrain conclusions.
 - Output sizes, file counts, tool rounds, and command durations are bounded.
 
 ## Residual risks
 
-The `bash` tool is not sandboxed. It uses a regex denylist and executes with the LAI user's permissions. Alternate spellings, scripts, interpreters, shell features, or unlisted commands can bypass intent. Its working directory is the repository root, but OS-level reads and writes are not confined there. The dedicated Git tool being read-only does not make Git commands issued through `bash` read-only.
+The `bash` tool is not sandboxed. It uses command inspection plus a regex denylist and executes with the LAI user's permissions. Direct known Git mutations are blocked, but aliases, wrapper scripts, alternate executables, interpreters, shell features, or unlisted commands can bypass intent. Its working directory is the repository root, but OS-level reads and writes are not confined there.
 
 Model prompt injection from repository files, malicious dependencies invoked by tests, symlink races, endpoint interception on an untrusted network, extension-host compromise, and sensitive content in state/audit output remain possible. Hashes establish content identity, not benign behavior.
 
@@ -39,4 +39,4 @@ Model prompt injection from repository files, malicious dependencies invoked by 
 
 LAI does not claim complete shell containment, prompt-injection resistance, tenant isolation, deterministic model behavior, or proof that passing tests imply a secure program.
 
-The proposed Git-mutation policy for guarded shell execution is documented separately in [Git shell hardening](GIT-SHELL-HARDENING.md) and remains intentionally unapplied pending compatibility approval.
+The implemented Git-mutation policy and its residual limits are documented separately in [Git shell hardening](GIT-SHELL-HARDENING.md).

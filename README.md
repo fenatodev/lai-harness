@@ -37,7 +37,7 @@ See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow.
 - ten compact tools, selected per mode;
 - multi-file `inspect` and transactional exact-replacement `patch`;
 - repository-root path confinement and explicit symlink checks for batch patches;
-- dedicated read-only Git inspection tool;
+- dedicated read-only Git inspection tool and blocking of direct Git mutations through guarded shell execution;
 - validation guard after edits in implementation modes;
 - acceptance guard for explicitly requested test changes;
 - evidence-driven debug, review, and security modes;

@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tomllib
@@ -337,6 +338,84 @@ BLOCKED_COMMANDS = [
     (r"\bTRUNCATE\s+(?:TABLE\s+)?", "database truncation is blocked"),
 ]
 
+MUTATING_GIT_SUBCOMMANDS = {
+    "add", "am", "checkout", "cherry-pick", "clean", "clone",
+    "commit", "fetch", "init", "merge", "mv", "pull", "push",
+    "rebase", "reset", "restore", "revert", "rm", "switch", "tag",
+    "update-ref", "symbolic-ref",
+}
+
+SHELL_CONTROL_TOKENS = {";", "&&", "||", "|", "&", "(", ")"}
+GIT_GLOBAL_OPTIONS_WITH_VALUES = {
+    "-C", "-c", "--git-dir", "--work-tree", "--namespace",
+    "--super-prefix", "--config-env",
+}
+
+
+def git_mutation_in_shell(command):
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()")
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        return None
+
+    for index, token in enumerate(tokens):
+        if Path(token).name not in {"git", "git.exe"}:
+            continue
+
+        cursor = index + 1
+        while cursor < len(tokens):
+            candidate = tokens[cursor]
+            if candidate in SHELL_CONTROL_TOKENS:
+                break
+            if candidate in GIT_GLOBAL_OPTIONS_WITH_VALUES:
+                cursor += 2
+                continue
+            if any(candidate.startswith(option + "=") for option in GIT_GLOBAL_OPTIONS_WITH_VALUES):
+                cursor += 1
+                continue
+            if candidate.startswith("-"):
+                cursor += 1
+                continue
+
+            subcommand = candidate.lower()
+            arguments = []
+            cursor += 1
+            while cursor < len(tokens) and tokens[cursor] not in SHELL_CONTROL_TOKENS:
+                arguments.append(tokens[cursor])
+                cursor += 1
+
+            if subcommand in MUTATING_GIT_SUBCOMMANDS:
+                return subcommand
+
+            if subcommand == "branch":
+                mutation_flags = {
+                    "-d", "-D", "-m", "-M", "-c", "-C", "--delete",
+                    "--move", "--copy", "--edit-description",
+                    "--set-upstream-to", "--unset-upstream",
+                }
+                non_options = [arg for arg in arguments if not arg.startswith("-")]
+                if mutation_flags.intersection(arguments) or non_options:
+                    return subcommand
+
+            if subcommand == "remote":
+                if arguments and arguments[0] not in {"-v", "show", "get-url"}:
+                    return subcommand
+
+            if subcommand == "config":
+                mutation_flags = {
+                    "--add", "--unset", "--unset-all", "--replace-all",
+                    "--rename-section", "--remove-section",
+                }
+                non_options = [arg for arg in arguments if not arg.startswith("-")]
+                if mutation_flags.intersection(arguments) or len(non_options) > 1:
+                    return subcommand
+
+            break
+
+    return None
+
 read_paths = set()
 
 
@@ -420,6 +499,14 @@ def tool_edit(args):
 
 def tool_bash(args):
     command = args["command"].strip()
+
+    git_mutation = git_mutation_in_shell(command)
+    if git_mutation:
+        return (
+            "BLOCKED: mutating Git command "
+            f"`git {git_mutation}` is not allowed through bash. "
+            "Use the dedicated read-only Git tool for inspection."
+        )
 
     for pattern, reason in BLOCKED_COMMANDS:
         if re.search(pattern, command, re.IGNORECASE):

@@ -21,7 +21,7 @@ All notable changes to this project are documented here.
 ### Security
 
 - Added regression tests for traversal, symlinks, overwrite refusal, Git inspection, shell denylist, API authentication, and publication scanning.
-- Git mutation through guarded shell execution remains under review and is not changed in this candidate.
+- Direct Git mutations through guarded shell execution are blocked while tested inspection commands remain available.
 
 ## [0.3.0] - 2026-09-03
 
