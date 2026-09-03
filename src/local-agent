@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-VERSION = "0.4.0-alpha.1"
+VERSION = "0.4.0-alpha.2"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
 CONFIG_OPTIONS = {

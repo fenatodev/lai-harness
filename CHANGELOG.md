@@ -2,7 +2,25 @@
 
 All notable changes to this project are documented here.
 
-## [0.4.0-alpha.1] - Unreleased
+## [0.4.0-alpha.2] - Unreleased
+
+### Added
+
+- Portable Python search fallback when `ripgrep` is unavailable.
+- Regression coverage for authenticated server readiness, VS Code workspace safety, bounded agent exploration, stderr diagnostics, and search fallback.
+
+### Changed
+
+- Bound pre-write exploration in `fix`, `refactor`, and `implement` modes and force a write phase or explicit `IMPLEMENTATION_IMPOSSIBLE` outcome.
+- Surface exploration-budget and overall-round limits through metrics and audit diagnostics.
+- Preserve non-progress agent stderr diagnostics in the VS Code extension instead of collapsing failures into generic exit-code messages.
+
+### Security
+
+- Model-server readiness now requires authenticated access to succeed while unauthenticated `/props` access is rejected.
+- VS Code write modes require an unambiguous workspace, avoid silently switching to an external active file, and exclude external-file context from write requests.
+
+## [0.4.0-alpha.1] - 2026-09-03
 
 ### Added
 
