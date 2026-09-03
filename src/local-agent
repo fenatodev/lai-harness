@@ -637,6 +637,71 @@ def tool_bash(args):
 
 
 
+def python_search_fallback(query, target):
+    import re
+
+    try:
+        pattern = re.compile(query)
+    except re.error as exc:
+        return f"ERROR: invalid search pattern: {exc}"
+
+    if target.is_file():
+        candidates = [target]
+    else:
+        candidates = target.rglob("*")
+
+    matches = []
+    excluded_dirs = {
+        ".git",
+        ".venv",
+        "venv",
+        "node_modules",
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".cache",
+        "dist",
+        "build",
+    }
+
+    for candidate in candidates:
+        try:
+            if not candidate.is_file() or candidate.is_symlink():
+                continue
+
+            relative = candidate.relative_to(ROOT)
+
+            if any(part in excluded_dirs for part in relative.parts[:-1]):
+                continue
+
+            with candidate.open(
+                "r",
+                encoding="utf-8",
+                errors="replace",
+            ) as handle:
+                for line_number, line in enumerate(handle, 1):
+                    if "\x00" in line:
+                        break
+
+                    if pattern.search(line):
+                        matches.append(
+                            f"{relative.as_posix()}:"
+                            f"{line_number}:"
+                            f"{line.rstrip()}"
+                        )
+
+                        if len(matches) >= 120:
+                            return trim("\n".join(matches))
+        except (OSError, UnicodeError, ValueError):
+            continue
+
+    if not matches:
+        return "No matches found."
+
+    return trim("\n".join(matches))
+
+
 def tool_search(args):
     query = args["query"]
     target = safe_path(args.get("path", "."))
@@ -663,7 +728,7 @@ def tool_search(args):
             timeout=30,
         )
     except FileNotFoundError:
-        return "ERROR: rg is not installed. Use bash with grep/find if needed."
+        return python_search_fallback(query, target)
     except subprocess.TimeoutExpired:
         return "ERROR: search timed out after 30 seconds"
 

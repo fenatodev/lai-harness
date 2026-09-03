@@ -49,6 +49,30 @@ class LocalAgentTest(unittest.TestCase):
         result = agent.tool_search({"path": ".", "query": "needle"})
         self.assertIn("sample.txt:1:needle here", result)
 
+    def test_search_falls_back_when_rg_is_unavailable(self):
+        (self.root / "fallback.txt").write_text(
+            "alpha\nneedle fallback\nomega\n"
+        )
+
+        original_run = agent.subprocess.run
+
+        def missing_rg(*args, **kwargs):
+            raise FileNotFoundError("rg")
+
+        agent.subprocess.run = missing_rg
+        try:
+            result = agent.tool_search({
+                "path": ".",
+                "query": "needle",
+            })
+        finally:
+            agent.subprocess.run = original_run
+
+        self.assertIn(
+            "fallback.txt:2:needle fallback",
+            result,
+        )
+
     def test_inspect_batches_known_files(self):
         (self.root / "first.txt").write_text("alpha\n")
         (self.root / "second.txt").write_text("beta\n")
