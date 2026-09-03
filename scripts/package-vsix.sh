@@ -23,14 +23,37 @@ if [[ "$actual" != "$expected" ]]; then
     exit 1
 fi
 
-if unzip -p "$output" \
+scan_file="$(mktemp)"
+trap 'rm -f "$scan_file"' EXIT
+
+if ! unzip -p "$output" \
     extension.vsixmanifest \
     extension/LICENSE.txt \
     extension/extension.js \
     extension/package.json \
     extension/readme.md \
-    | rg -n -i '(business-automation|/home/fenato/|C:\\Users\\fenat|BEGIN .*PRIVATE KEY)'; then
+    > "$scan_file"; then
+    echo "VSIX private-content scan could not read packaged files." >&2
+    exit 1
+fi
+
+set +e
+scan_matches="$(
+    grep -Ein \
+        '(business-automation|/home/fenato/|C:\\Users\\fenat|BEGIN .*PRIVATE KEY)' \
+        "$scan_file"
+)"
+scan_rc=$?
+set -e
+
+if [[ "$scan_rc" -eq 0 ]]; then
+    printf '%s\n' "$scan_matches" >&2
     echo "Private content found in VSIX." >&2
+    exit 1
+fi
+
+if [[ "$scan_rc" -ne 1 ]]; then
+    echo "VSIX private-content scan failed with code $scan_rc." >&2
     exit 1
 fi
 
