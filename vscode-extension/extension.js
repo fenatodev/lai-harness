@@ -41,6 +41,90 @@ function appendStderrDiagnostic(current, line, maxChars = MAX_STDERR_DIAGNOSTIC_
         : combined.slice(-maxChars);
 }
 
+const WRITE_COMMANDS = new Set([
+    'fix',
+    'refactor',
+    'implement'
+]);
+
+function selectExecutionCwd({
+    workspacePaths = [],
+    activeFileWorkspacePath = '',
+    activeFilePath = '',
+    homeDir = os.homedir()
+}) {
+    const paths = Array.isArray(workspacePaths)
+        ? workspacePaths.filter(Boolean)
+        : [];
+
+    if (activeFileWorkspacePath) {
+        return {
+            cwd: activeFileWorkspacePath,
+            hasWorkspace: true,
+            ambiguous: false
+        };
+    }
+
+    if (paths.length === 1) {
+        return {
+            cwd: paths[0],
+            hasWorkspace: true,
+            ambiguous: false
+        };
+    }
+
+    if (paths.length > 1) {
+        return {
+            cwd: paths[0],
+            hasWorkspace: true,
+            ambiguous: true
+        };
+    }
+
+    if (activeFilePath) {
+        return {
+            cwd: path.dirname(activeFilePath),
+            hasWorkspace: false,
+            ambiguous: false
+        };
+    }
+
+    return {
+        cwd: homeDir,
+        hasWorkspace: false,
+        ambiguous: false
+    };
+}
+
+function shouldIncludeActiveFileContext(command, hasFileWorkspace) {
+    return (
+        !WRITE_COMMANDS.has(command)
+        || Boolean(hasFileWorkspace)
+    );
+}
+
+function workspaceSafetyError(command, target) {
+    if (!WRITE_COMMANDS.has(command)) {
+        return '';
+    }
+
+    if (!target.hasWorkspace) {
+        return (
+            'Abra uma pasta/repositório no VS Code antes de usar ' +
+            `/${command}.`
+        );
+    }
+
+    if (target.ambiguous) {
+        return (
+            'Há vários workspaces abertos. Abra um arquivo do ' +
+            `repositório alvo antes de usar /${command}.`
+        );
+    }
+
+    return '';
+}
+
 function resolveAgentPath() {
     const configuredAgentPath = vscode.workspace
         .getConfiguration('lai')
@@ -86,20 +170,58 @@ function activate(context) {
             '';
 
         const editor = vscode.window.activeTextEditor;
-        const workspace = vscode.workspace.workspaceFolders?.[0];
+        const workspaceFolders =
+            vscode.workspace.workspaceFolders || [];
 
-        let cwd = workspace?.uri.fsPath || os.homedir();
-        const extraContext = [];
+        let fileWorkspace = null;
+        let activeFilePath = '';
 
         if (editor && editor.document.uri.scheme === 'file') {
-            const document = editor.document;
-            const fileWorkspace = vscode.workspace.getWorkspaceFolder(document.uri);
+            activeFilePath = editor.document.uri.fsPath;
+            fileWorkspace = vscode.workspace.getWorkspaceFolder(
+                editor.document.uri
+            );
+        }
 
-            if (fileWorkspace) {
-                cwd = fileWorkspace.uri.fsPath;
-            } else {
-                cwd = path.dirname(document.uri.fsPath);
-            }
+        const executionTarget = selectExecutionCwd({
+            workspacePaths: workspaceFolders.map(
+                folder => folder.uri.fsPath
+            ),
+            activeFileWorkspacePath:
+                fileWorkspace?.uri.fsPath || '',
+            activeFilePath,
+            homeDir: os.homedir()
+        });
+
+        const cwd = executionTarget.cwd;
+        const extraContext = [];
+
+        const workspaceError = workspaceSafetyError(
+            request.command,
+            executionTarget
+        );
+
+        if (workspaceError) {
+            stream.markdown(workspaceError);
+            return;
+        }
+
+        if (WRITE_COMMANDS.has(request.command)) {
+            stream.progress(`Workspace: ${cwd}`);
+        }
+
+        const includeActiveFileContext =
+            shouldIncludeActiveFileContext(
+                request.command,
+                fileWorkspace
+            );
+
+        if (
+            editor
+            && editor.document.uri.scheme === 'file'
+            && includeActiveFileContext
+        ) {
+            const document = editor.document;
 
             const filename = fileWorkspace
                 ? path.relative(fileWorkspace.uri.fsPath, document.uri.fsPath)
@@ -343,5 +465,8 @@ module.exports = {
     deactivate,
     resolveAgentPath,
     isProgressStderrLine,
-    appendStderrDiagnostic
+    appendStderrDiagnostic,
+    selectExecutionCwd,
+    workspaceSafetyError,
+    shouldIncludeActiveFileContext
 };
