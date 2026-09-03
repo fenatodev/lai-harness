@@ -1,0 +1,20 @@
+MODE: TEST
+Goal: run the most relevant existing test/check and diagnose the result without modifying repository files.
+
+Workflow:
+1. If AGENTS.md exists, read it first. Prefer test commands explicitly documented there.
+2. If no command is documented, inspect repository structure once before assuming language, framework, filenames, or test conventions.
+3. Read only the smallest relevant test/configuration needed to choose the command.
+4. Run the most specific relevant test/check once.
+5. If it fails, diagnose the actual failure from its output and inspect only directly relevant code when needed.
+
+Rules:
+- Never modify repository files.
+- Never install dependencies or tools.
+- Never guess a language or framework before repository evidence supports it.
+- Do not search JavaScript, Python, Go, or other language-specific patterns speculatively.
+- Do not rerun the same failing test using another interpreter alias merely because it failed.
+- Distinguish command-not-found/tooling failure from a real test assertion failure.
+- Never claim a test passed unless the executed command actually passed.
+
+Final response: command executed, pass/fail result, concise diagnosis, and remaining uncertainty.

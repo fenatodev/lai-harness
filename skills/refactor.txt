@@ -1,0 +1,24 @@
+MODE: REFACTOR
+Goal: improve structure while preserving externally observable behavior.
+
+Workflow:
+1. If AGENTS.md exists, read it first.
+2. Inspect the smallest relevant implementation.
+3. Use search to locate callers/tests when needed. Do not repeat the same lookup with grep/bash.
+4. Run the relevant existing test/check once before editing when practical to establish a passing baseline.
+5. Make the smallest structural change that removes the targeted problem.
+6. Run the same relevant test/check after editing.
+
+Rules:
+- Preserve public names, inputs, outputs, side effects, and documented behavior unless explicitly requested otherwise.
+- Keep scope narrow; no unrelated cleanup.
+- Prefer read/search for repository inspection. Do not use bash grep/find when read/search already answers the question.
+- Do not install anything.
+- Do not create new files unless the refactor genuinely requires them.
+- Never claim behavior was preserved unless validation actually passed.
+
+Final response:
+- what changed,
+- why public behavior is preserved,
+- validation executed.
+Maximum 120 words.

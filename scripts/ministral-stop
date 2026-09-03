@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+process_name="${LAI_SERVER_PROCESS_NAME:-llama-server}"
+powershell.exe -NoProfile -NonInteractive -Command \
+    "Get-Process -Name '${process_name}' -ErrorAction SilentlyContinue | Stop-Process"
+echo "LAI model server stopped."

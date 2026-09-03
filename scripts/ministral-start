@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+key_file="${LAI_API_KEY_FILE:-$HOME/.config/lai/llama-api-key}"
+host="${LAI_HOST:-$(ip route | awk '/default/ {print $3; exit}')}"
+port="${LAI_PORT:-8080}"
+windows_launcher="${LAI_WINDOWS_LAUNCHER:-}"
+
+if [[ ! -s "$key_file" ]]; then
+    echo "LAI API key is missing: $key_file" >&2
+    exit 1
+fi
+if [[ -z "$windows_launcher" ]]; then
+    echo "Set LAI_WINDOWS_LAUNCHER to the Windows path of start-secure.ps1." >&2
+    exit 1
+fi
+
+api_key="$(tr -d '\r\n' < "$key_file")"
+probe_auth() {
+    curl -sS --connect-timeout 1 --max-time 2 -o /dev/null -w '%{http_code}' \
+        -H "Authorization: Bearer ${api_key}" "http://${host}:${port}/props" \
+        2>/dev/null
+}
+
+if [[ "$(probe_auth 2>/dev/null || true)" == "200" ]]; then
+    echo "LAI model server is already running."
+    exit 0
+fi
+
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+    -File "$windows_launcher" -HostIp "$host" -Port "$port"
+
+for _ in $(seq 1 60); do
+    if [[ "$(probe_auth 2>/dev/null || true)" == "200" ]]; then
+        echo "LAI model server is ready."
+        exit 0
+    fi
+    sleep 1
+done
+
+echo "LAI model server did not become ready within 60 seconds." >&2
+exit 1

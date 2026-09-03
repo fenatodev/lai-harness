@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+key_file="${LAI_API_KEY_FILE:-$HOME/.config/lai/llama-api-key}"
+host="${LAI_HOST:-$(ip route | awk '/default/ {print $3; exit}')}"
+port="${LAI_PORT:-8080}"
+
+if [[ ! -s "$key_file" ]]; then
+    echo "API key: MISSING ($key_file)"
+    exit 1
+fi
+
+api_key="$(tr -d '\r\n' < "$key_file")"
+unauth="$(curl -sS --max-time 3 -o /dev/null -w '%{http_code}' \
+    "http://${host}:${port}/props" 2>/dev/null || true)"
+auth="$(curl -sS --max-time 3 -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer ${api_key}" \
+    "http://${host}:${port}/props" 2>/dev/null || true)"
+
+echo "# LAI Doctor"
+echo "Server address: ${host}:${port}"
+echo "Unauthenticated /props: HTTP ${unauth:-000}"
+echo "Authenticated /props:   HTTP ${auth:-000}"
+
+if [[ "$auth" == "200" && "$unauth" != "200" ]]; then
+    echo "Authentication: OK"
+else
+    echo "Authentication: FAILED"
+    exit 1
+fi

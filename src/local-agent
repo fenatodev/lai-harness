@@ -1,0 +1,4147 @@
+#!/usr/bin/env python3
+
+import json
+import os
+import re
+import subprocess
+import sys
+import urllib.request
+from pathlib import Path
+
+VERSION = "0.3.0"
+MODEL = os.environ.get(
+    "LAI_MODEL",
+    "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M",
+)
+LLAMA_PORT = int(os.environ.get("LAI_PORT", "8080"))
+DATA_BASE = Path(
+    os.environ.get(
+        "LAI_DATA_DIR",
+        Path.home() / ".local" / "share" / "lai",
+    )
+).expanduser()
+CONFIG_BASE = Path(
+    os.environ.get(
+        "LAI_CONFIG_DIR",
+        Path.home() / ".config" / "lai",
+    )
+).expanduser()
+
+try:
+    ROOT = Path(subprocess.check_output(
+        ["git", "rev-parse", "--show-toplevel"],
+        stderr=subprocess.DEVNULL,
+        text=True,
+    ).strip()).resolve()
+except Exception:
+    ROOT = Path.cwd().resolve()
+
+MAX_ROUNDS = 8
+MAX_TOOL_OUTPUT = 24000
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read",
+            "description": "Read a text file chunk inside the repository",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "start_line": {"type": "integer"},
+                    "max_lines": {"type": "integer"}
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search",
+            "description": "Search text or code inside the repository",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "path": {"type": "string"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list",
+            "description": "List repository files and directories",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "max_depth": {"type": "integer"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "git",
+            "description": "Inspect Git changes, status, or diffs without modifying the repository",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "operation": {
+                        "type": "string",
+                        "enum": ["changes", "status", "diff", "diff-staged"]
+                    },
+                    "path": {
+                        "type": "string"
+                    }
+                },
+                "required": ["operation"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "project",
+            "description": "Summarize repository stack, manifests, scripts, Git state, and top-level structure",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "inspect",
+            "description": "Read several known repository files in one tool call. Prefer this over repeated read calls.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "maxItems": 8
+                    },
+                    "max_lines": {
+                        "type": "integer",
+                        "minimum": 20,
+                        "maximum": 180
+                    }
+                },
+                "required": ["paths"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "patch",
+            "description": "Apply several exact replacements across repository files in one prevalidated batch.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "changes": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 6,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": {"type": "string"},
+                                "old": {"type": "string"},
+                                "new": {"type": "string"}
+                            },
+                            "required": ["path", "old", "new"]
+                        }
+                    }
+                },
+                "required": ["changes"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit",
+            "description": "Replace one exact text occurrence in a repository file",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "old": {"type": "string"},
+                    "new": {"type": "string"}
+                },
+                "required": ["path", "old", "new"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create",
+            "description": "Create a new text file inside the repository",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"}
+                },
+                "required": ["path", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "bash",
+            "description": "Run repository tests, builds, checks, or narrow diagnostics",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string"}
+                },
+                "required": ["command"]
+            }
+        }
+    }
+]
+
+BLOCKED_COMMANDS = [
+    (r"\bsudo\b", "sudo is blocked"),
+    (r"\b(?:apt|apt-get|dnf|yum|pacman|apk)\b", "system package installation is blocked"),
+    (r"\bpip3?\s+install\b", "pip install is blocked"),
+    (r"\b(?:npm|pnpm|yarn)\s+(?:install|add)\b", "dependency installation is blocked"),
+    (r"\brm\s+[^;\n]*(?:-rf|-fr)\b", "recursive forced deletion is blocked"),
+    (r"\bgit\s+reset\s+--hard\b", "destructive git reset is blocked"),
+    (r"\bgit\s+clean\b", "git clean is blocked"),
+    (r"\bgit\s+push\b", "git push requires explicit user action"),
+    (r"\bgit\s+checkout\s+--\s+\.", "bulk destructive checkout is blocked"),
+    (r"\bgit\s+restore\s+\.", "bulk destructive restore is blocked"),
+    (r"\bdocker\s+(?:rm|rmi|kill|stop)\b", "destructive Docker operation is blocked"),
+    (r"\bdocker\s+(?:system|volume|container|image)\s+(?:prune|rm)\b", "destructive Docker operation is blocked"),
+    (r"\bdocker(?:-compose|\s+compose)\s+down\b", "docker compose down is blocked"),
+    (r"\b(?:mkfs|shutdown|reboot|poweroff)\b", "system-destructive command is blocked"),
+    (r"\bDROP\s+DATABASE\b", "database deletion is blocked"),
+    (r"\bTRUNCATE\s+(?:TABLE\s+)?", "database truncation is blocked"),
+]
+
+read_paths = set()
+
+
+def gateway():
+    configured = os.environ.get("LAI_HOST")
+
+    if configured:
+        return configured
+
+    return subprocess.check_output(
+        "ip route | awk '/default/ {print $3; exit}'",
+        shell=True,
+        text=True,
+    ).strip()
+
+
+def safe_path(value):
+    p = (ROOT / value).resolve()
+
+    try:
+        p.relative_to(ROOT)
+    except ValueError:
+        raise ValueError("Path outside repository is blocked")
+
+    return p
+
+
+def trim(text):
+    if len(text) <= MAX_TOOL_OUTPUT:
+        return text
+    return text[:MAX_TOOL_OUTPUT] + "\n\n[output truncated]"
+
+
+def tool_read(args):
+    p = safe_path(args["path"])
+
+    if not p.is_file():
+        return f"ERROR: file not found: {args['path']}"
+
+    try:
+        lines = p.read_text(errors="replace").splitlines()
+    except Exception as e:
+        return f"ERROR reading file: {e}"
+
+    start = max(1, int(args.get("start_line", 1)))
+    count = max(1, min(int(args.get("max_lines", 80)), 200))
+    end = min(len(lines), start - 1 + count)
+
+    rel = str(p.relative_to(ROOT))
+    read_paths.add(rel)
+
+    chunk = "\n".join(lines[start - 1:end])
+    header = f"[{rel}: lines {start}-{end} of {len(lines)}]\n"
+    return trim(header + chunk)
+
+
+def tool_edit(args):
+    p = safe_path(args["path"])
+    agents = ROOT / "AGENTS.md"
+
+    if agents.is_file() and "AGENTS.md" not in read_paths:
+        return "ERROR: AGENTS.md exists. Read AGENTS.md before editing repository files."
+
+    if not p.is_file():
+        return f"ERROR: file not found: {args['path']}"
+
+    text = p.read_text(errors="replace")
+    old = args["old"]
+    new = args["new"]
+    count = text.count(old)
+
+    if count == 0:
+        return "ERROR: exact old text was not found"
+
+    if count > 1:
+        return f"ERROR: old text occurs {count} times; provide a more specific exact match"
+
+    p.write_text(text.replace(old, new, 1))
+    return f"OK: edited {p.relative_to(ROOT)}"
+
+
+def tool_bash(args):
+    command = args["command"].strip()
+
+    for pattern, reason in BLOCKED_COMMANDS:
+        if re.search(pattern, command, re.IGNORECASE):
+            return f"BLOCKED: {reason}. Ask the user to run or approve it explicitly."
+
+    try:
+        proc = subprocess.run(
+            ["bash", "-lc", command],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        return "ERROR: command timed out after 120 seconds"
+
+    output = proc.stdout
+    if proc.stderr:
+        output += ("\n" if output else "") + proc.stderr
+
+    return trim(
+        f"exit_code={proc.returncode}\n"
+        + (output if output else "[no output]")
+    )
+
+
+
+def tool_search(args):
+    query = args["query"]
+    target = safe_path(args.get("path", "."))
+
+    if not target.exists():
+        return f"ERROR: path not found: {args.get('path', '.')}"
+
+    try:
+        proc = subprocess.run(
+            [
+                "rg",
+                "-n",
+                "--hidden",
+                "--glob",
+                "!.git",
+                "--max-count",
+                "120",
+                query,
+                str(target),
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+    except FileNotFoundError:
+        return "ERROR: rg is not installed. Use bash with grep/find if needed."
+    except subprocess.TimeoutExpired:
+        return "ERROR: search timed out after 30 seconds"
+
+    if proc.returncode == 1:
+        return "No matches found."
+
+    if proc.returncode not in (0, 1):
+        return trim(
+            f"ERROR: rg exited with code {proc.returncode}\n"
+            + proc.stderr
+        )
+
+    return trim(proc.stdout)
+
+
+def tool_list(args):
+    target = safe_path(args.get("path", "."))
+    max_depth = max(1, min(int(args.get("max_depth", 2)), 4))
+    max_entries = 120
+
+    if not target.exists():
+        return f"ERROR: path not found: {args.get('path', '.')}"
+
+    if target.is_file():
+        return str(target.relative_to(ROOT))
+
+    entries = []
+    stack = [(target, 0)]
+
+    while stack and len(entries) < max_entries:
+        current, depth = stack.pop()
+
+        try:
+            children = sorted(
+                current.iterdir(),
+                key=lambda child: (not child.is_dir(), child.name.lower()),
+            )
+        except OSError as e:
+            rel = current.relative_to(ROOT)
+            entries.append(f"[error] {rel}: {e}")
+            continue
+
+        directories = []
+
+        for child in children:
+            if child.name == ".git":
+                continue
+
+            try:
+                rel = child.relative_to(ROOT)
+            except ValueError:
+                continue
+
+            if child.is_symlink():
+                entries.append(f"[link] {rel}")
+            elif child.is_dir():
+                entries.append(f"[dir]  {rel}/")
+                if depth + 1 < max_depth:
+                    directories.append(child)
+            else:
+                entries.append(f"[file] {rel}")
+
+            if len(entries) >= max_entries:
+                break
+
+        for directory in reversed(directories):
+            stack.append((directory, depth + 1))
+
+    if not entries:
+        return "[empty directory]"
+
+    output = "\n".join(entries)
+
+    if len(entries) >= max_entries:
+        output += "\n[list truncated at 120 entries]"
+
+    return trim(output)
+
+
+def tool_git(args):
+    operation = args.get("operation")
+    raw_path = args.get("path")
+
+    max_diff_chars = 5000
+    preview_per_file = 800
+    preview_total = 2400
+
+    pathspec = None
+
+    if raw_path:
+        p = safe_path(raw_path)
+        pathspec = str(p.relative_to(ROOT))
+
+    def run_git(parts):
+        try:
+            proc = subprocess.run(
+                ["git", *parts],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            return None, "ERROR: git command timed out after 30 seconds"
+
+        output = proc.stdout
+
+        if proc.stderr:
+            output += ("\n" if output else "") + proc.stderr
+
+        if proc.returncode != 0:
+            return None, trim(
+                f"ERROR: git exited with code {proc.returncode}\n"
+                + (output if output else "[no output]")
+            )
+
+        return output, None
+
+    def make_diff(cached=False):
+        parts = [
+            "diff",
+            "--no-ext-diff",
+            "--no-color",
+            "--unified=2",
+        ]
+
+        if cached:
+            parts.insert(1, "--cached")
+
+        if pathspec:
+            parts.extend(["--", pathspec])
+
+        output, error = run_git(parts)
+
+        if error:
+            return error
+
+        if not output:
+            return "[no changes]"
+
+        if len(output) <= max_diff_chars:
+            return output
+
+        return (
+            output[:max_diff_chars]
+            + "\n\n[diff truncated at 5000 characters; "
+              "use read/search for additional context if needed]"
+        )
+
+    if operation == "status":
+        parts = ["status", "--short"]
+
+        if pathspec:
+            parts.extend(["--", pathspec])
+
+        output, error = run_git(parts)
+
+        if error:
+            return error
+
+        return trim(output if output else "[clean working tree]")
+
+    if operation == "diff":
+        return trim(make_diff(cached=False))
+
+    if operation == "diff-staged":
+        return trim(make_diff(cached=True))
+
+    if operation != "changes":
+        return f"ERROR: unsupported git operation: {operation}"
+
+    # --------------------------------------------------------
+    # Compact Git-change triage
+    # --------------------------------------------------------
+
+    status, error = run_git(["status", "--short"])
+
+    if error:
+        return error
+
+    if not status:
+        return "[clean working tree]"
+
+    unstaged_raw, error = run_git(["diff", "--name-only"])
+
+    if error:
+        return error
+
+    staged_raw, error = run_git(["diff", "--cached", "--name-only"])
+
+    if error:
+        return error
+
+    untracked_raw, error = run_git([
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+    ])
+
+    if error:
+        return error
+
+    unstaged = [x for x in unstaged_raw.splitlines() if x]
+    staged = [x for x in staged_raw.splitlines() if x]
+    untracked = [x for x in untracked_raw.splitlines() if x]
+
+    ordered = []
+
+    for rel in unstaged + staged + untracked:
+        if rel not in ordered:
+            ordered.append(rel)
+
+    sections = [
+        "[git status]",
+        status.strip(),
+        "",
+        "[change previews]",
+    ]
+
+    used = sum(len(x) + 1 for x in sections)
+
+    for rel in ordered[:12]:
+        kinds = []
+
+        if rel in unstaged:
+            kinds.append("unstaged")
+
+        if rel in staged:
+            kinds.append("staged")
+
+        if rel in untracked:
+            kinds.append("untracked")
+
+        header = f"\n--- {rel} ({', '.join(kinds)}) ---\n"
+
+        if used + len(header) >= preview_total:
+            break
+
+        sections.append(header.rstrip())
+        used += len(header)
+
+        available = min(
+            preview_per_file,
+            max(0, preview_total - used),
+        )
+
+        if available <= 0:
+            break
+
+        preview_parts = []
+
+        if rel in unstaged:
+            patch, patch_error = run_git([
+                "diff",
+                "--no-ext-diff",
+                "--no-color",
+                "--unified=1",
+                "--",
+                rel,
+            ])
+
+            if patch_error:
+                preview_parts.append(patch_error)
+            elif patch:
+                preview_parts.append(patch)
+
+        if rel in staged:
+            patch, patch_error = run_git([
+                "diff",
+                "--cached",
+                "--no-ext-diff",
+                "--no-color",
+                "--unified=1",
+                "--",
+                rel,
+            ])
+
+            if patch_error:
+                preview_parts.append(patch_error)
+            elif patch:
+                preview_parts.append(patch)
+
+        if rel in untracked:
+            try:
+                file_path = safe_path(rel)
+
+                if file_path.is_file():
+                    data = file_path.read_bytes()[:preview_per_file + 1]
+
+                    if b"\x00" in data:
+                        preview_parts.append("[binary untracked file]")
+                    else:
+                        text = data[:preview_per_file].decode(
+                            errors="replace"
+                        )
+                        preview_parts.append(
+                            "[untracked file preview]\n" + text
+                        )
+            except Exception as e:
+                preview_parts.append(
+                    f"[unable to preview untracked file: {e}]"
+                )
+
+        preview = "\n".join(preview_parts).strip()
+
+        if not preview:
+            preview = "[no textual preview]"
+
+        if len(preview) > available:
+            preview = (
+                preview[:available]
+                + "\n[preview truncated; request this file "
+                  "specifically if deeper inspection is needed]"
+            )
+
+        sections.append(preview)
+        used += len(preview)
+
+        if used >= preview_total:
+            break
+
+    if len(ordered) > 12 or used >= preview_total:
+        sections.extend([
+            "",
+            "[triage note]",
+            "The snapshot is intentionally compact. "
+            "Inspect a specific suspicious file with git diff/diff-staged "
+            "path=<file>, or read an untracked file, only when needed.",
+        ])
+
+    return trim("\n".join(sections))
+
+
+
+def tool_project(args):
+    ignored = {
+        ".git",
+        "node_modules",
+        ".venv",
+        "venv",
+        "dist",
+        "build",
+        ".next",
+        "coverage",
+        "__pycache__",
+    }
+
+    manifests = [
+        "package.json",
+        "pyproject.toml",
+        "requirements.txt",
+        "requirements-dev.txt",
+        "uv.lock",
+        "poetry.lock",
+        "Pipfile",
+        "go.mod",
+        "Cargo.toml",
+        "pom.xml",
+        "build.gradle",
+        "build.gradle.kts",
+        "Makefile",
+        "docker-compose.yml",
+        "docker-compose.yaml",
+        "compose.yml",
+        "compose.yaml",
+        "Dockerfile",
+        "AGENTS.md",
+    ]
+
+    found_manifests = [
+        name
+        for name in manifests
+        if (ROOT / name).exists()
+    ]
+
+    top = []
+
+    try:
+        children = sorted(
+            ROOT.iterdir(),
+            key=lambda p: (not p.is_dir(), p.name.lower()),
+        )
+
+        for child in children:
+            if child.name in ignored:
+                continue
+
+            suffix = "/" if child.is_dir() else ""
+            top.append(child.name + suffix)
+
+            if len(top) >= 40:
+                break
+    except OSError as e:
+        top = [f"[error listing root: {e}]"]
+
+    branch = "[not a git repository]"
+    status = "[unavailable]"
+
+    try:
+        proc = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+        if proc.returncode == 0:
+            branch = proc.stdout.strip() or "[detached HEAD]"
+    except Exception:
+        pass
+
+    try:
+        proc = subprocess.run(
+            ["git", "status", "--short"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+
+        if proc.returncode == 0:
+            lines = proc.stdout.splitlines()
+            status = "\n".join(lines[:20]) if lines else "[clean]"
+            if len(lines) > 20:
+                status += "\n[status truncated]"
+    except Exception:
+        pass
+
+    hints = []
+
+    package_json = ROOT / "package.json"
+
+    if package_json.is_file():
+        try:
+            data = json.loads(package_json.read_text(errors="replace"))
+            scripts = data.get("scripts") or {}
+
+            useful = [
+                name
+                for name in (
+                    "test",
+                    "lint",
+                    "build",
+                    "check",
+                    "typecheck",
+                    "dev",
+                    "start",
+                )
+                if name in scripts
+            ]
+
+            if useful:
+                hints.append(
+                    "package scripts: "
+                    + ", ".join(
+                        f"{name}={scripts[name]}"
+                        for name in useful
+                    )
+                )
+
+            if data.get("packageManager"):
+                hints.append(
+                    f"packageManager: {data['packageManager']}"
+                )
+        except Exception:
+            pass
+
+    pyproject = ROOT / "pyproject.toml"
+
+    if pyproject.is_file():
+        try:
+            import tomllib
+
+            data = tomllib.loads(
+                pyproject.read_text(errors="replace")
+            )
+
+            project = data.get("project") or {}
+
+            if project.get("name"):
+                hints.append(
+                    f"python project: {project['name']}"
+                )
+
+            tool = data.get("tool") or {}
+
+            detected_tools = [
+                name
+                for name in (
+                    "pytest",
+                    "ruff",
+                    "mypy",
+                    "poetry",
+                    "uv",
+                    "black",
+                )
+                if name in tool
+            ]
+
+            if detected_tools:
+                hints.append(
+                    "python tools: "
+                    + ", ".join(detected_tools)
+                )
+        except Exception:
+            pass
+
+    if (ROOT / "go.mod").is_file():
+        hints.append("stack hint: Go")
+
+    if (ROOT / "Cargo.toml").is_file():
+        hints.append("stack hint: Rust")
+
+    if (
+        (ROOT / "pom.xml").is_file()
+        or (ROOT / "build.gradle").is_file()
+        or (ROOT / "build.gradle.kts").is_file()
+    ):
+        hints.append("stack hint: JVM")
+
+    output = [
+        f"root: {ROOT}",
+        f"git branch: {branch}",
+        "",
+        "manifests:",
+        *(
+            [f"- {name}" for name in found_manifests]
+            or ["- [none detected]"]
+        ),
+        "",
+        "top-level:",
+        *[f"- {name}" for name in top],
+        "",
+        "project hints:",
+        *(
+            [f"- {hint}" for hint in hints]
+            or ["- [none detected]"]
+        ),
+        "",
+        "git status:",
+        status,
+    ]
+
+    return trim("\n".join(output))
+
+
+def tool_inspect(args):
+    paths = args.get("paths")
+
+    if not isinstance(paths, list) or not paths:
+        return "ERROR: inspect requires a non-empty paths array"
+
+    if len(paths) > 8:
+        return "ERROR: inspect accepts at most 8 paths"
+
+    try:
+        max_lines = int(args.get("max_lines", 140))
+    except Exception:
+        max_lines = 140
+
+    max_lines = max(
+        20,
+        min(max_lines, 180),
+    )
+
+    root_real = ROOT.resolve()
+
+    queue = []
+    queued = set()
+
+    for raw_path in paths:
+        if (
+            not isinstance(raw_path, str)
+            or not raw_path.strip()
+        ):
+            return (
+                "ERROR: every inspect path must be "
+                "a non-empty string"
+            )
+
+        rel = raw_path.strip().replace("\\", "/")
+
+        while rel.startswith("./"):
+            rel = rel[2:]
+
+        if rel not in queued:
+            queue.append(rel)
+            queued.add(rel)
+
+    chunks = []
+    inspected = set()
+
+    # Debug gets automatic local dependency expansion.
+    # This is intentionally restricted to local JS/TS imports.
+    follow_local_dependencies = (
+        globals().get("ACTIVE_MODE") == "debug"
+    )
+
+    dependency_patterns = [
+        re.compile(
+            r"""require\(\s*['"](\.[^'"]+)['"]\s*\)"""
+        ),
+        re.compile(
+            r"""from\s+['"](\.[^'"]+)['"]"""
+        ),
+        re.compile(
+            r"""import\s+['"](\.[^'"]+)['"]"""
+        ),
+    ]
+
+    js_extensions = (
+        ".js",
+        ".cjs",
+        ".mjs",
+        ".jsx",
+        ".ts",
+        ".cts",
+        ".mts",
+        ".tsx",
+    )
+
+    def resolve_local_dependency(
+        source_rel,
+        specifier,
+    ):
+        source = root_real / source_rel
+
+        base = (
+            source.parent
+            / specifier
+        )
+
+        candidates = []
+
+        if base.suffix:
+            candidates.append(base)
+        else:
+            candidates.append(base)
+
+            for ext in js_extensions:
+                candidates.append(
+                    Path(str(base) + ext)
+                )
+
+            for ext in js_extensions:
+                candidates.append(
+                    base / ("index" + ext)
+                )
+
+        for candidate in candidates:
+            try:
+                resolved = candidate.resolve()
+                rel = resolved.relative_to(root_real)
+            except Exception:
+                continue
+
+            if resolved.is_file():
+                return rel.as_posix()
+
+        return None
+
+    while queue and len(inspected) < 8:
+        rel = queue.pop(0)
+
+        if rel in inspected:
+            continue
+
+        inspected.add(rel)
+
+        result = tool_read({
+            "path": rel,
+            "start_line": 1,
+            "max_lines": max_lines,
+        })
+
+        chunks.append(
+            f"===== {rel} =====\n{result}"
+        )
+
+        if (
+            not follow_local_dependencies
+            or str(result).startswith("ERROR:")
+        ):
+            continue
+
+        suffix = Path(rel).suffix.lower()
+
+        if suffix not in js_extensions:
+            continue
+
+        candidate = root_real / rel
+
+        try:
+            source_text = candidate.read_text(
+                errors="replace"
+            )[:100000]
+        except Exception:
+            continue
+
+        discovered = []
+
+        for pattern in dependency_patterns:
+            for match in pattern.finditer(
+                source_text
+            ):
+                target = resolve_local_dependency(
+                    rel,
+                    match.group(1),
+                )
+
+                if (
+                    target
+                    and target not in inspected
+                    and target not in queued
+                ):
+                    discovered.append(target)
+
+        for target in discovered:
+            if (
+                len(inspected)
+                + len(queue)
+                >= 8
+            ):
+                break
+
+            queue.append(target)
+            queued.add(target)
+
+    return trim(
+        "\n\n".join(chunks)
+    )
+
+
+
+def tool_patch(args):
+    changes = args.get("changes")
+
+    if (
+        not isinstance(changes, list)
+        or not changes
+    ):
+        return (
+            "ERROR: patch requires a "
+            "non-empty changes array"
+        )
+
+    if len(changes) > 6:
+        return (
+            "ERROR: patch accepts at most 6 changes"
+        )
+
+    agents = ROOT / "AGENTS.md"
+
+    observed_reads = globals().get(
+        "read_paths",
+        set(),
+    )
+
+    normalized_reads = {
+        str(item)
+        .replace("\\", "/")
+        .lstrip("./")
+        for item in observed_reads
+    }
+
+    if (
+        agents.is_file()
+        and "AGENTS.md" not in normalized_reads
+    ):
+        return (
+            "ERROR: AGENTS.md exists. "
+            "Inspect AGENTS.md before modifying files."
+        )
+
+    root_real = ROOT.resolve()
+
+    buffers = {}
+    real_paths = {}
+
+    applied = 0
+    already_applied = 0
+
+    for index, change in enumerate(
+        changes,
+        start=1,
+    ):
+        if not isinstance(change, dict):
+            return (
+                f"ERROR: patch change #{index} "
+                "must be an object"
+            )
+
+        rel = str(
+            change.get("path", "")
+        ).strip()
+
+        old = change.get("old")
+        new = change.get("new")
+
+        while rel.startswith("./"):
+            rel = rel[2:]
+
+        if not rel:
+            return (
+                f"ERROR: patch change #{index} "
+                "has empty path"
+            )
+
+        if (
+            not isinstance(old, str)
+            or not isinstance(new, str)
+        ):
+            return (
+                f"ERROR: patch change #{index} "
+                "old/new must be strings"
+            )
+
+        candidate = root_real / rel
+
+        try:
+            resolved = candidate.resolve()
+            resolved.relative_to(root_real)
+        except Exception:
+            return (
+                "ERROR: path escapes repository: "
+                + rel
+            )
+
+        cursor = root_real
+
+        for part in Path(rel).parts:
+            cursor = cursor / part
+
+            if cursor.is_symlink():
+                return (
+                    "ERROR: patch refuses symlink "
+                    f"path: {rel}"
+                )
+
+        if not candidate.is_file():
+            return (
+                "ERROR: patch target is not "
+                f"a file: {rel}"
+            )
+
+        if rel not in buffers:
+            try:
+                text = candidate.read_text(
+                    errors="strict"
+                )
+            except Exception as exc:
+                return (
+                    f"ERROR: cannot read {rel}: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+
+            if len(text) > 500_000:
+                return (
+                    "ERROR: patch target too large: "
+                    + rel
+                )
+
+            buffers[rel] = text
+            real_paths[rel] = candidate
+
+        text = buffers[rel]
+        count = text.count(old)
+
+        if count == 1:
+            buffers[rel] = text.replace(
+                old,
+                new,
+                1,
+            )
+
+            applied += 1
+
+        elif (
+            count == 0
+            and new
+            and new in text
+        ):
+            # Retry-safe. A successful previous patch
+            # must not trigger another destructive edit loop.
+            already_applied += 1
+
+        elif count == 0:
+            return (
+                f"ERROR: stale patch for {rel}: "
+                "old text is not present. "
+                "Do not retry the same replacement. "
+                "Inspect current content if more work remains."
+            )
+
+        else:
+            return (
+                f"ERROR: old text occurs {count} "
+                f"times in {rel}; replacement "
+                "must be unique."
+            )
+
+    # Atomic at logical batch level:
+    # no file is touched until every replacement
+    # has been validated in memory.
+    try:
+        for rel, text in buffers.items():
+            real_paths[rel].write_text(text)
+    except Exception as exc:
+        return (
+            "ERROR: patch write failed: "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+    return (
+        f"OK: patch applied={applied}, "
+        f"already_applied={already_applied}; "
+        f"files={', '.join(buffers)}"
+    )
+
+
+def tool_create(args):
+    p = safe_path(args["path"])
+    agents = ROOT / "AGENTS.md"
+
+    if agents.is_file() and "AGENTS.md" not in read_paths:
+        return "ERROR: AGENTS.md exists. Read AGENTS.md before creating repository files."
+
+    if p.exists():
+        return f"ERROR: file already exists: {args['path']}. Use edit instead."
+
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(args["content"])
+
+    return f"OK: created {p.relative_to(ROOT)}"
+
+
+METRICS_DIR = DATA_BASE / "metrics"
+METRICS_FILE = METRICS_DIR / "events.jsonl"
+
+_metrics_time = __import__("time")
+_metrics_os = __import__("os")
+
+RUN_ID = (
+    f"{int(_metrics_time.time() * 1000)}-"
+    f"{_metrics_os.getpid()}"
+)
+
+ACTIVE_MODE = "unknown"
+ACTIVE_TASK = ""
+METRICS_PRUNED = False
+
+
+def llama_api_key():
+    key_path = Path(
+        os.environ.get(
+            "LAI_API_KEY_FILE",
+            CONFIG_BASE / "llama-api-key",
+        )
+    ).expanduser()
+
+    if not key_path.is_file():
+        raise RuntimeError(
+            f"LAI API key not found: {key_path}"
+        )
+
+    key = key_path.read_text(errors="replace").strip()
+
+    if not key:
+        raise RuntimeError(
+            f"LAI API key is empty: {key_path}"
+        )
+
+    return key
+
+
+def server_ready(host):
+    req = urllib.request.Request(
+        f"http://{host}:{LLAMA_PORT}/props",
+        headers={
+            "Authorization": f"Bearer {llama_api_key()}",
+        },
+    )
+
+    with urllib.request.urlopen(req, timeout=2) as response:
+        return response.status == 200
+
+
+def record_metric_event(event):
+    global METRICS_PRUNED
+
+    METRICS_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    if (
+        not METRICS_PRUNED
+        and METRICS_FILE.is_file()
+        and METRICS_FILE.stat().st_size > 5_000_000
+    ):
+        try:
+            lines = METRICS_FILE.read_text(
+                errors="replace"
+            ).splitlines()
+
+            METRICS_FILE.write_text(
+                "\n".join(lines[-3000:]) + "\n"
+            )
+        except Exception:
+            pass
+
+        METRICS_PRUNED = True
+
+    payload = {
+        "ts": _metrics_time.strftime(
+            "%Y-%m-%dT%H:%M:%SZ",
+            _metrics_time.gmtime(),
+        ),
+        "run_id": RUN_ID,
+        "repo": str(ROOT),
+        "mode": ACTIVE_MODE,
+        **event,
+    }
+
+    try:
+        with METRICS_FILE.open(
+            "a",
+            encoding="utf-8",
+        ) as fh:
+            fh.write(
+                json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+
+
+def print_lai_metrics():
+    if not METRICS_FILE.is_file():
+        print("# LAI Metrics")
+        print()
+        print("No metrics recorded yet.")
+        return
+
+    events = []
+
+    try:
+        lines = METRICS_FILE.read_text(
+            errors="replace"
+        ).splitlines()[-2500:]
+
+        for line in lines:
+            try:
+                events.append(json.loads(line))
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"ERROR reading metrics: {e}")
+        return
+
+    runs = {}
+
+    for event in events:
+        run_id = event.get("run_id")
+
+        if not run_id:
+            continue
+
+        run = runs.setdefault(
+            run_id,
+            {
+                "ts": event.get("ts"),
+                "repo": event.get("repo"),
+                "mode": event.get("mode", "unknown"),
+                "api_calls": 0,
+                "tool_calls": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "api_ms": 0.0,
+                "tool_ms": 0.0,
+                "tools": {},
+            },
+        )
+
+        if event.get("type") == "run_start":
+            run["mode"] = event.get(
+                "mode",
+                run["mode"],
+            )
+            run["ts"] = event.get(
+                "ts",
+                run["ts"],
+            )
+
+        elif event.get("type") == "api":
+            run["api_calls"] += 1
+            run["prompt_tokens"] += int(
+                event.get("prompt_tokens") or 0
+            )
+            run["completion_tokens"] += int(
+                event.get("completion_tokens") or 0
+            )
+            run["api_ms"] += float(
+                event.get("duration_ms") or 0
+            )
+
+        elif event.get("type") == "tool":
+            run["tool_calls"] += 1
+            run["tool_ms"] += float(
+                event.get("duration_ms") or 0
+            )
+
+            name = event.get("name", "unknown")
+            run["tools"][name] = (
+                run["tools"].get(name, 0) + 1
+            )
+
+    ordered = sorted(
+        runs.values(),
+        key=lambda item: item.get("ts") or "",
+    )
+
+    recent = ordered[-10:]
+
+    print("# LAI Metrics")
+    print()
+    print(f"Metrics file: {METRICS_FILE}")
+    print(f"Recorded runs: {len(ordered)}")
+    print()
+
+    print("## Recent runs")
+
+    if not recent:
+        print("[none]")
+    else:
+        for run in recent:
+            compute_s = (
+                run["api_ms"]
+                + run["tool_ms"]
+            ) / 1000.0
+
+            tools = ", ".join(
+                f"{name}:{count}"
+                for name, count
+                in sorted(run["tools"].items())
+            ) or "-"
+
+            print(
+                f"- {run['ts']} "
+                f"mode={run['mode']} "
+                f"api={run['api_calls']} "
+                f"tools={run['tool_calls']} "
+                f"prompt={run['prompt_tokens']} "
+                f"completion={run['completion_tokens']} "
+                f"compute={compute_s:.2f}s "
+                f"[{tools}]"
+            )
+
+    print()
+    print("## By mode (recent history)")
+
+    by_mode = {}
+
+    for run in ordered[-50:]:
+        mode = run["mode"]
+
+        stat = by_mode.setdefault(
+            mode,
+            {
+                "runs": 0,
+                "api": 0,
+                "tools": 0,
+                "prompt": 0,
+                "completion": 0,
+                "api_ms": 0.0,
+            },
+        )
+
+        stat["runs"] += 1
+        stat["api"] += run["api_calls"]
+        stat["tools"] += run["tool_calls"]
+        stat["prompt"] += run["prompt_tokens"]
+        stat["completion"] += run["completion_tokens"]
+        stat["api_ms"] += run["api_ms"]
+
+    for mode, stat in sorted(by_mode.items()):
+        n = max(1, stat["runs"])
+
+        print(
+            f"- {mode}: "
+            f"runs={stat['runs']} "
+            f"avg_api={stat['api'] / n:.1f} "
+            f"avg_tools={stat['tools'] / n:.1f} "
+            f"avg_prompt={stat['prompt'] / n:.0f} "
+            f"avg_completion={stat['completion'] / n:.0f} "
+            f"avg_inference={stat['api_ms'] / n / 1000:.2f}s"
+        )
+
+
+
+
+AUDIT_DIR = DATA_BASE / "audit"
+AUDIT_FILE = AUDIT_DIR / "events.jsonl"
+
+LAST_PATCH_HASHES = {}
+LAST_PATCH_PATHS = []
+
+
+def hash_repository_paths(paths):
+    hashlib = __import__("hashlib")
+
+    output = {}
+
+    for raw_path in paths:
+        rel = str(raw_path or "").strip()
+
+        while rel.startswith("./"):
+            rel = rel[2:]
+
+        if not rel:
+            continue
+
+        candidate = ROOT / rel
+
+        try:
+            resolved = candidate.resolve()
+            resolved.relative_to(ROOT.resolve())
+        except Exception:
+            output[rel] = "[invalid]"
+            continue
+
+        if not resolved.is_file():
+            output[rel] = "[missing]"
+            continue
+
+        try:
+            digest = hashlib.sha256(
+                resolved.read_bytes()
+            ).hexdigest()
+
+            output[rel] = digest
+        except Exception as exc:
+            output[rel] = (
+                "[error:"
+                + type(exc).__name__
+                + "]"
+            )
+
+    return output
+
+
+def record_audit_event(event):
+    AUDIT_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    try:
+        if (
+            AUDIT_FILE.is_file()
+            and AUDIT_FILE.stat().st_size
+            > 5_000_000
+        ):
+            lines = AUDIT_FILE.read_text(
+                errors="replace"
+            ).splitlines()
+
+            AUDIT_FILE.write_text(
+                "\n".join(lines[-4000:])
+                + "\n"
+            )
+    except Exception:
+        pass
+
+    payload = {
+        "ts": _metrics_time.strftime(
+            "%Y-%m-%dT%H:%M:%SZ",
+            _metrics_time.gmtime(),
+        ),
+        "run_id": RUN_ID,
+        "repo": str(ROOT),
+        "mode": ACTIVE_MODE,
+        **event,
+    }
+
+    try:
+        with AUDIT_FILE.open(
+            "a",
+            encoding="utf-8",
+        ) as fh:
+            fh.write(
+                json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+
+
+def print_lai_audit():
+    print("# LAI Audit Trail")
+    print()
+
+    if not AUDIT_FILE.is_file():
+        print("No audit events recorded yet.")
+        return
+
+    events = []
+
+    try:
+        for line in AUDIT_FILE.read_text(
+            errors="replace"
+        ).splitlines()[-4000:]:
+            try:
+                event = json.loads(line)
+            except Exception:
+                continue
+
+            if event.get("repo") == str(ROOT):
+                events.append(event)
+
+    except Exception as exc:
+        print(
+            "ERROR reading audit log: "
+            + str(exc)
+        )
+        return
+
+    if not events:
+        print(
+            "No audit events for this repository."
+        )
+        return
+
+    run_ids = []
+
+    for event in events:
+        rid = event.get("run_id")
+
+        if rid and rid not in run_ids:
+            run_ids.append(rid)
+
+    if not run_ids:
+        print("No auditable run found.")
+        return
+
+    last_run = run_ids[-1]
+
+    selected = [
+        event
+        for event in events
+        if event.get("run_id") == last_run
+    ]
+
+    print(f"Repository: {ROOT}")
+    print(f"Run ID: {last_run}")
+
+    mode = next(
+        (
+            event.get("mode")
+            for event in selected
+            if event.get("mode")
+        ),
+        "[unknown]",
+    )
+
+    print(f"Mode: {mode}")
+    print()
+
+    for event in selected:
+        kind = event.get("type")
+
+        if kind == "patch":
+            print("## Patch")
+
+            print(
+                "Paths: "
+                + ", ".join(
+                    event.get("paths") or []
+                )
+            )
+
+            print(
+                "Result: "
+                + str(
+                    event.get("result")
+                    or "[unknown]"
+                )
+            )
+
+            before = (
+                event.get("before_hashes")
+                or {}
+            )
+
+            after = (
+                event.get("after_hashes")
+                or {}
+            )
+
+            for path in sorted(
+                set(before) | set(after)
+            ):
+                b = str(
+                    before.get(path, "[none]")
+                )
+
+                a = str(
+                    after.get(path, "[none]")
+                )
+
+                state = (
+                    "changed"
+                    if b != a
+                    else "unchanged"
+                )
+
+                print(
+                    f"- {path}: "
+                    f"{b[:12]} -> "
+                    f"{a[:12]} "
+                    f"({state})"
+                )
+
+            print()
+
+        elif kind == "sanity":
+            print("## Post-patch sanity")
+
+            print(
+                "Status: "
+                + str(
+                    event.get("status")
+                    or "[unknown]"
+                )
+            )
+
+            issue = event.get("issue")
+
+            if issue:
+                print(
+                    "Issue: "
+                    + str(issue)
+                )
+
+            print(
+                "Hashes match post-patch state: "
+                + str(
+                    event.get(
+                        "matches_patch_hashes"
+                    )
+                )
+            )
+
+            print()
+
+        elif kind == "validation":
+            print("## Validation")
+
+            print(
+                "Command: "
+                + str(
+                    event.get("command")
+                    or "[unknown]"
+                )
+            )
+
+            print(
+                "Result: "
+                + str(
+                    event.get("result")
+                    or "[unknown]"
+                ).replace("\n", " ")[:500]
+            )
+
+            print()
+
+        elif kind == "final":
+            print("## Final")
+
+            print(
+                "Modified paths: "
+                + ", ".join(
+                    event.get(
+                        "modified_paths"
+                    ) or []
+                )
+            )
+
+            print(
+                "Final answer: "
+                + str(
+                    event.get("answer")
+                    or "[none]"
+                ).replace("\n", " ")[:700]
+            )
+
+            print()
+
+    print(
+        f"Audit file: {AUDIT_FILE}"
+    )
+
+
+def run_tool(name, args):
+    print(
+        f"\n[{name}] "
+        f"{json.dumps(args, ensure_ascii=False)}",
+        file=sys.stderr,
+    )
+
+    started = _metrics_time.perf_counter()
+
+    global LAST_PATCH_HASHES, LAST_PATCH_PATHS
+
+    audit_patch_paths = []
+
+    if name == "patch":
+        audit_patch_paths = [
+            str(change.get("path"))
+            for change in (
+                args.get("changes") or []
+            )
+            if change.get("path")
+        ]
+
+        audit_before_hashes = (
+            hash_repository_paths(
+                audit_patch_paths
+            )
+        )
+    else:
+        audit_before_hashes = {}
+
+    try:
+        if name == "read":
+            result = tool_read(args)
+        elif name == "search":
+            result = tool_search(args)
+        elif name == "list":
+            result = tool_list(args)
+        elif name == "git":
+            result = tool_git(args)
+        elif name == "project":
+            result = tool_project(args)
+        elif name == "inspect":
+            result = tool_inspect(args)
+        elif name == "patch":
+            result = tool_patch(args)
+        elif name == "edit":
+            result = tool_edit(args)
+        elif name == "create":
+            result = tool_create(args)
+        elif name == "bash":
+            result = tool_bash(args)
+        else:
+            result = f"ERROR: unknown tool: {name}"
+    except Exception as e:
+        result = (
+            f"ERROR: {type(e).__name__}: {e}"
+        )
+
+    duration_ms = (
+        _metrics_time.perf_counter()
+        - started
+    ) * 1000.0
+
+    if name == "patch":
+        audit_after_hashes = (
+            hash_repository_paths(
+                audit_patch_paths
+            )
+        )
+
+        LAST_PATCH_PATHS = list(
+            audit_patch_paths
+        )
+
+        LAST_PATCH_HASHES = dict(
+            audit_after_hashes
+        )
+
+        record_audit_event({
+            "type": "patch",
+            "paths": audit_patch_paths,
+            "before_hashes": (
+                audit_before_hashes
+            ),
+            "after_hashes": (
+                audit_after_hashes
+            ),
+            "result": str(result)[:900],
+        })
+
+    record_metric_event({
+        "type": "tool",
+        "name": name,
+        "duration_ms": round(duration_ms, 2),
+        "ok": not (
+            str(result).startswith("ERROR:")
+            or str(result).startswith("BLOCKED:")
+        ),
+    })
+
+    return result
+
+
+
+def api_call(
+    host,
+    messages,
+    use_tools=True,
+    max_tokens=2048,
+    tools=None,
+):
+    payload = {
+        "model": MODEL,
+        "messages": messages,
+        "temperature": 0,
+        "max_tokens": max_tokens,
+    }
+
+    selected_tools = (
+        TOOLS
+        if tools is None
+        else tools
+    )
+
+    if use_tools and selected_tools:
+        payload["tools"] = selected_tools
+        payload["tool_choice"] = "auto"
+
+    key = llama_api_key()
+
+    req = urllib.request.Request(
+        f"http://{host}:{LLAMA_PORT}/v1/chat/completions",
+        data=json.dumps(payload).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {key}",
+        },
+    )
+
+    started = _metrics_time.perf_counter()
+
+    try:
+        with urllib.request.urlopen(
+            req,
+            timeout=180,
+        ) as response:
+            result = json.loads(
+                response.read().decode()
+            )
+    except Exception as e:
+        duration_ms = (
+            _metrics_time.perf_counter()
+            - started
+        ) * 1000.0
+
+        record_metric_event({
+            "type": "api",
+            "duration_ms": round(duration_ms, 2),
+            "error": type(e).__name__,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "max_tokens": max_tokens,
+            "tool_schema_count": len(
+                selected_tools
+                if use_tools
+                else []
+            ),
+        })
+
+        raise
+
+    duration_ms = (
+        _metrics_time.perf_counter()
+        - started
+    ) * 1000.0
+
+    usage = result.get("usage") or {}
+
+    record_metric_event({
+        "type": "api",
+        "duration_ms": round(duration_ms, 2),
+        "prompt_tokens": int(
+            usage.get("prompt_tokens") or 0
+        ),
+        "completion_tokens": int(
+            usage.get("completion_tokens") or 0
+        ),
+        "total_tokens": int(
+            usage.get("total_tokens") or 0
+        ),
+        "max_tokens": max_tokens,
+        "tool_schema_count": len(
+            selected_tools
+            if use_tools
+            else []
+        ),
+    })
+
+    return result
+
+
+STATE_BASE = DATA_BASE / "state"
+
+def classify_patch_sanity(
+    host,
+    task,
+    diff_text,
+):
+    if not diff_text.strip():
+        return None
+
+    # Keep only file headers, hunks and additions.
+    # This reduces distraction and prefill.
+    focused_lines = []
+
+    for line in diff_text.splitlines():
+        if (
+            line.startswith("diff --git ")
+            or line.startswith("+++ ")
+            or line.startswith("@@ ")
+            or (
+                line.startswith("+")
+                and not line.startswith("+++")
+            )
+        ):
+            focused_lines.append(line)
+
+    focused = "\n".join(
+        focused_lines
+    )[:4500]
+
+    if not focused.strip():
+        return None
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a strict added-lines defect checker. "
+                "Review ONLY concrete defects introduced by the patch. "
+                "Return exactly CLEAN or one line beginning BUG:. "
+                "Report only defects likely to break execution or an "
+                "explicit acceptance criterion: misspelled/undefined "
+                "identifier, syntax/runtime defect, broken import/export, "
+                "invalid API use, or explicitly missing requested behavior. "
+                "Do not report style, naming, formatting, optional "
+                "improvements, speculative edge cases, or pre-existing "
+                "issues. If an added line in the supplied patch clearly "
+                "defines/imports an identifier, do not call it undefined."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "TASK:\n"
+                + task[:1000]
+                + "\n\nADDED PATCH LINES:\n"
+                + focused
+            ),
+        },
+    ]
+
+    try:
+        result = api_call(
+            host,
+            messages,
+            use_tools=False,
+            max_tokens=64,
+        )
+
+        text = (
+            result["choices"][0]["message"]
+            .get("content", "")
+            .strip()
+        )
+    except Exception:
+        return None
+
+    upper = text.upper()
+
+    if upper == "CLEAN":
+        return None
+
+    if upper.startswith("BUG:"):
+        return text[:500]
+
+    return None
+
+
+
+def post_patch_sanity(
+    host,
+    task,
+    paths,
+):
+    normalized = []
+
+    for raw_path in paths:
+        value = str(
+            raw_path or ""
+        ).strip()
+
+        while value.startswith("./"):
+            value = value[2:]
+
+        if (
+            value
+            and value not in normalized
+        ):
+            normalized.append(value)
+
+    if not normalized:
+        return None
+
+    root_real = ROOT.resolve()
+
+    # --------------------------------------------------------
+    # 1. Deterministic syntax checks for runnable JS.
+    # --------------------------------------------------------
+
+    node_path = __import__(
+        "shutil"
+    ).which("node")
+
+    if node_path:
+        for rel in normalized:
+            suffix = Path(
+                rel
+            ).suffix.lower()
+
+            if suffix not in {
+                ".js",
+                ".cjs",
+                ".mjs",
+            }:
+                continue
+
+            candidate = root_real / rel
+
+            if not candidate.is_file():
+                continue
+
+            try:
+                proc = subprocess.run(
+                    [
+                        node_path,
+                        "--check",
+                        str(candidate),
+                    ],
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                    timeout=15,
+                )
+            except Exception:
+                proc = None
+
+            if (
+                proc is not None
+                and proc.returncode != 0
+            ):
+                detail = (
+                    proc.stderr.strip()
+                    or proc.stdout.strip()
+                    or "syntax check failed"
+                )
+
+                detail = " ".join(
+                    detail.split()
+                )[:320]
+
+                return (
+                    f"BUG: node --check failed for "
+                    f"{rel}: {detail}"
+                )
+
+    # --------------------------------------------------------
+    # 2. Deterministic added-line inspection.
+    # --------------------------------------------------------
+
+    try:
+        proc = subprocess.run(
+            [
+                "git",
+                "diff",
+                "--no-ext-diff",
+                "--unified=1",
+                "--",
+                *normalized,
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=15,
+        )
+    except Exception:
+        return None
+
+    if proc.returncode != 0:
+        return None
+
+    diff_text = proc.stdout
+
+    if not diff_text.strip():
+        return None
+
+    current_file = None
+
+    added_by_file = {}
+
+    for line in diff_text.splitlines():
+        if line.startswith("+++ b/"):
+            current_file = line[6:]
+            added_by_file.setdefault(
+                current_file,
+                [],
+            )
+            continue
+
+        if (
+            current_file
+            and line.startswith("+")
+            and not line.startswith("+++")
+        ):
+            added_by_file[
+                current_file
+            ].append(line[1:])
+
+    # Detect glued constructor/function names such as:
+    #
+    #   throw newError(...)
+    #
+    # If newError is not declared/imported in the file,
+    # this is a concrete latent runtime defect even when
+    # the branch is not exercised by tests.
+
+    suspicious_call = re.compile(
+        r"\b(new[A-Z][A-Za-z0-9_$]*)\s*\("
+    )
+
+    for rel, added_lines in added_by_file.items():
+        suffix = Path(
+            rel
+        ).suffix.lower()
+
+        if suffix not in {
+            ".js",
+            ".cjs",
+            ".mjs",
+            ".jsx",
+            ".ts",
+            ".cts",
+            ".mts",
+            ".tsx",
+        }:
+            continue
+
+        candidate = root_real / rel
+
+        try:
+            full_text = candidate.read_text(
+                errors="replace"
+            )
+        except Exception:
+            continue
+
+        for added in added_lines:
+            for match in suspicious_call.finditer(
+                added
+            ):
+                identifier = match.group(1)
+                escaped = re.escape(
+                    identifier
+                )
+
+                declaration_patterns = [
+                    rf"\bfunction\s+{escaped}\b",
+                    rf"\bclass\s+{escaped}\b",
+                    rf"\b(?:const|let|var)\s+{escaped}\b",
+                    rf"\bimport\b[^\n]*\b{escaped}\b",
+                    rf"\{{[^}}\n]*\b{escaped}\b[^}}\n]*\}}\s*=\s*require\(",
+                ]
+
+                declared = any(
+                    re.search(
+                        pattern,
+                        full_text,
+                    )
+                    for pattern
+                    in declaration_patterns
+                )
+
+                if declared:
+                    continue
+
+                # Strong special case:
+                # "newError(...)" is commonly a missing space
+                # for "new Error(...)".
+                suggested = None
+
+                constructor = (
+                    identifier[3:]
+                    if identifier.startswith("new")
+                    else ""
+                )
+
+                builtin_constructors = {
+                    "Error",
+                    "TypeError",
+                    "RangeError",
+                    "ReferenceError",
+                    "SyntaxError",
+                    "URIError",
+                    "EvalError",
+                    "Date",
+                    "Map",
+                    "Set",
+                    "WeakMap",
+                    "WeakSet",
+                    "Promise",
+                    "RegExp",
+                    "Array",
+                    "Object",
+                }
+
+                if (
+                    constructor
+                    in builtin_constructors
+                ):
+                    suggested = (
+                        f" If `{constructor}` constructor "
+                        f"was intended, use "
+                        f"`new {constructor}(...)`."
+                    )
+
+                return (
+                    f"BUG: added call `{identifier}(...)` "
+                    f"in {rel} is not declared or imported "
+                    f"in that file."
+                    + (suggested or "")
+                )
+
+    # --------------------------------------------------------
+    # 3. Small LLM check for defects not caught statically.
+    # --------------------------------------------------------
+
+    return classify_patch_sanity(
+        host,
+        task,
+        diff_text,
+    )
+
+
+
+
+def workspace_state_paths():
+    hashlib = __import__("hashlib")
+
+    key = hashlib.sha256(
+        str(ROOT).encode("utf-8")
+    ).hexdigest()[:16]
+
+    return (
+        STATE_BASE / f"{key}.json",
+        STATE_BASE / f"{key}.md",
+    )
+
+
+def load_workspace_state():
+    json_path, _ = workspace_state_paths()
+
+    base = {
+        "root": str(ROOT),
+        "updated_at": None,
+        "last_mode": None,
+        "last_task": None,
+        "recent_files": [],
+        "modified_files": [],
+        "last_validation": None,
+        "last_command": None,
+        "last_git_operation": None,
+        "git_status": None,
+        "git_branch": None,
+        "last_answer": None,
+        "handoff_note": None,
+    }
+
+    if not json_path.is_file():
+        return base
+
+    try:
+        data = json.loads(
+            json_path.read_text(errors="replace")
+        )
+
+        if data.get("root") != str(ROOT):
+            return base
+
+        base.update(data)
+    except Exception:
+        pass
+
+    return base
+
+
+def workspace_git_branch():
+    try:
+        proc = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+
+        if proc.returncode != 0:
+            return "[unavailable]"
+
+        return proc.stdout.strip() or "[detached HEAD]"
+    except Exception:
+        return "[unavailable]"
+
+
+def cleanup_stale_workspace_states(max_age_days=45):
+    time = __import__("time")
+
+    if not STATE_BASE.is_dir():
+        return
+
+    cutoff = (
+        time.time()
+        - max_age_days * 24 * 60 * 60
+    )
+
+    for json_path in STATE_BASE.glob("*.json"):
+        try:
+            if json_path.stat().st_mtime >= cutoff:
+                continue
+
+            md_path = json_path.with_suffix(".md")
+
+            json_path.unlink(missing_ok=True)
+            md_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def workspace_git_status():
+    try:
+        proc = subprocess.run(
+            ["git", "status", "--short"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+
+        if proc.returncode != 0:
+            return "[unavailable]"
+
+        lines = proc.stdout.splitlines()
+
+        if not lines:
+            return "[clean]"
+
+        output = "\n".join(lines[:15])
+
+        if len(lines) > 15:
+            output += "\n[status truncated]"
+
+        return output
+    except Exception:
+        return "[unavailable]"
+
+
+def render_workspace_handoff(state, compact=False):
+    recent = state.get("recent_files") or []
+    modified = state.get("modified_files") or []
+    validation = state.get("last_validation")
+    git_status = state.get("git_status") or "[unknown]"
+
+    if compact:
+        sections = [
+            "PRIOR WORKSPACE CONTEXT "
+            "(compact; may be stale; current request and repository "
+            "evidence always override it):"
+        ]
+
+        if state.get("git_branch"):
+            sections.append(
+                "Git branch: "
+                + str(state["git_branch"])[:150]
+            )
+
+        if state.get("last_task"):
+            sections.append(
+                "Previous task: "
+                + str(state["last_task"])[:500]
+            )
+
+        if recent:
+            sections.append(
+                "Recent relevant files: "
+                + ", ".join(recent[-8:])
+            )
+
+        if modified:
+            sections.append(
+                "Recently modified files: "
+                + ", ".join(modified[-8:])
+            )
+
+        if validation:
+            command = str(
+                validation.get("command", "")
+            )[:300]
+
+            result = str(
+                validation.get("result", "")
+            ).replace("\n", " ")[:350]
+
+            sections.append(
+                f"Last validation: {command} -> {result}"
+            )
+
+        if state.get("handoff_note"):
+            sections.append(
+                "Handoff note: "
+                + str(state["handoff_note"])[:500]
+            )
+
+        if state.get("last_answer"):
+            sections.append(
+                "Previous result: "
+                + str(state["last_answer"])
+                    .replace("\n", " ")[:500]
+            )
+
+        return "\n".join(sections)[:1600]
+
+    lines = [
+        "# LAI Workspace Handoff",
+        "",
+        f"Repository: {state.get('root', ROOT)}",
+        f"Branch: {state.get('git_branch') or '[unknown]'}",
+        f"Updated: {state.get('updated_at') or '[unknown]'}",
+        f"Last mode: {state.get('last_mode') or '[none]'}",
+        "",
+        "## Last task",
+        state.get("last_task") or "[none]",
+        "",
+        "## Recent relevant files",
+    ]
+
+    if recent:
+        lines.extend(f"- {item}" for item in recent[-12:])
+    else:
+        lines.append("- [none]")
+
+    lines.extend([
+        "",
+        "## Recently modified files",
+    ])
+
+    if modified:
+        lines.extend(
+            f"- {item}"
+            for item in modified[-12:]
+        )
+    else:
+        lines.append("- [none]")
+
+    lines.extend([
+        "",
+        "## Last validation",
+    ])
+
+    if validation:
+        lines.append(
+            f"Command: {validation.get('command', '[unknown]')}"
+        )
+        lines.append(
+            "Result: "
+            + str(
+                validation.get("result", "[unknown]")
+            )[:800]
+        )
+    else:
+        lines.append("[none]")
+
+    lines.extend([
+        "",
+        "## Git status",
+        "```text",
+        git_status,
+        "```",
+    ])
+
+    if state.get("handoff_note"):
+        lines.extend([
+            "",
+            "## Handoff note",
+            str(state["handoff_note"])[:1500],
+        ])
+
+    if state.get("last_answer"):
+        lines.extend([
+            "",
+            "## Last result",
+            str(state["last_answer"])[:1800],
+        ])
+
+    lines.extend([
+        "",
+        "## Rule",
+        "Current repository evidence and the current user request "
+        "override this handoff if anything here is stale.",
+    ])
+
+    return "\n".join(lines)[:7000]
+
+
+def save_workspace_state(state):
+    time = __import__("time")
+
+    STATE_BASE.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    cleanup_stale_workspace_states()
+
+    json_path, md_path = workspace_state_paths()
+
+    state["root"] = str(ROOT)
+    state["updated_at"] = time.strftime(
+        "%Y-%m-%dT%H:%M:%SZ",
+        time.gmtime(),
+    )
+    state["git_status"] = workspace_git_status()
+    state["git_branch"] = workspace_git_branch()
+
+    state["recent_files"] = list(
+        dict.fromkeys(
+            state.get("recent_files") or []
+        )
+    )[-12:]
+
+    state["modified_files"] = list(
+        dict.fromkeys(
+            state.get("modified_files") or []
+        )
+    )[-12:]
+
+    json_text = json.dumps(
+        state,
+        ensure_ascii=False,
+        indent=2,
+    ) + "\n"
+
+    markdown = (
+        render_workspace_handoff(state)
+        + "\n"
+    )
+
+    json_path.write_text(json_text)
+    md_path.write_text(markdown)
+
+    current_json = (
+        STATE_BASE.parent
+        / "current-context.json"
+    )
+
+    current_md = (
+        STATE_BASE.parent
+        / "current-context.md"
+    )
+
+    current_json.write_text(json_text)
+    current_md.write_text(markdown)
+
+    return md_path
+
+
+def clear_workspace_state():
+    json_path, md_path = workspace_state_paths()
+
+    for path in (json_path, md_path):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+
+    current_json = (
+        STATE_BASE.parent
+        / "current-context.json"
+    )
+
+    current_md = (
+        STATE_BASE.parent
+        / "current-context.md"
+    )
+
+    remove_current = False
+
+    try:
+        data = json.loads(
+            current_json.read_text(
+                errors="replace"
+            )
+        )
+        remove_current = (
+            data.get("root") == str(ROOT)
+        )
+    except Exception:
+        pass
+
+    if remove_current:
+        for path in (
+            current_json,
+            current_md,
+        ):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+
+
+def record_workspace_tool(
+    state,
+    name,
+    args,
+    result,
+    is_validation=False,
+):
+    path = args.get("path")
+
+    if (
+        path
+        and path not in {".", "./"}
+        and name in {
+            "read",
+            "search",
+            "list",
+            "edit",
+            "create",
+            "git",
+        }
+    ):
+        state.setdefault(
+            "recent_files",
+            [],
+        ).append(str(path))
+
+    if (
+        name in {"edit", "create"}
+        and result.startswith("OK:")
+        and path
+    ):
+        state.setdefault(
+            "modified_files",
+            [],
+        ).append(str(path))
+
+    if name == "inspect":
+        for inspected_path in args.get("paths") or []:
+            state.setdefault(
+                "recent_files",
+                [],
+            ).append(
+                str(inspected_path)
+            )
+
+    if (
+        name == "patch"
+        and result.startswith("OK:")
+    ):
+        for change in args.get("changes") or []:
+            changed_path = change.get("path")
+
+            if changed_path:
+                state.setdefault(
+                    "modified_files",
+                    [],
+                ).append(
+                    str(changed_path)
+                )
+
+                state.setdefault(
+                    "recent_files",
+                    [],
+                ).append(
+                    str(changed_path)
+                )
+
+    if name == "bash":
+        command = str(
+            args.get("command", "")
+        )[:500]
+
+        state["last_command"] = command
+
+        if is_validation:
+            state["last_validation"] = {
+                "command": command,
+                "result": str(result)[:700],
+            }
+
+    if (
+        name == "bash"
+        and is_validation
+    ):
+        record_audit_event({
+            "type": "validation",
+            "command": str(
+                args.get("command", "")
+            )[:500],
+            "result": str(result)[:900],
+            "current_hashes": (
+                hash_repository_paths(
+                    state.get(
+                        "modified_files"
+                    ) or []
+                )
+            ),
+        })
+
+    if name == "git":
+        state["last_git_operation"] = (
+            str(args.get("operation", ""))[:100]
+        )
+
+    save_workspace_state(state)
+
+
+
+def main():
+    args = sys.argv[1:]
+
+    if args and args[0] in {"--version", "-V"}:
+        print(f"lai-local-agent {VERSION}")
+        return
+
+    if args and args[0] == "--metrics":
+        print_lai_metrics()
+        return
+
+    if args and args[0] == "--audit":
+        print_lai_audit()
+        return
+
+    if args and args[0] == "--handoff":
+        state = load_workspace_state()
+        note = " ".join(args[1:]).strip()
+
+        if note:
+            state["handoff_note"] = note[:1500]
+            save_workspace_state(state)
+
+        _, md_path = workspace_state_paths()
+
+        print(render_workspace_handoff(state))
+        print()
+        print(f"Context file: {md_path}")
+        print(
+            "Current context: "
+            f"{STATE_BASE.parent / 'current-context.md'}"
+        )
+        return
+
+    if args and args[0] == "--clear-context":
+        clear_workspace_state()
+        print("LAI workspace context cleared.")
+        return
+
+    if args and args[0] == "--status":
+        state = load_workspace_state()
+
+        # Atualiza apenas informações voláteis sem precisar do modelo.
+        state["git_status"] = workspace_git_status()
+        state["git_branch"] = workspace_git_branch()
+
+        recent = state.get("recent_files") or []
+        modified = state.get("modified_files") or []
+        validation = state.get("last_validation")
+
+        print("# LAI Workspace Status")
+        print()
+        print(f"Repository: {ROOT}")
+        print(
+            "Branch: "
+            + str(state.get("git_branch") or "[unknown]")
+        )
+        print(
+            "Context updated: "
+            + str(state.get("updated_at") or "[never]")
+        )
+        print(
+            "Last mode: "
+            + str(state.get("last_mode") or "[none]")
+        )
+
+        print()
+        print("## Last task")
+        print(state.get("last_task") or "[none]")
+
+        print()
+        print("## Recent files")
+        if recent:
+            for item in recent[-8:]:
+                print(f"- {item}")
+        else:
+            print("- [none]")
+
+        print()
+        print("## Modified by LAI")
+        if modified:
+            for item in modified[-8:]:
+                print(f"- {item}")
+        else:
+            print("- [none]")
+
+        print()
+        print("## Last validation")
+        if validation:
+            print(
+                "Command: "
+                + str(validation.get("command", "[unknown]"))
+            )
+            result = str(
+                validation.get("result", "[unknown]")
+            ).replace("\n", " ")
+            print("Result: " + result[:500])
+        else:
+            print("[none]")
+
+        print()
+        print("## Git status")
+        print("```text")
+        print(state.get("git_status") or "[unknown]")
+        print("```")
+
+        if state.get("handoff_note"):
+            print()
+            print("## Handoff note")
+            print(state["handoff_note"])
+
+        _, md_path = workspace_state_paths()
+
+        print()
+        print(f"Context file: {md_path}")
+        print(
+            "Current context: "
+            f"{STATE_BASE.parent / 'current-context.md'}"
+        )
+        return
+
+    supported_modes = {
+        "--selection": "selection",
+        "--fix": "fix",
+        "--test": "test",
+        "--review": "review",
+        "--debug": "debug",
+        "--refactor": "refactor",
+        "--security": "security",
+        "--plan": "plan",
+        "--implement": "implement",
+    }
+
+    mode = "general"
+
+    if args and args[0] in supported_modes:
+        mode = supported_modes[args[0]]
+        args = args[1:]
+
+    selection_mode = mode == "selection"
+
+    task = " ".join(args).strip()
+
+    global ACTIVE_MODE, ACTIVE_TASK
+
+    ACTIVE_MODE = mode
+    ACTIVE_TASK = task[:500]
+
+    record_metric_event({
+        "type": "run_start",
+        "task_chars": len(task),
+    })
+
+    prior_workspace_state = load_workspace_state()
+    prior_workspace_context = render_workspace_handoff(
+        prior_workspace_state,
+        compact=True,
+    )
+
+    workspace_state = prior_workspace_state
+    workspace_state["last_mode"] = mode
+    workspace_state["last_task"] = task[:900]
+
+    save_workspace_state(workspace_state)
+
+    if not task:
+        task = input("local-agent> ").strip()
+
+    if not task:
+        raise SystemExit("No task provided.")
+
+    exact = re.fullmatch(
+        r"(?:responda|responda apenas|responda somente|respond only|reply only)\s*:\s*(.+)",
+        task,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    if exact:
+        print(exact.group(1).strip())
+        return
+
+    host = gateway()
+
+    try:
+        ready = server_ready(host)
+    except Exception:
+        ready = False
+
+    if not ready:
+        subprocess.run(["ministral-start"], check=True)
+        host = gateway()
+
+    system = f"""You are Local Dev, a fast software development agent.
+
+Repository root: {ROOT}
+
+Use tools only when repository evidence or an actual action is required.
+Do not call tools for greetings, simple questions, formatting requests, or tasks that can be answered directly.
+If the user explicitly requests an exact response such as "respond only: X", and no repository action or evidence is required, output exactly X and do not call any tool.
+Follow the user's requested output format literally.
+Inspect only what is needed.
+Before editing or creating, inspect the relevant context.
+If AGENTS.md exists, read it before the first edit.
+Make minimal, correct changes.
+Use search for targeted code/text lookup. Use bash for Git status/diff, tests, checks, and project commands. Use create only for genuinely new files.
+Prefer existing project commands and installed runtimes.
+Never install packages, dependencies, runtimes, or system software.
+Never perform destructive Git, Docker, database, filesystem, or system operations.
+Never claim a command, edit, or test happened unless a tool actually performed it.
+Never claim tests passed unless a real test command completed successfully.
+For analysis-only requests, do not edit files.
+Stay inside the current repository.
+Ground factual claims in the provided context or actual tool evidence.
+Treat filenames, package names, commands, libraries, and tool names literally.
+Never invent expansions, aliases, alternative meanings, or "similar tool" associations.
+If a fact is not supported by the visible context, say that it cannot be determined from the provided context.
+When explaining selected text, describe what the selection actually shows before adding interpretation.
+Keep the final response concise and factual."""
+
+    if selection_mode:
+        system = f"""You are Local Explain, a strict grounded code explainer.
+
+Repository root: {ROOT}
+
+Use only the context explicitly provided by the user.
+Do not use tools.
+Treat filenames, identifiers, package names, commands, libraries, and product names literally.
+Never expand a name or associate it with a similarly named tool.
+In particular, `uv` and `uvicorn` are different names; never infer one from the other.
+If the provided selection does not support a factual claim, omit that claim.
+Describe what the text actually shows before adding interpretation.
+Answer in at most 60 words unless the user explicitly requests more detail."""
+
+    tool_names_by_mode = {
+        "general": {"project", "read", "search", "list", "git", "edit", "create", "bash"},
+        "fix": {"project", "read", "search", "list", "git", "edit", "bash"},
+        "test": {"project", "read", "search", "list", "git", "bash"},
+        "review": {"read", "search", "list", "git"},
+        "debug": {"inspect", "search", "git", "bash"},
+        "refactor": {"project", "read", "search", "list", "git", "edit", "create", "bash"},
+        "security": {"read", "search", "list", "git"},
+        "plan": {"inspect", "search"},
+        "implement": {"inspect", "search", "git", "patch", "create", "bash"},
+    }
+
+    mode_tools = [
+        tool
+        for tool in TOOLS
+        if tool["function"]["name"] in tool_names_by_mode.get(mode, set())
+    ]
+
+    max_tokens_by_mode = {
+        "general": 1536,
+        "fix": 768,
+        "test": 512,
+        "review": 128,
+        "debug": 192,
+        "refactor": 384,
+        "security": 512,
+        "plan": 256,
+        "implement": 640,
+    }
+
+    mode_max_tokens = max_tokens_by_mode.get(mode, 1024)
+
+    context_modes = {
+        "general",
+        "plan",
+        "implement",
+        "fix",
+        "test",
+        "debug",
+        "refactor",
+    }
+
+    if (
+        mode in context_modes
+        and prior_workspace_context
+        and (
+            prior_workspace_state.get("last_task")
+            or prior_workspace_state.get("recent_files")
+            or prior_workspace_state.get("handoff_note")
+        )
+    ):
+        system += (
+            "\n\n"
+            + prior_workspace_context
+        )
+
+    if mode not in {"general", "selection"}:
+        skill_path = DATA_BASE / "skills" / f"{mode}.txt"
+
+        if not skill_path.is_file():
+            raise SystemExit(f"Skill não encontrada: {skill_path}")
+
+        skill = skill_path.read_text(errors="replace").strip()
+        system += f"\n\nACTIVE SKILL:\n{skill}"
+
+    if mode in {"plan", "debug"}:
+        agents_path = ROOT / "AGENTS.md"
+
+        if agents_path.is_file():
+            try:
+                agents_text = agents_path.read_text(
+                    errors="replace"
+                )[:5000]
+
+                system += (
+                    "\n\nPRELOADED ROOT AGENTS.md:\n"
+                    + agents_text
+                    + "\n\nRoot AGENTS.md is already loaded. "
+                      "Do not spend a tool call reading it again."
+                )
+            except Exception:
+                pass
+
+    if mode in {"fix", "test", "refactor", "security", "implement", "general"}:
+        agents_file = ROOT / "AGENTS.md"
+        if agents_file.is_file():
+            system += (
+                "\n\nRepository note: AGENTS.md exists at the repository root. "
+                "Read it first before other repository actions."
+            )
+
+    git_review_snapshot = None
+
+    task_lower = task.lower()
+
+    git_change_intent = (
+        mode in {"review", "security"}
+        and (
+            "git" in task_lower
+            or "diff" in task_lower
+            or "staged" in task_lower
+            or "unstaged" in task_lower
+            or "alterações atuais" in task_lower
+            or "alteracoes atuais" in task_lower
+            or "minhas alterações" in task_lower
+            or "minhas alteracoes" in task_lower
+            or "mudanças atuais" in task_lower
+            or "mudancas atuais" in task_lower
+        )
+    )
+
+    git_review_docs_only = False
+
+    if git_change_intent:
+        changed_paths = []
+
+        git_path_commands = [
+            ["git", "diff", "--name-only"],
+            ["git", "diff", "--cached", "--name-only"],
+            ["git", "ls-files", "--others", "--exclude-standard"],
+        ]
+
+        for command in git_path_commands:
+            try:
+                proc = subprocess.run(
+                    command,
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                    timeout=10,
+                )
+
+                if proc.returncode == 0:
+                    for rel in proc.stdout.splitlines():
+                        rel = rel.strip()
+                        if rel and rel not in changed_paths:
+                            changed_paths.append(rel)
+            except Exception:
+                pass
+
+        documentation_suffixes = {
+            ".md",
+            ".mdx",
+            ".txt",
+            ".rst",
+            ".adoc",
+            ".asciidoc",
+        }
+
+        git_review_docs_only = (
+            bool(changed_paths)
+            and all(
+                Path(rel).suffix.lower() in documentation_suffixes
+                for rel in changed_paths
+            )
+        )
+
+        if mode == "review":
+            if git_review_docs_only:
+                # Snapshot is the only repository evidence available to the
+                # model in this fast path. No extra tool-calling rounds.
+                mode_tools = []
+            else:
+                git_review_tool_names = {"git", "read"}
+                mode_tools = [
+                    tool
+                    for tool in mode_tools
+                    if tool["function"]["name"] in git_review_tool_names
+                ]
+
+        git_review_snapshot = run_tool(
+            "git",
+            {"operation": "changes"},
+        )
+
+        if git_review_docs_only and mode == "review":
+            system += (
+                "\n\nAll current Git changes are documentation-only. "
+                "Use the preloaded Git snapshot as the final evidence for this "
+                "review and do not request additional repository tools. "
+                "Do not report ambiguity, missing clarification, policy advice, "
+                "possible future misuse, or generalized operational risk. "
+                "A documentation finding requires a concrete contradiction or "
+                "instruction that would cause an observable wrong action."
+            )
+        else:
+            system += (
+                "\n\nA compact Git changes snapshot is already provided "
+                "with the user request. Do not call git operation=changes again. "
+                "For truncated source-code or configuration changes, inspect the "
+                "specific file/diff before declaring the patch clean. "
+                "Use only path-specific git diff or read when deeper context is needed."
+            )
+
+    plan_project_snapshot = None
+
+    if mode == "plan":
+        plan_project_snapshot = run_tool("project", {})
+
+        system += (
+            "\n\nA compact project snapshot is already provided with "
+            "the request. Do not rediscover basic stack, manifests, Git "
+            "status, or top-level layout. Use read/search only for the "
+            "specific implementation context required by the task."
+        )
+
+    debug_project_snapshot = None
+    implement_project_snapshot = None
+
+    if mode == "debug":
+        debug_project_snapshot = tool_project({})
+
+        system += (
+            "\n\nA compact project snapshot is provided. "
+            "Use exact repository paths from it. "
+            "After reproducing the failure, inspect the "
+            "relevant caller/test and directly involved "
+            "source files together. Never invent paths."
+        )
+
+    if mode == "implement":
+        implement_project_snapshot = tool_project({})
+
+        system += (
+            "\n\nA compact project snapshot is provided. "
+            "Use exact repository paths from it. "
+            "Do not rediscover top-level structure. "
+            "Prefer one inspect call and one patch call."
+        )
+
+    user_content = task
+
+    if plan_project_snapshot:
+        user_content += (
+            "\n\nPRELOADED PROJECT SNAPSHOT:\n"
+            + plan_project_snapshot
+        )
+
+    if debug_project_snapshot:
+        user_content += (
+            "\n\nPRELOADED DEBUG PROJECT SNAPSHOT:\n"
+            + debug_project_snapshot
+        )
+
+    if implement_project_snapshot:
+        user_content += (
+            "\n\nPRELOADED IMPLEMENT PROJECT SNAPSHOT:\n"
+            + implement_project_snapshot
+        )
+
+    if git_review_snapshot:
+        user_content += (
+            "\n\nPRELOADED GIT CHANGES SNAPSHOT:\n"
+            + git_review_snapshot
+        )
+
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user_content},
+    ]
+
+    if selection_mode:
+        result = api_call(host, messages, use_tools=False, max_tokens=160)
+        print(result["choices"][0]["message"].get("content", "").strip())
+        return
+
+    max_rounds_by_mode = {
+        "general": MAX_ROUNDS,
+        "fix": 12,
+        "test": 8,
+        "review": 8,
+        "debug": 12,
+        "refactor": 12,
+        "security": 8,
+        "plan": 2,
+        "implement": 14,
+    }
+
+    needs_validation = False
+    modified_paths = set()
+    debug_source_inspected = False
+    patch_sanity_issue = None
+
+    def looks_like_test_path(value):
+        rel = str(value or "").replace("\\", "/").lower()
+        name = Path(rel).name
+
+        return (
+            "test" in name
+            or ".spec." in name
+            or "/tests/" in f"/{rel}/"
+            or "/test/" in f"/{rel}/"
+        )
+
+    def task_explicitly_requires_test_change(value):
+        low = value.lower()
+
+        phrases = (
+            "adicione um teste",
+            "adicione testes",
+            "adicionar um teste",
+            "adicionar testes",
+            "crie um teste",
+            "crie testes",
+            "criar um teste",
+            "criar testes",
+            "escreva um teste",
+            "escreva testes",
+            "atualize o teste",
+            "atualize os testes",
+            "add a test",
+            "add tests",
+            "create a test",
+            "create tests",
+            "write a test",
+            "write tests",
+            "update the test",
+            "update tests",
+        )
+
+        return any(phrase in low for phrase in phrases)
+
+    def looks_like_validation(command):
+        command = command.strip().lower()
+
+        patterns = [
+            r"(^|[;&|]\s*)(python3?|python)\s+[^;&|]*test[^;&|]*\.py(?:\s|$)",
+            r"(^|\s)(pytest|python3?\s+-m\s+pytest)(\s|$)",
+            r"(^|\s)go\s+test(\s|$)",
+            r"(^|\s)cargo\s+(test|check)(\s|$)",
+            r"(^|\s)(npm|pnpm)\s+(test|run\s+(test|lint|build|check|typecheck))(\s|$)",
+            r"(^|\s)yarn\s+(test|lint|build|check|typecheck)(\s|$)",
+            r"(^|\s)bun\s+(test|run\s+(test|lint|build|check))(\s|$)",
+            r"(^|\s)(mvn|mvnw)\s+.*\btest\b",
+            r"(^|\s)(gradle|gradlew)\s+.*\b(test|check|build)\b",
+            r"(^|\s)(ruff|flake8|mypy|pyright|eslint)(\s|$)",
+            r"(^|\s)(tsc|npx\s+tsc)(\s|$)",
+            r"(^|\s)python3?\s+-m\s+py_compile(\s|$)",
+            r"(^|\s)node\s+--check(\s|$)",
+        ]
+
+        return any(re.search(pattern, command) for pattern in patterns)
+
+    for _ in range(max_rounds_by_mode.get(mode, MAX_ROUNDS)):
+        result = api_call(
+            host,
+            messages,
+            tools=mode_tools,
+            max_tokens=mode_max_tokens,
+        )
+        message = result["choices"][0]["message"]
+        tool_calls = message.get("tool_calls") or []
+
+        messages.append(message)
+
+        if not tool_calls:
+            content = message.get("content", "").strip()
+
+            if mode == "debug" and not debug_source_inspected:
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "DEBUG EVIDENCE REQUIRED: runtime output alone "
+                        "is insufficient. Inspect the relevant source "
+                        "and caller/test files, then trace the exact "
+                        "value or control-flow transformation."
+                    ),
+                })
+                continue
+
+            if (
+                mode == "implement"
+                and patch_sanity_issue
+            ):
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "POST-PATCH DEFECT MUST BE FIXED: "
+                        + patch_sanity_issue
+                        + "\nDo not conclude yet. Fix only this "
+                          "concrete defect, then rerun the required "
+                          "validation after the corrective patch."
+                    ),
+                })
+                continue
+
+            if mode in {"fix", "refactor", "implement"} and needs_validation:
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "VALIDATION REQUIRED: repository files changed after the last "
+                        "successful validation. Do not conclude yet. Run the relevant "
+                        "existing test/check now. Only conclude after it exits successfully."
+                    ),
+                })
+                continue
+
+            if (
+                mode == "implement"
+                and task_explicitly_requires_test_change(task)
+                and not any(
+                    looks_like_test_path(path)
+                    for path in modified_paths
+                )
+            ):
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "IMPLEMENTATION INCOMPLETE: the user explicitly requested "
+                        "adding or updating tests, but no test file has been modified. "
+                        "Do not conclude or ask whether to do it. Complete the requested "
+                        "test change now, then run the relevant validation again."
+                    ),
+                })
+                continue
+
+            if mode not in {"review", "security"}:
+                workspace_state["last_answer"] = content[:1800]
+                save_workspace_state(workspace_state)
+
+            if mode == "implement":
+                final_paths = sorted(
+                    modified_paths
+                )
+
+                record_audit_event({
+                    "type": "final",
+                    "modified_paths": (
+                        final_paths
+                    ),
+                    "final_hashes": (
+                        hash_repository_paths(
+                            final_paths
+                        )
+                    ),
+                    "answer": content[:1200],
+                })
+
+            if mode in {"review", "security"}:
+                evidence = []
+
+                if git_review_snapshot:
+                    evidence.append(
+                        "[git changes preloaded]\n"
+                        + git_review_snapshot
+                    )
+
+                for msg in messages:
+                    if msg.get("role") == "tool":
+                        name = msg.get("name", "tool")
+                        body = msg.get("content", "")
+                        evidence.append(f"[{name}]\n{body}")
+
+                evidence_text = "\n\n".join(evidence)
+                if len(evidence_text) > 12000:
+                    evidence_text = evidence_text[:12000] + "\n[evidence truncated]"
+
+                if __import__("os").environ.get("LAI_DEBUG_GATE") == "1":
+                    print(
+                        "\n[GATE_DRAFT]\n" + content,
+                        file=sys.stderr,
+                    )
+
+                findings = re.findall(
+                    r"(?ms)^\s*(\d+)\.\s+(.*?)(?=^\s*\d+\.\s+|\Z)",
+                    content,
+                )
+
+                if not findings:
+                    if "nenhum problema concreto" in content.lower():
+                        print("Nenhum problema concreto encontrado no escopo revisado.")
+                    else:
+                        print(content)
+                    return
+
+                def clean_finding_body(body):
+                    body = re.sub(
+                        r"(?ms)\n\s*(?:---\s*\n)?\s*"
+                        r"(?:\*\*)?Nenhum problema "
+                        r"(?=[^\n]*\bconcreto\b)"
+                        r"(?=[^\n]*\badicional\b)"
+                        r"[^\n]*(?:\*\*)?\.?\s*$",
+                        "",
+                        body,
+                    )
+                    return body.strip()
+
+                draft_index = {
+                    int(number): clean_finding_body(body)
+                    for number, body in findings
+                }
+
+                if mode == "review":
+                    def review_finding_is_deterministically_unsupported(body):
+                        low = body.lower()
+
+                        # Findings that explicitly admit there is no concrete defect
+                        # and only speculate about ambiguity/policy are not review issues.
+                        speculative_policy_terms = (
+                            "ambiguity",
+                            "ambiguidade",
+                            "misalignment",
+                            "desalinhamento",
+                            "operational practices",
+                            "práticas operacionais",
+                            "praticas operacionais",
+                            "without clarifying",
+                            "sem esclarecer",
+                            "risk of unintended",
+                            "risco de comportamento",
+                            "could introduce ambiguity",
+                            "pode introduzir ambiguidade",
+                        )
+
+                        admits_no_concrete_flaw = any(term in low for term in (
+                            "does not introduce a security flaw",
+                            "não introduz uma falha de segurança",
+                            "nao introduz uma falha de seguranca",
+                            "not a security flaw",
+                            "não é uma falha de segurança",
+                            "nao e uma falha de seguranca",
+                            "not a concrete problem",
+                            "não é um problema concreto",
+                            "nao e um problema concreto",
+                        ))
+
+                        speculative_policy_finding = any(
+                            term in low
+                            for term in speculative_policy_terms
+                        )
+
+                        concrete_failure_terms = (
+                            "crash",
+                            "exception",
+                            "incorrect",
+                            "wrong result",
+                            "regression",
+                            "data loss",
+                            "command injection",
+                            "sql injection",
+                            "authorization bypass",
+                            "authentication bypass",
+                            "race condition",
+                            "deadlock",
+                            "falha",
+                            "erro de execução",
+                            "erro de execucao",
+                            "resultado incorreto",
+                            "regressão",
+                            "regressao",
+                            "perda de dados",
+                            "injeção",
+                            "injecao",
+                            "bypass",
+                        )
+
+                        has_concrete_failure = any(
+                            term in low
+                            for term in concrete_failure_terms
+                        )
+
+                        concrete_doc_contradiction = any(
+                            term in low
+                            for term in (
+                                "contradicts",
+                                "contradiction",
+                                "contradiz",
+                                "contradição",
+                                "contradicao",
+                                "conflicts with",
+                                "conflita com",
+                                "inconsistent with",
+                                "inconsistente com",
+                                "explicitly allows",
+                                "explicitly forbids",
+                                "permite explicitamente",
+                                "proíbe explicitamente",
+                                "proibe explicitamente",
+                            )
+                        )
+
+                        if (
+                            speculative_policy_finding
+                            and not has_concrete_failure
+                            and not concrete_doc_contradiction
+                            and (
+                                git_review_docs_only
+                                or admits_no_concrete_flaw
+                            )
+                        ):
+                            return True
+
+                        # ${VAR} is interpolation, not secret disclosure by itself.
+                        has_env_interpolation = bool(
+                            re.search(r"\$\{[A-Za-z_][A-Za-z0-9_]*(?::-[^}]*)?\}", body)
+                        )
+                        claims_secret_exposure = any(term in low for term in (
+                            "expõe a senha",
+                            "expoe a senha",
+                            "senha exposta",
+                            "secret exposure",
+                            "segredo exposto",
+                            "credenciais em claro",
+                        ))
+                        has_concrete_secret_evidence = any(term in low for term in (
+                            "hardcoded",
+                            "hard-coded",
+                            "valor literal",
+                            "senha literal",
+                            ".env commit",
+                            ".env version",
+                            "log contém",
+                            "log contem",
+                        ))
+
+                        if (
+                            has_env_interpolation
+                            and claims_secret_exposure
+                            and not has_concrete_secret_evidence
+                        ):
+                            return True
+
+                        # A host port mapping is not proof of internet/public exposure.
+                        has_port_mapping = bool(
+                            re.search(r'["\']?\d{2,5}:\d{2,5}["\']?', body)
+                        )
+                        claims_public_exposure = any(term in low for term in (
+                            "publicamente",
+                            "internet",
+                            "public exposure",
+                            "exposta publicamente",
+                            "exposto publicamente",
+                        ))
+                        has_public_exposure_evidence = any(term in low for term in (
+                            "0.0.0.0",
+                            "firewall desabilitado",
+                            "firewall disabled",
+                            "public ip",
+                            "ip público",
+                            "ip publico",
+                        ))
+
+                        if (
+                            has_port_mapping
+                            and claims_public_exposure
+                            and not has_public_exposure_evidence
+                        ):
+                            return True
+
+                        return False
+
+                    draft_index = {
+                        number: body
+                        for number, body in draft_index.items()
+                        if not review_finding_is_deterministically_unsupported(body)
+                    }
+
+                    if not draft_index:
+                        print("Nenhum problema concreto encontrado no escopo revisado.")
+                        return
+
+                    findings = [
+                        (str(number), body)
+                        for number, body in sorted(draft_index.items())
+                    ]
+
+                if mode == "security":
+                    verifier_system = """You are a strict evidence classifier for defensive security findings.
+
+Decide which numbered findings are directly supported by the repository evidence provided.
+
+KEEP a finding when the evidence establishes a concrete security-relevant source, data/control flow, and dangerous sink or security boundary violation.
+
+Examples of sufficient evidence:
+- repository documentation says a value comes directly from an HTTP request, and code interpolates that value into a shell command executed with shell=True: KEEP command injection;
+- untrusted input reaches SQL string construction without parameterization: KEEP SQL injection;
+- authorization-sensitive action is reachable without the required authorization check: KEEP broken authorization.
+
+DROP a finding when exploitability depends entirely on facts absent from repository evidence.
+DROP duplicated findings that describe the same root cause.
+DROP missing optional hardening presented as a vulnerability.
+Environment-variable interpolation such as ${POSTGRES_PASSWORD} is not itself secret exposure.
+Docker port mapping such as 5432:5432 proves host exposure only, not public/internet exposure.
+
+Do not rewrite findings.
+Do not explain.
+Do not add findings.
+
+Output exactly one of:
+KEEP: NONE
+KEEP: 1
+KEEP: 1,3"""
+                else:
+                    verifier_system = """You are a strict evidence classifier for software review findings.
+
+Decide which numbered findings are directly supported by the repository evidence provided.
+
+KEEP a finding only when the evidence establishes the actual problem being claimed.
+DROP it when the risk depends on deployment state, firewall state, secret handling, configuration, requirements, or other facts not present in the evidence.
+DROP optional configuration presented as a defect.
+DROP findings whose own reasoning admits there is no evidence of the claimed problem.
+Environment-variable interpolation such as ${POSTGRES_PASSWORD} is not secret exposure.
+Docker port mapping such as 5432:5432 proves host exposure only, not public/internet exposure.
+
+Do not rewrite findings.
+Do not explain.
+Do not add findings.
+
+Output exactly one of:
+KEEP: NONE
+KEEP: 1
+KEEP: 1,3"""
+
+                indexed_draft = "\\n\\n".join(
+                    f"[{number}]\\n{body}"
+                    for number, body in findings
+                )
+
+                verifier_messages = [
+                    {"role": "system", "content": verifier_system},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"PEDIDO ORIGINAL:\\n{task}\\n\\n"
+                            f"FINDINGS:\\n{indexed_draft}\\n\\n"
+                            f"EVIDÊNCIAS COLETADAS:\\n{evidence_text}"
+                        ),
+                    },
+                ]
+
+                verified = api_call(
+                    host,
+                    verifier_messages,
+                    use_tools=False,
+                    max_tokens=32,
+                )
+
+                verdict = (
+                    verified["choices"][0]["message"]
+                    .get("content", "")
+                    .strip()
+                )
+
+                if __import__("os").environ.get("LAI_DEBUG_GATE") == "1":
+                    print(
+                        "\n[GATE_VERDICT]\n" + verdict,
+                        file=sys.stderr,
+                    )
+
+                match = re.search(
+                    r"KEEP:\s*(NONE|[0-9, ]+)",
+                    verdict,
+                    flags=re.IGNORECASE,
+                )
+
+                if not match or match.group(1).upper() == "NONE":
+                    print("Nenhum problema concreto encontrado no escopo revisado.")
+                    return
+
+                keep_ids = {
+                    int(value)
+                    for value in re.findall(r"\d+", match.group(1))
+                }
+
+                kept = [
+                    draft_index[number]
+                    for number in sorted(keep_ids)
+                    if number in draft_index
+                ]
+
+                if not kept:
+                    print("Nenhum problema concreto encontrado no escopo revisado.")
+                    return
+
+                for index, body in enumerate(kept, 1):
+                    print(f"{index}. {body}")
+                    if index != len(kept):
+                        print()
+
+                return
+
+            print(content)
+            return
+
+        for call in tool_calls:
+            name = call["function"]["name"]
+
+            try:
+                args = json.loads(call["function"]["arguments"])
+            except json.JSONDecodeError as e:
+                tool_result = f"ERROR: invalid tool arguments: {e}"
+            else:
+                tool_result = run_tool(name, args)
+
+                if (
+                    mode in {"fix", "refactor", "implement"}
+                    and name in {"edit", "create", "patch"}
+                    and tool_result.startswith("OK:")
+                ):
+                    needs_validation = True
+
+                    if name == "patch":
+                        for change in args.get("changes") or []:
+                            changed_path = change.get("path")
+
+                            if changed_path:
+                                modified_paths.add(
+                                    str(changed_path)
+                                )
+                    else:
+                        changed_path = args.get("path")
+
+                        if changed_path:
+                            modified_paths.add(
+                                str(changed_path)
+                            )
+
+                elif (
+                    mode in {"fix", "refactor", "implement"}
+                    and name == "bash"
+                    and needs_validation
+                    and tool_result.startswith("exit_code=0")
+                    and looks_like_validation(args.get("command", ""))
+                ):
+                    needs_validation = False
+
+                if (
+                    mode == "debug"
+                    and name == "inspect"
+                    and not str(tool_result).startswith("ERROR:")
+                ):
+                    inspected_paths = args.get("paths") or []
+
+                    for inspected_path in inspected_paths:
+                        normalized = (
+                            str(inspected_path)
+                            .replace("\\", "/")
+                        )
+
+                        while normalized.startswith("./"):
+                            normalized = normalized[2:]
+
+                        if normalized != "AGENTS.md":
+                            debug_source_inspected = True
+                            break
+
+                if (
+                    mode == "implement"
+                    and name == "patch"
+                    and tool_result.startswith("OK:")
+                ):
+                    sanity_paths = [
+                        change.get("path")
+                        for change in (
+                            args.get("changes") or []
+                        )
+                        if change.get("path")
+                    ]
+
+                    patch_sanity_issue = post_patch_sanity(
+                        host,
+                        task,
+                        sanity_paths,
+                    )
+
+                    sanity_hashes = (
+                        hash_repository_paths(
+                            sanity_paths
+                        )
+                    )
+
+                    expected_hashes = {
+                        path: LAST_PATCH_HASHES.get(
+                            path
+                        )
+                        for path in sanity_paths
+                    }
+
+                    matches_patch_hashes = (
+                        sanity_hashes
+                        == expected_hashes
+                    )
+
+                    record_audit_event({
+                        "type": "sanity",
+                        "status": (
+                            "BUG"
+                            if patch_sanity_issue
+                            else "CLEAN"
+                        ),
+                        "issue": (
+                            patch_sanity_issue
+                            or None
+                        ),
+                        "paths": sanity_paths,
+                        "hashes": sanity_hashes,
+                        "expected_hashes": (
+                            expected_hashes
+                        ),
+                        "matches_patch_hashes": (
+                            matches_patch_hashes
+                        ),
+                    })
+
+                    if patch_sanity_issue:
+                        tool_result += (
+                            "\nPOST_PATCH_SANITY: "
+                            + patch_sanity_issue
+                        )
+                    else:
+                        tool_result += (
+                            "\nPOST_PATCH_SANITY: CLEAN"
+                        )
+
+                record_workspace_tool(
+                    workspace_state,
+                    name,
+                    args,
+                    tool_result,
+                    is_validation=(
+                        name == "bash"
+                        and looks_like_validation(
+                            args.get("command", "")
+                        )
+                    ),
+                )
+
+            messages.append({
+                "role": "tool",
+                "tool_call_id": call["id"],
+                "name": name,
+                "content": tool_result,
+            })
+
+    if mode == "plan":
+        evidence = []
+
+        for msg in messages:
+            if msg.get("role") == "tool":
+                name = msg.get("name", "tool")
+                body = msg.get("content", "")
+                evidence.append(f"[{name}]\n{body}")
+
+        evidence_text = "\n\n".join(evidence)
+
+        if len(evidence_text) > 10000:
+            evidence_text = (
+                evidence_text[:10000]
+                + "\n[evidence truncated]"
+            )
+
+        forced_messages = [
+            {
+                "role": "system",
+                "content": (
+                    system
+                    + "\n\nExploration budget is exhausted. "
+                      "Do not request tools. Synthesize the implementation "
+                      "plan now using only the collected repository evidence."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    task
+                    + "\n\nCOLLECTED REPOSITORY EVIDENCE:\n"
+                    + evidence_text
+                ),
+            },
+        ]
+
+        result = api_call(
+            host,
+            forced_messages,
+            use_tools=False,
+            max_tokens=140,
+        )
+
+        forced_content = (
+            result["choices"][0]["message"]
+            .get("content", "")
+            .strip()
+        )
+
+        workspace_state["last_answer"] = forced_content[:1800]
+        save_workspace_state(workspace_state)
+
+        print(forced_content)
+        return
+
+    print("Agent stopped after reaching the tool-call limit.", file=sys.stderr)
+    raise SystemExit(2)
+
+
+if __name__ == "__main__":
+    main()

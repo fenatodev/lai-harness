@@ -1,0 +1,103 @@
+{
+  "name": "lai-chat",
+  "displayName": "Local AI Chat",
+  "description": "Ministral local rápido no Chat do VS Code",
+  "version": "0.3.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fenatodev/lai-local-agent.git"
+  },
+  "publisher": "lai-local-agent",
+  "engines": {
+    "vscode": "^1.136.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onChatParticipant:lai-local-agent.lai"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "LAI — Local AI Agent",
+      "properties": {
+        "lai.agentPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to local-agent. Empty uses ~/.local/bin/local-agent."
+        }
+      }
+    },
+    "chatParticipants": [
+      {
+        "id": "lai-local-agent.lai",
+        "name": "lai",
+        "fullName": "Local AI",
+        "description": "Agente local rápido usando Ministral 8B",
+        "commands": [
+          {
+            "name": "explain",
+            "description": "Explica apenas a seleção atual, de forma rápida e grounded"
+          },
+          {
+            "name": "fix",
+            "description": "Investiga, corrige e valida um bug"
+          },
+          {
+            "name": "test",
+            "description": "Executa o teste relevante e diagnostica falhas sem editar"
+          },
+          {
+            "name": "review",
+            "description": "Revisa código com evidências sem alterar arquivos"
+          },
+          {
+            "name": "debug",
+            "description": "Reproduz uma falha e encontra a causa raiz"
+          },
+          {
+            "name": "refactor",
+            "description": "Refatora preservando comportamento e valida com testes"
+          },
+          {
+            "name": "security",
+            "description": "Faz revisão defensiva de segurança com evidências"
+          },
+          {
+            "name": "plan",
+            "description": "Analisa o projeto e cria um plano de implementação sem editar"
+          },
+          {
+            "name": "implement",
+            "description": "Implementa uma mudança e valida o resultado"
+          },
+          {
+            "name": "handoff",
+            "description": "Mostra ou registra o contexto compacto para continuar no LAI ou Codex"
+          },
+          {
+            "name": "clearcontext",
+            "description": "Limpa o contexto local persistido deste repositório"
+          },
+          {
+            "name": "status",
+            "description": "Mostra contexto, Git, validação e estado atual do LAI"
+          },
+          {
+            "name": "metrics",
+            "description": "Mostra latência, tokens e tool calls recentes do LAI"
+          },
+          {
+            "name": "audit",
+            "description": "Mostra patch, sanity, validação e hashes da última execução"
+          }
+        ]
+      }
+    ]
+  },
+  "files": [
+    "extension.js"
+  ]
+}
