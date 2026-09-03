@@ -3,6 +3,44 @@ const cp = require('child_process');
 const path = require('path');
 const os = require('os');
 
+const STDERR_PROGRESS_PREFIXES = [
+    '[read]',
+    '[search]',
+    '[list]',
+    '[git]',
+    '[inspect]',
+    '[patch]',
+    '[project]',
+    '[edit]',
+    '[create]',
+    '[bash]'
+];
+
+const MAX_STDERR_DIAGNOSTIC_CHARS = 4000;
+
+function isProgressStderrLine(line) {
+    const trimmed = String(line || '').trim();
+    return STDERR_PROGRESS_PREFIXES.some(prefix =>
+        trimmed.startsWith(prefix)
+    );
+}
+
+function appendStderrDiagnostic(current, line, maxChars = MAX_STDERR_DIAGNOSTIC_CHARS) {
+    const trimmed = String(line || '').trim();
+
+    if (!trimmed || isProgressStderrLine(trimmed)) {
+        return current;
+    }
+
+    const combined = current
+        ? `${current}\n${trimmed}`
+        : trimmed;
+
+    return combined.length <= maxChars
+        ? combined
+        : combined.slice(-maxChars);
+}
+
 function resolveAgentPath() {
     const configuredAgentPath = vscode.workspace
         .getConfiguration('lai')
@@ -206,6 +244,7 @@ function activate(context) {
             });
 
             let stderrBuffer = '';
+            let stderrDiagnostics = '';
             let producedOutput = false;
 
             const cancellation = token.onCancellationRequested(() => {
@@ -229,19 +268,13 @@ function activate(context) {
                 for (const line of lines) {
                     const trimmed = line.trim();
 
-                    if (
-                        trimmed.startsWith('[read]') ||
-                        trimmed.startsWith('[search]') ||
-                        trimmed.startsWith('[list]') ||
-                        trimmed.startsWith('[git]') ||
-                        trimmed.startsWith('[inspect]') ||
-                        trimmed.startsWith('[patch]') ||
-                        trimmed.startsWith('[project]') ||
-                        trimmed.startsWith('[edit]') ||
-                        trimmed.startsWith('[create]') ||
-                        trimmed.startsWith('[bash]')
-                    ) {
+                    if (isProgressStderrLine(trimmed)) {
                         stream.progress(trimmed);
+                    } else {
+                        stderrDiagnostics = appendStderrDiagnostic(
+                            stderrDiagnostics,
+                            trimmed
+                        );
                     }
                 }
             });
@@ -259,12 +292,25 @@ function activate(context) {
                     return;
                 }
 
+                const trailingStderr = stderrBuffer.trim();
+
+                if (trailingStderr) {
+                    if (isProgressStderrLine(trailingStderr)) {
+                        stream.progress(trailingStderr);
+                    } else {
+                        stderrDiagnostics = appendStderrDiagnostic(
+                            stderrDiagnostics,
+                            trailingStderr
+                        );
+                    }
+                }
+
                 if (code !== 0) {
                     reject(
                         new Error(
                             `local-agent terminou com código ${code}` +
-                            (stderrBuffer.trim()
-                                ? `: ${stderrBuffer.trim()}`
+                            (stderrDiagnostics
+                                ? `: ${stderrDiagnostics}`
                                 : '')
                         )
                     );
@@ -295,5 +341,7 @@ function deactivate() {}
 module.exports = {
     activate,
     deactivate,
-    resolveAgentPath
+    resolveAgentPath,
+    isProgressStderrLine,
+    appendStderrDiagnostic
 };
