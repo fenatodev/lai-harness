@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.0-alpha.3] - 2026-09-03
+
+### Fixed
+
+- Honor an exact validation command explicitly requested by the user with `valide apenas/somente com:` or `validate only with:` after a successful write.
+- Prevent post-write validation loops when the requested verification command is intentionally narrower than LAI's built-in test, lint, compile, and build validators.
+
+### Tests
+
+- Added regression coverage proving that an explicitly requested verification command can complete a write flow.
+- Added regression coverage proving that an unrequested `cat` command still cannot bypass the normal validation guard.
+
 ## [0.4.0-alpha.2] - 2026-09-03
 
 ### Added
