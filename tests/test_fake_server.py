@@ -116,39 +116,54 @@ class FakeServerTest(unittest.TestCase):
         self.assertIn("Authentication: OK", result.stdout)
         self.assertIn(f"{server.host}:{server.port}", result.stdout)
 
-    def test_model_assisted_post_patch_sanity_uses_fake_completion(self):
+    def test_text_post_patch_sanity_does_not_require_model(self):
         repo = self.root / "repo"
         repo.mkdir()
+
         target = repo / "notes.txt"
         target.write_text("before\n")
-        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-        subprocess.run(["git", "add", "notes.txt"], cwd=repo, check=True)
+
         subprocess.run(
-            ["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "base"],
+            ["git", "init", "-q"],
             cwd=repo,
             check=True,
         )
+        subprocess.run(
+            ["git", "add", "notes.txt"],
+            cwd=repo,
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "-qm",
+                "base",
+            ],
+            cwd=repo,
+            check=True,
+        )
+
         target.write_text("after\n")
 
-        def responder(payload, requests):
-            return {
-                "choices": [{"message": {"role": "assistant", "content": "BUG: synthetic defect"}}],
-                "usage": {},
-            }
-
         old_root = agent.ROOT
-        old_port = agent.LLAMA_PORT
         agent.ROOT = repo
-        agent.METRICS_DIR = self.root / "metrics"
-        agent.METRICS_FILE = agent.METRICS_DIR / "events.jsonl"
+
         try:
-            with FakeLlamaServer(responder=responder) as server:
-                agent.LLAMA_PORT = server.port
-                result = agent.post_patch_sanity(server.host, "check notes", ["notes.txt"])
+            result = agent.post_patch_sanity(
+                "unused",
+                "check notes",
+                ["notes.txt"],
+            )
         finally:
             agent.ROOT = old_root
-            agent.LLAMA_PORT = old_port
-        self.assertEqual(result, "BUG: synthetic defect")
+
+        self.assertIsNone(result)
+
 
 
 if __name__ == "__main__":

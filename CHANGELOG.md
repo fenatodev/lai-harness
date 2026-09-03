@@ -2,6 +2,31 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.0-alpha.4] - 2026-09-03
+
+### Added
+
+- Added a guarded `rewrite` tool for replacing the full contents of an existing file after complete inspection, with stale-content detection, repository confinement, symlink refusal, atomic replacement, and file-mode preservation.
+- Added deterministic Python syntax checking to post-write sanity validation.
+
+### Changed
+
+- Detect `finish_reason=length`, discard incomplete assistant generations, and retry once per round with a larger bounded token budget instead of reusing truncated output.
+- Increase the forced write-phase generation budget to reduce incomplete large edits while keeping normal implementation rounds compact.
+- Make blocking post-write sanity deterministic rather than using an additional model completion as a code-review judge.
+- Run post-write sanity after both transactional patches and guarded full-file rewrites.
+
+### Fixed
+
+- Prevent immediate validation laundering after an assertion failure by requiring a non-test implementation repair before allowing test expectations to be changed.
+- Allow legitimate test correction after the implementation has been repaired and revalidated but the assertion still fails.
+
+### Tests
+
+- Added regression coverage for truncated-response recovery, repeated truncation failure, per-round retries, and adaptive write-phase token budgets.
+- Added regression coverage for guarded rewrites, stale-file refusal, symlink refusal, full-file inspection requirements, executable-mode preservation, and Python syntax sanity.
+- Added regression coverage for source-first assertion repair while preserving legitimate syntax and expectation corrections in tests.
+
 ## [0.4.0-alpha.3] - 2026-09-03
 
 ### Fixed

@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-VERSION = "0.4.0-alpha.3"
+VERSION = "0.4.0-alpha.4"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
 CONFIG_OPTIONS = {
@@ -145,7 +145,7 @@ MAX_ROUNDS = 8
 MAX_TOOL_OUTPUT = 24000
 PRE_WRITE_EXPLORATION_BUDGET = 6
 
-WRITE_TOOLS = {"edit", "create", "patch"}
+WRITE_TOOLS = {"edit", "create", "patch", "rewrite"}
 READ_ONLY_TOOLS = {
     "read",
     "inspect",
@@ -409,6 +409,26 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "rewrite",
+            "description": (
+                "Replace the entire contents of an existing repository "
+                "text file after that exact file has been fully inspected. "
+                "Prefer this over a giant exact patch when most of a small "
+                "file must change."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "bash",
             "description": "Run repository tests, builds, checks, or narrow diagnostics",
             "parameters": {
@@ -520,6 +540,7 @@ def git_mutation_in_shell(command):
     return None
 
 read_paths = set()
+full_read_hashes = {}
 
 
 def gateway():
@@ -565,6 +586,16 @@ def tool_read(args):
 
     start = max(1, int(args.get("start_line", 1)))
     count = max(1, min(int(args.get("max_lines", 80)), 200))
+
+    # In implementation mode, fully expose small files so that a safe
+    # whole-file rewrite can be authorized without wasting another round.
+    if (
+        globals().get("ACTIVE_MODE") == "implement"
+        and start == 1
+        and len(lines) <= 180
+    ):
+        count = max(count, len(lines))
+
     end = min(len(lines), start - 1 + count)
 
     rel = str(p.relative_to(ROOT))
@@ -572,7 +603,23 @@ def tool_read(args):
 
     chunk = "\n".join(lines[start - 1:end])
     header = f"[{rel}: lines {start}-{end} of {len(lines)}]\n"
-    return trim(header + chunk)
+    rendered = header + chunk
+
+    if (
+        start == 1
+        and end == len(lines)
+        and len(rendered) <= MAX_TOOL_OUTPUT
+    ):
+        try:
+            full_read_hashes[rel] = __import__(
+                "hashlib"
+            ).sha256(
+                p.read_bytes()
+            ).hexdigest()
+        except Exception:
+            full_read_hashes.pop(rel, None)
+
+    return trim(rendered)
 
 
 def tool_edit(args):
@@ -1665,6 +1712,146 @@ def tool_create(args):
     return f"OK: created {p.relative_to(ROOT)}"
 
 
+def tool_rewrite(args):
+    raw_path = str(args.get("path") or "").strip()
+    content = args.get("content")
+
+    if not raw_path:
+        return "ERROR: rewrite requires a non-empty path"
+
+    if not isinstance(content, str):
+        return "ERROR: rewrite content must be a string"
+
+    rel = raw_path.replace("\\", "/")
+
+    while rel.startswith("./"):
+        rel = rel[2:]
+
+    if Path(rel).is_absolute():
+        return "ERROR: rewrite requires a repository-relative path"
+
+    agents = ROOT / "AGENTS.md"
+
+    if agents.is_file() and "AGENTS.md" not in read_paths:
+        return (
+            "ERROR: AGENTS.md exists. "
+            "Inspect AGENTS.md before modifying files."
+        )
+
+    root_real = ROOT.resolve()
+    candidate = root_real / rel
+
+    # Refuse symlink traversal even when the resolved target remains
+    # inside the repository.
+    cursor = root_real
+
+    for part in Path(rel).parts:
+        cursor = cursor / part
+
+        if cursor.is_symlink():
+            return (
+                "ERROR: rewrite refuses symlink path: "
+                + rel
+            )
+
+    try:
+        resolved = candidate.resolve()
+        resolved.relative_to(root_real)
+    except Exception:
+        return "ERROR: path escapes repository: " + rel
+
+    if not candidate.is_file():
+        return "ERROR: rewrite target is not a file: " + rel
+
+    observed_hash = full_read_hashes.get(rel)
+
+    if not observed_hash:
+        return (
+            "ERROR: rewrite requires a full inspection of "
+            f"{rel} before replacing its contents."
+        )
+
+    try:
+        current_bytes = candidate.read_bytes()
+    except Exception as exc:
+        return (
+            f"ERROR: cannot read {rel}: "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+    current_hash = __import__(
+        "hashlib"
+    ).sha256(
+        current_bytes
+    ).hexdigest()
+
+    if current_hash != observed_hash:
+        full_read_hashes.pop(rel, None)
+        return (
+            "ERROR: rewrite target changed after inspection: "
+            f"{rel}. Inspect the current file before rewriting it."
+        )
+
+    encoded = content.encode("utf-8")
+
+    if len(encoded) > 500_000:
+        return "ERROR: rewrite content too large: " + rel
+
+    os_module = __import__("os")
+    stat_module = __import__("stat")
+    tempfile_module = __import__("tempfile")
+
+    temp_path = None
+
+    try:
+        mode = stat_module.S_IMODE(
+            candidate.stat().st_mode
+        )
+
+        with tempfile_module.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=candidate.parent,
+            prefix=".lai-rewrite-",
+            delete=False,
+        ) as handle:
+            handle.write(content)
+            handle.flush()
+            os_module.fsync(handle.fileno())
+            temp_path = Path(handle.name)
+
+        temp_path.chmod(mode)
+        os_module.replace(
+            temp_path,
+            candidate,
+        )
+
+    except Exception as exc:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+        return (
+            "ERROR: rewrite write failed: "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+    new_hash = __import__(
+        "hashlib"
+    ).sha256(
+        candidate.read_bytes()
+    ).hexdigest()
+
+    # The model authored the complete new file, so the new state is also
+    # known in full and can safely participate in a later guarded rewrite.
+    full_read_hashes[rel] = new_hash
+    read_paths.add(rel)
+
+    return f"OK: rewritten {rel}"
+
+
 METRICS_DIR = CONFIG["metrics_dir"]
 METRICS_FILE = METRICS_DIR / "events.jsonl"
 
@@ -2315,7 +2502,15 @@ def run_tool(name, args):
             )
             if change.get("path")
         ]
+    elif name == "rewrite":
+        rewrite_path = args.get("path")
+        audit_patch_paths = (
+            [str(rewrite_path)]
+            if rewrite_path
+            else []
+        )
 
+    if name in {"patch", "rewrite"}:
         audit_before_hashes = (
             hash_repository_paths(
                 audit_patch_paths
@@ -2343,6 +2538,8 @@ def run_tool(name, args):
             result = tool_edit(args)
         elif name == "create":
             result = tool_create(args)
+        elif name == "rewrite":
+            result = tool_rewrite(args)
         elif name == "bash":
             result = tool_bash(args)
         else:
@@ -2357,7 +2554,7 @@ def run_tool(name, args):
         - started
     ) * 1000.0
 
-    if name == "patch":
+    if name in {"patch", "rewrite"}:
         audit_after_hashes = (
             hash_repository_paths(
                 audit_patch_paths
@@ -2373,7 +2570,7 @@ def run_tool(name, args):
         )
 
         record_audit_event({
-            "type": "patch",
+            "type": name,
             "paths": audit_patch_paths,
             "before_hashes": (
                 audit_before_hashes
@@ -2498,93 +2695,6 @@ def api_call(
 
 STATE_BASE = CONFIG["state_dir"]
 
-def classify_patch_sanity(
-    host,
-    task,
-    diff_text,
-):
-    if not diff_text.strip():
-        return None
-
-    # Keep only file headers, hunks and additions.
-    # This reduces distraction and prefill.
-    focused_lines = []
-
-    for line in diff_text.splitlines():
-        if (
-            line.startswith("diff --git ")
-            or line.startswith("+++ ")
-            or line.startswith("@@ ")
-            or (
-                line.startswith("+")
-                and not line.startswith("+++")
-            )
-        ):
-            focused_lines.append(line)
-
-    focused = "\n".join(
-        focused_lines
-    )[:4500]
-
-    if not focused.strip():
-        return None
-
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a strict added-lines defect checker. "
-                "Review ONLY concrete defects introduced by the patch. "
-                "Return exactly CLEAN or one line beginning BUG:. "
-                "Report only defects likely to break execution or an "
-                "explicit acceptance criterion: misspelled/undefined "
-                "identifier, syntax/runtime defect, broken import/export, "
-                "invalid API use, or explicitly missing requested behavior. "
-                "Do not report style, naming, formatting, optional "
-                "improvements, speculative edge cases, or pre-existing "
-                "issues. If an added line in the supplied patch clearly "
-                "defines/imports an identifier, do not call it undefined."
-            ),
-        },
-        {
-            "role": "user",
-            "content": (
-                "TASK:\n"
-                + task[:1000]
-                + "\n\nADDED PATCH LINES:\n"
-                + focused
-            ),
-        },
-    ]
-
-    try:
-        result = api_call(
-            host,
-            messages,
-            use_tools=False,
-            max_tokens=64,
-        )
-
-        text = (
-            result["choices"][0]["message"]
-            .get("content", "")
-            .strip()
-        )
-    except Exception:
-        return None
-
-    upper = text.upper()
-
-    if upper == "CLEAN":
-        return None
-
-    if upper.startswith("BUG:"):
-        return text[:500]
-
-    return None
-
-
-
 def post_patch_sanity(
     host,
     task,
@@ -2612,7 +2722,45 @@ def post_patch_sanity(
     root_real = ROOT.resolve()
 
     # --------------------------------------------------------
-    # 1. Deterministic syntax checks for runnable JS.
+    # 1. Deterministic Python syntax checks.
+    # --------------------------------------------------------
+
+    for rel in normalized:
+        if Path(rel).suffix.lower() != ".py":
+            continue
+
+        candidate = root_real / rel
+
+        if not candidate.is_file():
+            continue
+
+        try:
+            source = candidate.read_text(
+                encoding="utf-8",
+                errors="replace",
+            )
+            compile(
+                source,
+                str(candidate),
+                "exec",
+            )
+        except SyntaxError as exc:
+            location = (
+                f" line {exc.lineno}"
+                if exc.lineno
+                else ""
+            )
+            detail = str(exc.msg or "invalid syntax")[:240]
+
+            return (
+                f"BUG: Python syntax check failed for "
+                f"{rel}{location}: {detail}"
+            )
+        except Exception:
+            pass
+
+    # --------------------------------------------------------
+    # 2. Deterministic syntax checks for runnable JS.
     # --------------------------------------------------------
 
     node_path = __import__(
@@ -2672,7 +2820,7 @@ def post_patch_sanity(
                 )
 
     # --------------------------------------------------------
-    # 2. Deterministic added-line inspection.
+    # 3. Deterministic added-line inspection.
     # --------------------------------------------------------
 
     try:
@@ -2837,15 +2985,9 @@ def post_patch_sanity(
                     + (suggested or "")
                 )
 
-    # --------------------------------------------------------
-    # 3. Small LLM check for defects not caught statically.
-    # --------------------------------------------------------
-
-    return classify_patch_sanity(
-        host,
-        task,
-        diff_text,
-    )
+    # Blocking post-patch sanity is intentionally deterministic.
+    # Broader code review belongs in explicit validation/review flows.
+    return None
 
 
 
@@ -3599,7 +3741,15 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
         "refactor": {"project", "read", "search", "list", "git", "edit", "create", "bash"},
         "security": {"read", "search", "list", "git"},
         "plan": {"inspect", "search"},
-        "implement": {"inspect", "search", "git", "patch", "create", "bash"},
+        "implement": {
+            "inspect",
+            "search",
+            "git",
+            "patch",
+            "rewrite",
+            "create",
+            "bash",
+        },
     }
 
     mode_tools = [
@@ -3869,6 +4019,9 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
     }
 
     needs_validation = False
+    last_validation_failure = None
+    assertion_test_write_guard = False
+    source_repair_since_assertion_failure = False
     modified_paths = set()
     debug_source_inspected = False
     patch_sanity_issue = None
@@ -3905,6 +4058,46 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
             or ".spec." in name
             or "/tests/" in f"/{rel}/"
             or "/test/" in f"/{rel}/"
+        )
+
+    def write_paths_for_call(name, args):
+        if name == "patch":
+            values = [
+                change.get("path")
+                for change in (
+                    args.get("changes") or []
+                )
+                if isinstance(change, dict)
+            ]
+        elif name in WRITE_TOOLS:
+            values = [args.get("path")]
+        else:
+            values = []
+
+        normalized = []
+
+        for raw in values:
+            rel = str(raw or "").replace("\\", "/").strip()
+
+            while rel.startswith("./"):
+                rel = rel[2:]
+
+            if rel and rel not in normalized:
+                normalized.append(rel)
+
+        return normalized
+
+    def validation_failure_is_assertion(value):
+        text = str(value or "")
+
+        return (
+            "AssertionError" in text
+            or bool(
+                re.search(
+                    r"(?m)^\s*E\s+assert\b",
+                    text,
+                )
+            )
         )
 
     def task_explicitly_requires_test_change(value):
@@ -3993,6 +4186,7 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
 
     for _ in range(max_rounds_by_mode.get(mode, MAX_ROUNDS)):
         active_tools = mode_tools
+        round_max_tokens = mode_max_tokens
 
         if exploration_guard.exhausted and not exploration_guard.write_succeeded:
             active_tools = [
@@ -4000,14 +4194,75 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
                 for tool in mode_tools
                 if tool["function"]["name"] in WRITE_TOOLS
             ]
+            round_max_tokens = max(
+                round_max_tokens,
+                2048,
+            )
 
-        result = api_call(
-            host,
-            messages,
-            tools=active_tools,
-            max_tokens=mode_max_tokens,
-        )
-        message = result["choices"][0]["message"]
+        truncation_retry_used = False
+        call_max_tokens = round_max_tokens
+
+        while True:
+            result = api_call(
+                host,
+                messages,
+                tools=active_tools,
+                max_tokens=call_max_tokens,
+            )
+
+            choice = result["choices"][0]
+            finish_reason = choice.get("finish_reason")
+
+            if finish_reason != "length":
+                break
+
+            retry_max_tokens = min(
+                4096,
+                max(
+                    call_max_tokens * 2,
+                    call_max_tokens + 256,
+                ),
+            )
+
+            truncation_event = {
+                "type": "agent_limit",
+                "reason": "response_truncated",
+                "max_tokens": call_max_tokens,
+                "retry": not truncation_retry_used,
+                "retry_max_tokens": (
+                    retry_max_tokens
+                    if not truncation_retry_used
+                    else None
+                ),
+            }
+
+            record_metric_event(truncation_event)
+            record_audit_event(truncation_event)
+
+            if truncation_retry_used:
+                print(
+                    "Agent stopped: model response truncated twice; "
+                    "refusing to continue with incomplete assistant output.",
+                    file=__import__("sys").stderr,
+                )
+                raise SystemExit(2)
+
+            truncation_retry_used = True
+
+            messages.append({
+                "role": "user",
+                "content": (
+                    "RESPONSE TRUNCATED: the previous assistant generation "
+                    "hit the token limit and was discarded. Retry now with "
+                    "a concise response. If a tool is needed, return exactly "
+                    "one complete tool call with minimal arguments. Do not "
+                    "repeat analysis."
+                ),
+            })
+
+            call_max_tokens = retry_max_tokens
+
+        message = choice["message"]
         tool_calls = message.get("tool_calls") or []
 
         messages.append(message)
@@ -4043,7 +4298,7 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
                     "role": "user",
                     "content": (
                         "PHASE-SHIFT RESPONSE REJECTED: no successful write "
-                        "was recorded. Use edit/create/patch now, or reply with "
+                        "was recorded. Use edit/create/patch/rewrite now, or reply with "
                         "the exact prefix IMPLEMENTATION_IMPOSSIBLE: followed "
                         "by the reason. Do not claim implementation success."
                     ),
@@ -4489,7 +4744,61 @@ KEEP: 1,3"""
                 if blocked_result is not None:
                     tool_result = blocked_result
                 else:
-                    tool_result = run_tool(name, args)
+                    validation_guard_result = None
+
+                    if (
+                        mode == "implement"
+                        and assertion_test_write_guard
+                        and last_validation_failure
+                        and name in WRITE_TOOLS
+                    ):
+                        proposed_paths = write_paths_for_call(
+                            name,
+                            args,
+                        )
+
+                        proposed_test_paths = [
+                            path
+                            for path in proposed_paths
+                            if looks_like_test_path(path)
+                        ]
+
+                        existing_source_changes = any(
+                            not looks_like_test_path(path)
+                            for path in modified_paths
+                        )
+
+                        if (
+                            proposed_test_paths
+                            and existing_source_changes
+                        ):
+                            validation_guard_result = (
+                                "BLOCKED: VALIDATION FAILURE GUARD: "
+                                "the last required validation failed with "
+                                "an assertion after implementation code "
+                                "was modified. Do not weaken or alter test "
+                                "expectations while that assertion failure "
+                                "is active. Fix the non-test implementation "
+                                "first, then rerun the required validation. "
+                                "The previous validation failure remains "
+                                "the evidence to satisfy."
+                            )
+
+                            guard_event = {
+                                "type": "validation_guard",
+                                "reason": (
+                                    "test_write_after_assertion_failure"
+                                ),
+                                "paths": proposed_test_paths,
+                            }
+
+                            record_metric_event(guard_event)
+                            record_audit_event(guard_event)
+
+                    if validation_guard_result is not None:
+                        tool_result = validation_guard_result
+                    else:
+                        tool_result = run_tool(name, args)
 
                 record_exploration_exhaustion()
 
@@ -4500,6 +4809,20 @@ KEEP: 1,3"""
                 ):
                     exploration_guard.note_successful_write()
                     needs_validation = True
+
+                    if assertion_test_write_guard:
+                        successful_write_paths = (
+                            write_paths_for_call(
+                                name,
+                                args,
+                            )
+                        )
+
+                        if any(
+                            not looks_like_test_path(path)
+                            for path in successful_write_paths
+                        ):
+                            source_repair_since_assertion_failure = True
 
                     if name == "patch":
                         for change in args.get("changes") or []:
@@ -4521,12 +4844,39 @@ KEEP: 1,3"""
                     mode in {"fix", "refactor", "implement"}
                     and name == "bash"
                     and needs_validation
-                    and tool_result.startswith("exit_code=0")
+                    and tool_result.startswith("exit_code=")
                     and command_satisfies_validation(
                         args.get("command", "")
                     )
                 ):
-                    needs_validation = False
+                    if tool_result.startswith("exit_code=0"):
+                        needs_validation = False
+                        last_validation_failure = None
+                        assertion_test_write_guard = False
+                        source_repair_since_assertion_failure = False
+                    else:
+                        is_assertion_failure = (
+                            validation_failure_is_assertion(
+                                tool_result
+                            )
+                        )
+
+                        if is_assertion_failure:
+                            if (
+                                assertion_test_write_guard
+                                and source_repair_since_assertion_failure
+                            ):
+                                # A non-test repair has already been tried
+                                # and revalidated. At this point the test
+                                # itself may legitimately need correction.
+                                assertion_test_write_guard = False
+                            else:
+                                assertion_test_write_guard = True
+                        else:
+                            assertion_test_write_guard = False
+
+                        source_repair_since_assertion_failure = False
+                        last_validation_failure = tool_result
 
                 if (
                     mode == "debug"
@@ -4550,16 +4900,21 @@ KEEP: 1,3"""
 
                 if (
                     mode == "implement"
-                    and name == "patch"
+                    and name in {"patch", "rewrite"}
                     and tool_result.startswith("OK:")
                 ):
-                    sanity_paths = [
-                        change.get("path")
-                        for change in (
-                            args.get("changes") or []
-                        )
-                        if change.get("path")
-                    ]
+                    if name == "patch":
+                        sanity_paths = [
+                            change.get("path")
+                            for change in (
+                                args.get("changes") or []
+                            )
+                            if change.get("path")
+                        ]
+                    else:
+                        sanity_paths = [
+                            args.get("path")
+                        ] if args.get("path") else []
 
                     patch_sanity_issue = post_patch_sanity(
                         host,

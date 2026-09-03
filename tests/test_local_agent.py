@@ -29,6 +29,7 @@ class LocalAgentTest(unittest.TestCase):
         agent.STATE_BASE = self.root / ".lai-data" / "state"
         agent.CONFIG["api_key_file"] = self.root / "key"
         agent.read_paths.clear()
+        agent.full_read_hashes.clear()
 
     def tearDown(self):
         self.temp.cleanup()
@@ -88,6 +89,124 @@ class LocalAgentTest(unittest.TestCase):
         self.assertTrue(first.startswith("OK:"))
         self.assertIn("already exists", second)
         self.assertEqual((self.root / "new/file.txt").read_text(), "created")
+
+    def test_rewrite_requires_full_inspection(self):
+        target = self.root / "sample.txt"
+        target.write_text("one\ntwo\nthree\n")
+
+        agent.tool_read({
+            "path": "sample.txt",
+            "start_line": 1,
+            "max_lines": 1,
+        })
+
+        result = agent.tool_rewrite({
+            "path": "sample.txt",
+            "content": "replaced\n",
+        })
+
+        self.assertIn(
+            "requires a full inspection",
+            result,
+        )
+        self.assertEqual(
+            target.read_text(),
+            "one\ntwo\nthree\n",
+        )
+
+    def test_implement_read_fully_exposes_small_file_for_rewrite(self):
+        target = self.root / "sample.txt"
+        target.write_text(
+            "".join(
+                f"line-{index}\n"
+                for index in range(1, 62)
+            )
+        )
+
+        old_mode = agent.ACTIVE_MODE
+        agent.ACTIVE_MODE = "implement"
+
+        try:
+            read_result = agent.tool_read({
+                "path": "sample.txt",
+                "start_line": 1,
+                "max_lines": 60,
+            })
+        finally:
+            agent.ACTIVE_MODE = old_mode
+
+        self.assertIn(
+            "lines 1-61 of 61",
+            read_result,
+        )
+        self.assertIn(
+            "sample.txt",
+            agent.full_read_hashes,
+        )
+
+        target.chmod(0o755)
+
+        result = agent.tool_rewrite({
+            "path": "sample.txt",
+            "content": "replacement = True\n",
+        })
+
+        self.assertTrue(
+            result.startswith("OK: rewritten")
+        )
+        self.assertEqual(
+            target.read_text(),
+            "replacement = True\n",
+        )
+        self.assertTrue(
+            target.stat().st_mode & 0o100
+        )
+
+    def test_rewrite_refuses_file_changed_after_inspection(self):
+        target = self.root / "sample.txt"
+        target.write_text("before\n")
+
+        agent.tool_read({
+            "path": "sample.txt",
+            "start_line": 1,
+            "max_lines": 80,
+        })
+
+        target.write_text("external change\n")
+
+        result = agent.tool_rewrite({
+            "path": "sample.txt",
+            "content": "replacement\n",
+        })
+
+        self.assertIn(
+            "changed after inspection",
+            result,
+        )
+        self.assertEqual(
+            target.read_text(),
+            "external change\n",
+        )
+
+    def test_rewrite_refuses_symlink_even_inside_repository(self):
+        target = self.root / "target.txt"
+        target.write_text("before\n")
+        link = self.root / "link.txt"
+        link.symlink_to(target)
+
+        result = agent.tool_rewrite({
+            "path": "link.txt",
+            "content": "replacement\n",
+        })
+
+        self.assertIn(
+            "refuses symlink",
+            result,
+        )
+        self.assertEqual(
+            target.read_text(),
+            "before\n",
+        )
 
     def test_repository_confinement_blocks_escaping_symlink(self):
         outside = self.root.parent / "outside-lai-test.txt"
@@ -422,6 +541,42 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertIn("newError", result)
 
+    def test_post_patch_sanity_catches_python_syntax_error(self):
+        target = self.root / "sample.py"
+        target.write_text("VALUE = 1\n")
+
+        subprocess.run(
+            ["git", "add", "sample.py"],
+            cwd=self.root,
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "-qm",
+                "base",
+            ],
+            cwd=self.root,
+            check=True,
+        )
+
+        target.write_text("def broken(:\n    pass\n")
+
+        result = agent.post_patch_sanity(
+            "unused",
+            "fix syntax",
+            ["sample.py"],
+        )
+
+        self.assertIsNotNone(result)
+        self.assertIn("Python syntax check failed", result)
+        self.assertIn("sample.py", result)
+
     def test_deterministic_version_command_needs_no_server(self):
         result = subprocess.run(
             [str(SOURCE), "--version"],
@@ -430,7 +585,7 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "lai-local-agent 0.4.0-alpha.3")
+        self.assertEqual(result.stdout.strip(), "lai-local-agent 0.4.0-alpha.4")
 
     def test_deterministic_show_config_obeys_cli_without_server(self):
         result = subprocess.run(

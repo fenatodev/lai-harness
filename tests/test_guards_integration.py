@@ -20,6 +20,23 @@ def completion(content):
     }
 
 
+def truncated_completion(content="partial response", tokens=640):
+    return {
+        "choices": [{
+            "finish_reason": "length",
+            "message": {
+                "role": "assistant",
+                "content": content,
+            },
+        }],
+        "usage": {
+            "prompt_tokens": 10,
+            "completion_tokens": tokens,
+            "total_tokens": 10 + tokens,
+        },
+    }
+
+
 def tool_call(call_id, name, arguments):
     return {
         "choices": [{
@@ -82,6 +99,597 @@ class GuardIntegrationTest(unittest.TestCase):
             capture_output=True,
             timeout=20,
             check=check,
+        )
+
+    def test_truncated_response_is_discarded_and_retried_once(self):
+        partial = "PARTIAL_OUTPUT_MUST_NOT_ENTER_HISTORY"
+
+        responder = SequenceResponder([
+            truncated_completion(partial, tokens=640),
+            tool_call(
+                "create",
+                "create",
+                {
+                    "path": "result.py",
+                    "content": "value = 1\n",
+                },
+            ),
+            tool_call(
+                "validate",
+                "bash",
+                {
+                    "command": "python3 -m py_compile result.py",
+                },
+            ),
+            completion("implemented after truncation recovery"),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--implement",
+                "Create result.py with value = 1.",
+            )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            result.stdout.strip(),
+            "implemented after truncation recovery",
+        )
+        self.assertTrue((self.repo / "result.py").is_file())
+
+        self.assertEqual(
+            responder.payloads[0]["max_tokens"],
+            640,
+        )
+        self.assertEqual(
+            responder.payloads[1]["max_tokens"],
+            1280,
+        )
+
+        retry_messages = responder.payloads[1]["messages"]
+
+        self.assertFalse(any(
+            partial in str(message.get("content", ""))
+            for message in retry_messages
+        ))
+
+        self.assertIn(
+            "RESPONSE TRUNCATED",
+            retry_messages[-1]["content"],
+        )
+
+    def test_separate_rounds_each_get_one_truncation_retry(self):
+        responder = SequenceResponder([
+            truncated_completion("partial create", tokens=640),
+            tool_call(
+                "create",
+                "create",
+                {
+                    "path": "result.py",
+                    "content": "value = 1\n",
+                },
+            ),
+            truncated_completion("partial validation", tokens=640),
+            tool_call(
+                "validate",
+                "bash",
+                {
+                    "command": "python3 -m py_compile result.py",
+                },
+            ),
+            completion("implemented after two recovered rounds"),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--implement",
+                "Create result.py with value = 1.",
+            )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            result.stdout.strip(),
+            "implemented after two recovered rounds",
+        )
+
+        self.assertEqual(
+            [payload["max_tokens"] for payload in responder.payloads],
+            [640, 1280, 640, 1280, 640],
+        )
+
+    def test_forced_write_phase_gets_larger_token_budget(self):
+        calls = [
+            tool_call(
+                f"search-{index}",
+                "search",
+                {"query": f"needle-{index}"},
+            )
+            for index in range(6)
+        ]
+
+        def assert_write_budget(payload):
+            self.assertEqual(payload["max_tokens"], 2048)
+
+            offered = {
+                tool["function"]["name"]
+                for tool in payload.get("tools", [])
+            }
+            self.assertEqual(offered, {"patch", "create", "rewrite"})
+
+            return tool_call(
+                "create",
+                "create",
+                {
+                    "path": "result.py",
+                    "content": "value = 1\n",
+                },
+            )
+
+        responder = SequenceResponder([
+            *calls,
+            assert_write_budget,
+            tool_call(
+                "validate",
+                "bash",
+                {
+                    "command": "python3 -m py_compile result.py",
+                },
+            ),
+            completion("implemented with write-phase budget"),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--implement",
+                "Find the target and create result.py with value = 1.",
+            )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertTrue((self.repo / "result.py").is_file())
+        self.assertEqual(
+            result.stdout.strip(),
+            "implemented with write-phase budget",
+        )
+
+    def test_forced_write_phase_truncation_retries_at_4096(self):
+        calls = [
+            tool_call(
+                f"search-{index}",
+                "search",
+                {"query": f"needle-{index}"},
+            )
+            for index in range(6)
+        ]
+
+        responder = SequenceResponder([
+            *calls,
+            truncated_completion("partial write", tokens=2048),
+            tool_call(
+                "create",
+                "create",
+                {
+                    "path": "result.py",
+                    "content": "value = 1\n",
+                },
+            ),
+            tool_call(
+                "validate",
+                "bash",
+                {
+                    "command": "python3 -m py_compile result.py",
+                },
+            ),
+            completion("implemented after large retry"),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--implement",
+                "Find the target and create result.py with value = 1.",
+            )
+
+        self.assertEqual(result.returncode, 0)
+
+        self.assertEqual(
+            responder.payloads[6]["max_tokens"],
+            2048,
+        )
+        self.assertEqual(
+            responder.payloads[7]["max_tokens"],
+            4096,
+        )
+
+    def test_second_truncation_fails_cleanly(self):
+        responder = SequenceResponder([
+            truncated_completion("first partial", tokens=640),
+            truncated_completion("second partial", tokens=1280),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--implement",
+                "Create result.py with value = 1.",
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "model response truncated twice",
+            result.stderr,
+        )
+        self.assertFalse((self.repo / "result.py").exists())
+
+        metric_events = [
+            json.loads(line)
+            for line in (
+                self.data / "metrics" / "events.jsonl"
+            ).read_text().splitlines()
+        ]
+
+        truncations = [
+            event
+            for event in metric_events
+            if (
+                event.get("type") == "agent_limit"
+                and event.get("reason") == "response_truncated"
+            )
+        ]
+
+        self.assertEqual(len(truncations), 2)
+        self.assertTrue(truncations[0]["retry"])
+        self.assertFalse(truncations[1]["retry"])
+        self.assertEqual(truncations[0]["max_tokens"], 640)
+        self.assertEqual(
+            truncations[0]["retry_max_tokens"],
+            1280,
+        )
+        self.assertEqual(truncations[1]["max_tokens"], 1280)
+
+    def test_assertion_failure_blocks_test_weakening_until_source_repair(self):
+        responder = SequenceResponder([
+            tool_call(
+                "create-app",
+                "create",
+                {
+                    "path": "app.py",
+                    "content": "VALUE = 500\n",
+                },
+            ),
+            tool_call(
+                "create-test",
+                "create",
+                {
+                    "path": "tests/test_app.py",
+                    "content": (
+                        "import unittest\n"
+                        "from app import VALUE\n\n"
+                        "class AppTest(unittest.TestCase):\n"
+                        "    def test_value(self):\n"
+                        "        self.assertEqual(VALUE, 2)\n"
+                    ),
+                },
+            ),
+            tool_call(
+                "validate-fail",
+                "bash",
+                {
+                    "command": (
+                        "python3 -m unittest discover "
+                        "-s tests -v"
+                    ),
+                },
+            ),
+            tool_call(
+                "weaken-test",
+                "patch",
+                {
+                    "changes": [
+                        {
+                            "path": "tests/test_app.py",
+                            "old": (
+                                "self.assertEqual(VALUE, 2)"
+                            ),
+                            "new": (
+                                "self.assertLessEqual(VALUE, 5)"
+                            ),
+                        },
+                    ],
+                },
+            ),
+            tool_call(
+                "fix-source",
+                "patch",
+                {
+                    "changes": [
+                        {
+                            "path": "app.py",
+                            "old": "VALUE = 500",
+                            "new": "VALUE = 2",
+                        },
+                    ],
+                },
+            ),
+            tool_call(
+                "validate-pass",
+                "bash",
+                {
+                    "command": (
+                        "python3 -m unittest discover "
+                        "-s tests -v"
+                    ),
+                },
+            ),
+            completion("source repaired and validated"),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--implement",
+                "Create app.py and tests/test_app.py so the test passes.",
+            )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            (self.repo / "app.py").read_text(),
+            "VALUE = 2\n",
+        )
+
+        test_text = (
+            self.repo
+            / "tests"
+            / "test_app.py"
+        ).read_text()
+
+        self.assertIn(
+            "self.assertEqual(VALUE, 2)",
+            test_text,
+        )
+        self.assertNotIn(
+            "assertLessEqual",
+            test_text,
+        )
+
+        repair_payload = responder.payloads[4]
+
+        self.assertIn(
+            "VALIDATION FAILURE GUARD",
+            str(repair_payload["messages"]),
+        )
+
+        audit_events = [
+            json.loads(line)
+            for line in (
+                self.data
+                / "audit"
+                / "events.jsonl"
+            ).read_text().splitlines()
+        ]
+
+        guarded = [
+            event
+            for event in audit_events
+            if event.get("type") == "validation_guard"
+        ]
+
+        self.assertEqual(
+            guarded[-1]["reason"],
+            "test_write_after_assertion_failure",
+        )
+
+    def test_assertion_guard_allows_test_correction_after_source_revalidation(self):
+        responder = SequenceResponder([
+            tool_call(
+                "create-app",
+                "create",
+                {
+                    "path": "app.py",
+                    "content": "VALUE = 500\n",
+                },
+            ),
+            tool_call(
+                "create-test",
+                "create",
+                {
+                    "path": "tests/test_app.py",
+                    "content": (
+                        "import unittest\n"
+                        "from app import VALUE\n\n"
+                        "class AppTest(unittest.TestCase):\n"
+                        "    def test_value(self):\n"
+                        "        self.assertEqual(VALUE, 200)\n"
+                    ),
+                },
+            ),
+            tool_call(
+                "validate-initial-failure",
+                "bash",
+                {
+                    "command": (
+                        "python3 -m unittest discover "
+                        "-s tests -v"
+                    ),
+                },
+            ),
+            tool_call(
+                "repair-source",
+                "patch",
+                {
+                    "changes": [
+                        {
+                            "path": "app.py",
+                            "old": "VALUE = 500",
+                            "new": "VALUE = 3",
+                        },
+                    ],
+                },
+            ),
+            tool_call(
+                "revalidate-source",
+                "bash",
+                {
+                    "command": (
+                        "python3 -m unittest discover "
+                        "-s tests -v"
+                    ),
+                },
+            ),
+            tool_call(
+                "correct-test",
+                "patch",
+                {
+                    "changes": [
+                        {
+                            "path": "tests/test_app.py",
+                            "old": (
+                                "self.assertEqual(VALUE, 200)"
+                            ),
+                            "new": (
+                                "self.assertEqual(VALUE, 3)"
+                            ),
+                        },
+                    ],
+                },
+            ),
+            tool_call(
+                "validate-final",
+                "bash",
+                {
+                    "command": (
+                        "python3 -m unittest discover "
+                        "-s tests -v"
+                    ),
+                },
+            ),
+            completion("source-first repair and test correction validated"),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--implement",
+                (
+                    "Create app.py with VALUE = 3 and add a test "
+                    "that verifies that requirement."
+                ),
+            )
+
+        self.assertEqual(result.returncode, 0)
+
+        self.assertEqual(
+            (self.repo / "app.py").read_text(),
+            "VALUE = 3\n",
+        )
+
+        self.assertIn(
+            "self.assertEqual(VALUE, 3)",
+            (
+                self.repo
+                / "tests"
+                / "test_app.py"
+            ).read_text(),
+        )
+
+        audit_events = [
+            json.loads(line)
+            for line in (
+                self.data
+                / "audit"
+                / "events.jsonl"
+            ).read_text().splitlines()
+        ]
+
+        guarded = [
+            event
+            for event in audit_events
+            if event.get("type") == "validation_guard"
+        ]
+
+        self.assertEqual(
+            guarded,
+            [],
+        )
+
+    def test_validation_failure_allows_test_syntax_repair(self):
+        responder = SequenceResponder([
+            tool_call(
+                "create-app",
+                "create",
+                {
+                    "path": "app.py",
+                    "content": "VALUE = 1\n",
+                },
+            ),
+            tool_call(
+                "create-test",
+                "create",
+                {
+                    "path": "tests/test_app.py",
+                    "content": (
+                        "import unittest\n"
+                        "from app import VALUE\n\n"
+                        "class AppTest(unittest.TestCase):\n"
+                        "    def test_value(self)\n"
+                        "        self.assertEqual(VALUE, 1)\n"
+                    ),
+                },
+            ),
+            tool_call(
+                "validate-fail",
+                "bash",
+                {
+                    "command": (
+                        "python3 -m unittest discover "
+                        "-s tests -v"
+                    ),
+                },
+            ),
+            tool_call(
+                "fix-test-syntax",
+                "patch",
+                {
+                    "changes": [
+                        {
+                            "path": "tests/test_app.py",
+                            "old": "def test_value(self)\n",
+                            "new": "def test_value(self):\n",
+                        },
+                    ],
+                },
+            ),
+            tool_call(
+                "validate-pass",
+                "bash",
+                {
+                    "command": (
+                        "python3 -m unittest discover "
+                        "-s tests -v"
+                    ),
+                },
+            ),
+            completion("test syntax repaired"),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--implement",
+                "Create app.py and tests/test_app.py and make validation pass.",
+            )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertIn(
+            "def test_value(self):",
+            (
+                self.repo
+                / "tests"
+                / "test_app.py"
+            ).read_text(),
         )
 
     def test_validation_guard_rejects_early_final_until_check_passes(self):
@@ -213,7 +821,7 @@ class GuardIntegrationTest(unittest.TestCase):
             tool["function"]["name"]
             for tool in responder.payloads[2].get("tools", [])
         }
-        self.assertEqual(offered, {"patch", "create"})
+        self.assertEqual(offered, {"patch", "create", "rewrite"})
         self.assertIn(
             "PHASE-SHIFT RESPONSE REJECTED",
             responder.payloads[3]["messages"][-1]["content"],
