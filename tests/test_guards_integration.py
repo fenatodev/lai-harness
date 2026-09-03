@@ -98,6 +98,95 @@ class GuardIntegrationTest(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "implemented and validated")
         self.assertTrue((self.repo / "result.py").is_file())
 
+    def test_explicit_user_validation_command_can_finish_write_flow(self):
+        responder = SequenceResponder([
+            tool_call(
+                "create",
+                "create",
+                {
+                    "path": "hello.txt",
+                    "content": "hello alpha3\n",
+                },
+            ),
+            tool_call(
+                "verify",
+                "bash",
+                {"command": "cat hello.txt"},
+            ),
+            completion("implemented and verified"),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--implement",
+                (
+                    "Crie somente hello.txt com o texto hello alpha3. "
+                    "Não crie outros arquivos. "
+                    "Depois valide apenas com: cat hello.txt"
+                ),
+            )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            result.stdout.strip(),
+            "implemented and verified",
+        )
+        self.assertEqual(
+            (self.repo / "hello.txt").read_text(),
+            "hello alpha3\n",
+        )
+
+        final_messages = responder.payloads[-1]["messages"]
+        self.assertFalse(any(
+            "VALIDATION REQUIRED" in str(message.get("content", ""))
+            for message in final_messages
+        ))
+
+    def test_unrequested_cat_does_not_bypass_validation_guard(self):
+        responder = SequenceResponder([
+            tool_call(
+                "create",
+                "create",
+                {
+                    "path": "result.py",
+                    "content": "value = 1\n",
+                },
+            ),
+            tool_call(
+                "cat",
+                "bash",
+                {"command": "cat result.py"},
+            ),
+            completion("premature"),
+            tool_call(
+                "validate",
+                "bash",
+                {"command": "python3 -m py_compile result.py"},
+            ),
+            completion("implemented and validated"),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--implement",
+                "Create result.py with value = 1.",
+            )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            result.stdout.strip(),
+            "implemented and validated",
+        )
+
+        validation_prompt = responder.payloads[3]["messages"]
+
+        self.assertTrue(any(
+            "VALIDATION REQUIRED" in str(message.get("content", ""))
+            for message in validation_prompt
+        ))
+
     def test_repeated_exploration_is_blocked_and_forces_write_phase(self):
         repeated = {"paths": ["missing.py"]}
         responder = SequenceResponder([

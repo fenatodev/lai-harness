@@ -3957,6 +3957,40 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
 
         return any(re.search(pattern, command) for pattern in patterns)
 
+    def normalize_validation_command(value):
+        return " ".join(str(value).strip().strip("`").split())
+
+    def task_explicitly_requests_validation_command(task_text, command):
+        patterns = (
+            r"(?im)\bvalide\s+(?:apenas|somente)\s+com\s*:\s*([^\r\n]+)",
+            r"(?im)\bvalidate\s+only\s+with\s*:\s*([^\r\n]+)",
+        )
+
+        actual = normalize_validation_command(command)
+
+        if not actual:
+            return False
+
+        for pattern in patterns:
+            for match in re.finditer(pattern, task_text):
+                requested = normalize_validation_command(
+                    match.group(1)
+                )
+
+                if requested == actual:
+                    return True
+
+        return False
+
+    def command_satisfies_validation(command):
+        return (
+            looks_like_validation(command)
+            or task_explicitly_requests_validation_command(
+                task,
+                command,
+            )
+        )
+
     for _ in range(max_rounds_by_mode.get(mode, MAX_ROUNDS)):
         active_tools = mode_tools
 
@@ -4488,7 +4522,9 @@ KEEP: 1,3"""
                     and name == "bash"
                     and needs_validation
                     and tool_result.startswith("exit_code=0")
-                    and looks_like_validation(args.get("command", ""))
+                    and command_satisfies_validation(
+                        args.get("command", "")
+                    )
                 ):
                     needs_validation = False
 
@@ -4587,7 +4623,7 @@ KEEP: 1,3"""
                     tool_result,
                     is_validation=(
                         name == "bash"
-                        and looks_like_validation(
+                        and command_satisfies_validation(
                             args.get("command", "")
                         )
                     ),
