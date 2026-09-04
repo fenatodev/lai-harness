@@ -35,3 +35,12 @@ Run `/status`, compare it with `git status`, then use `/clearcontext` if needed.
 ## Metrics or audit is empty
 
 Confirm `$LAI_DATA_DIR` is writable. Metrics are created by ordinary runs; audit details are richer for batch-patch implementation runs. `/clearcontext` does not erase either log.
+
+
+## Configuration fails before runtime
+
+Run `lai config` after editing `config.toml`. Unknown `[lai]` keys, invalid ports, empty required strings, URL-shaped hosts, and non-path values fail before server startup so operator mistakes are caught early.
+
+## Linux or remote server instead of WSL/Windows
+
+Do not use `LAI_WINDOWS_LAUNCHER` for Linux-native or already-running remote servers. Set `LAI_HOST`, `LAI_PORT`, and `LAI_API_KEY_FILE`, then run `lai doctor`. Keep the server private and authenticated.

@@ -848,6 +848,64 @@ class LocalAgentTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "port"):
             agent.load_configuration(["--port", "invalid"], environ={}, home=self.root)
 
+    def test_configuration_rejects_unknown_toml_keys(self):
+        config_file = self.root / "config.toml"
+        config_file.write_text("[lai]\nextra = 'bad'\n")
+        with self.assertRaisesRegex(SystemExit, "unknown key"):
+            agent.load_configuration(["--config", str(config_file)], environ={}, home=self.root)
+
+    def test_configuration_rejects_invalid_types_and_empty_values(self):
+        cases = [
+            ("[lai]\nport = true\n", "port"),
+            ("[lai]\nmodel = 42\n", "model"),
+            ("[lai]\nserver_launcher = ''\n", "server_launcher"),
+            ("[lai]\ndata_dir = 42\n", "data_dir"),
+            ("[lai]\nhost = 'http://127.0.0.1:8080'\n", "host"),
+        ]
+        for index, (content, pattern) in enumerate(cases):
+            with self.subTest(index=index):
+                config_file = self.root / f"bad-{index}.toml"
+                config_file.write_text(content)
+                with self.assertRaisesRegex(SystemExit, pattern):
+                    agent.load_configuration(["--config", str(config_file)], environ={}, home=self.root)
+
+    def test_configuration_rejects_config_file_self_reference_in_toml(self):
+        config_file = self.root / "config.toml"
+        config_file.write_text("[lai]\nconfig_file = 'other.toml'\n")
+        with self.assertRaisesRegex(SystemExit, "unknown key"):
+            agent.load_configuration(["--config", str(config_file)], environ={}, home=self.root)
+
+    def test_config_status_is_safe_and_deterministic(self):
+        key_file = self.root / "secret-key"
+        key_file.write_text("super-secret-test-key\n")
+        values, _ = agent.load_configuration(
+            ["--api-key-file", str(key_file), "--data-dir", str(self.base / "data")],
+            environ={}, home=self.root,
+        )
+        shown = agent.render_config_status(values)
+        self.assertIn("# LAI Config", shown)
+        self.assertIn("api_key_file", shown)
+        self.assertIn("Checks:", shown)
+        self.assertIn("OK", shown)
+        self.assertNotIn("super-secret-test-key", shown)
+
+    def test_deterministic_config_cli_needs_no_server(self):
+        key_file = self.root / "secret-key"
+        key_file.write_text("super-secret-test-key\n")
+        env = {
+            **__import__("os").environ,
+            "LAI_API_KEY_FILE": str(key_file),
+            "LAI_DATA_DIR": str(self.base / "data"),
+        }
+        result = subprocess.run(
+            [str(SOURCE.parent / "lai"), "config"],
+            cwd=self.root, env=env, text=True, capture_output=True,
+            timeout=5, check=True,
+        )
+        self.assertIn("# LAI Config", result.stdout)
+        self.assertIn("api_key_file", result.stdout)
+        self.assertNotIn("super-secret-test-key", result.stdout)
+
     def test_load_mode_skill_prefers_standard_skill(self):
         skills = self.root / "skills"
         standard = skills / "fix" / "SKILL.md"
@@ -1167,7 +1225,7 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "lai-local-agent 0.4.0-alpha.10")
+        self.assertEqual(result.stdout.strip(), "lai-local-agent 0.4.0-alpha.11")
 
     def test_deterministic_show_config_obeys_cli_without_server(self):
         result = subprocess.run(

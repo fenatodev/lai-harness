@@ -31,6 +31,10 @@ Skills are compact mode contracts stored in `skills/`. Tools are selected by mod
 
 Numbered specs under `.specs/` define the requested change. At most one may be `active`; multiple active specs, invalid requirement IDs, missing validation references, and symlinked spec paths fail closed. Draft and complete specs do not affect runtime. The active spec is injected as normative context beneath repository safety rules.
 
+### Configuration boundary
+
+Before model runtime, the harness normalizes configuration from leading CLI flags, `LAI_*` environment variables, `[lai]` TOML values, and defaults. Unknown TOML keys and invalid types fail closed. `lai config` reports effective values and path diagnostics without starting or probing the model server and never prints API key contents.
+
 ### Context intelligence
 
 For `plan`, `debug`, `fix`, `implement`, and `refactor`, the harness ranks a bounded repository inventory before inference. Signals include task/path terms, live Git changes, verified recent/modified workspace paths, active-spec path references, known manifests, and bounded text sampling. Only candidate path, score, and reason metadata are injected; file contents still require normal inspection. `lai context <task>` exposes the same ranking without calling the model.

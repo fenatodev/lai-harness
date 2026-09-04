@@ -12,7 +12,7 @@ import urllib.request
 import unicodedata
 from pathlib import Path
 
-VERSION = "0.4.0-alpha.10"
+VERSION = "0.4.0-alpha.11"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
 CONFIG_OPTIONS = {
@@ -33,6 +33,130 @@ CONFIG_OPTIONS = {
 }
 
 
+
+CONFIG_VALUE_KEYS = {
+    "host",
+    "port",
+    "model",
+    "config_dir",
+    "config_file",
+    "data_dir",
+    "api_key_file",
+    "skills_dir",
+    "state_dir",
+    "metrics_dir",
+    "audit_dir",
+    "llama_server",
+    "server_launcher",
+    "chat_template",
+}
+CONFIG_FILE_KEYS = CONFIG_VALUE_KEYS - {"config_dir", "config_file"}
+CONFIG_PATH_KEYS = {
+    "config_dir",
+    "config_file",
+    "data_dir",
+    "api_key_file",
+    "skills_dir",
+    "state_dir",
+    "metrics_dir",
+    "audit_dir",
+    "llama_server",
+    "chat_template",
+}
+CONFIG_OPTIONAL_STRING_KEYS = {"host"}
+CONFIG_REQUIRED_STRING_KEYS = {"model", "server_launcher"}
+CONFIG_DIRECTORY_KEYS = {
+    "config_dir",
+    "data_dir",
+    "skills_dir",
+    "state_dir",
+    "metrics_dir",
+    "audit_dir",
+}
+
+
+def config_error(message, config_file=None):
+    if config_file:
+        raise SystemExit(f"Invalid LAI config {config_file}: {message}")
+    raise SystemExit(f"Invalid LAI configuration: {message}")
+
+
+def validate_config_mapping(mapping, *, config_file=None, file_scope=False):
+    allowed = CONFIG_FILE_KEYS if file_scope else CONFIG_VALUE_KEYS
+    unknown = sorted(set(mapping) - allowed)
+    if unknown:
+        joined = ", ".join(unknown)
+        config_error(f"unknown key(s): {joined}", config_file)
+
+
+def require_config_string(key, value, *, config_file=None, optional=False):
+    if value is None and optional:
+        return None
+    if not isinstance(value, str):
+        config_error(f"{key} must be a string", config_file)
+    if not value.strip():
+        config_error(f"{key} must not be empty", config_file)
+    if "\x00" in value:
+        config_error(f"{key} must not contain NUL bytes", config_file)
+    return value
+
+
+def normalize_config_path(key, value, *, config_file=None):
+    if value is None:
+        return None
+    if not isinstance(value, (str, os.PathLike)):
+        config_error(f"{key} must be a filesystem path string", config_file)
+    text = str(value)
+    if not text.strip():
+        config_error(f"{key} must not be empty", config_file)
+    if "\x00" in text:
+        config_error(f"{key} must not contain NUL bytes", config_file)
+    return Path(text).expanduser()
+
+
+def normalize_config_values(values, *, config_file=None, file_scope=False):
+    validate_config_mapping(values, config_file=config_file, file_scope=file_scope)
+    normalized = dict(values)
+
+    if "port" in normalized:
+        raw_port = normalized["port"]
+        if isinstance(raw_port, bool):
+            config_error("port must be an integer from 1 to 65535", config_file)
+        try:
+            normalized["port"] = int(raw_port)
+        except (TypeError, ValueError) as exc:
+            config_error("port must be an integer from 1 to 65535", config_file)
+        if not 1 <= normalized["port"] <= 65535:
+            config_error("port must be an integer from 1 to 65535", config_file)
+
+    for key in CONFIG_REQUIRED_STRING_KEYS:
+        if key in normalized:
+            normalized[key] = require_config_string(
+                key, normalized[key], config_file=config_file,
+            )
+
+    for key in CONFIG_OPTIONAL_STRING_KEYS:
+        if key in normalized:
+            normalized[key] = require_config_string(
+                key, normalized[key], config_file=config_file, optional=True,
+            )
+            if normalized[key] is not None:
+                host = normalized[key]
+                if any(ch.isspace() for ch in host) or "://" in host or "/" in host:
+                    config_error(
+                        "host must be a hostname or IP address, not a URL or path",
+                        config_file,
+                    )
+
+    for key in CONFIG_PATH_KEYS:
+        if key in normalized:
+            normalized[key] = normalize_config_path(
+                key, normalized[key], config_file=config_file,
+            )
+
+    return normalized
+
+
 def load_configuration(argv, environ=None, home=None):
     environ = dict(os.environ if environ is None else environ)
     home = Path.home() if home is None else Path(home)
@@ -44,6 +168,8 @@ def load_configuration(argv, environ=None, home=None):
         if not remaining:
             raise SystemExit(f"Missing value for {option}")
         cli[CONFIG_OPTIONS[option]] = remaining.pop(0)
+
+    cli = normalize_config_values(cli)
 
     default_config_dir = Path(
         environ.get(
@@ -63,11 +189,14 @@ def load_configuration(argv, environ=None, home=None):
     if config_file.is_file():
         try:
             document = tomllib.loads(config_file.read_text(encoding="utf-8"))
-            file_values = document.get("lai", {})
-            if not isinstance(file_values, dict):
-                raise ValueError("[lai] must be a TOML table")
-        except (OSError, tomllib.TOMLDecodeError, ValueError) as exc:
-            raise SystemExit(f"Invalid LAI config {config_file}: {exc}") from exc
+        except (OSError, tomllib.TOMLDecodeError) as exc:
+            config_error(str(exc), config_file)
+        file_values = document.get("lai", {})
+        if not isinstance(file_values, dict):
+            config_error("[lai] must be a TOML table", config_file)
+        file_values = normalize_config_values(
+            file_values, config_file=config_file, file_scope=True,
+        )
 
     default_data_dir = Path(
         environ.get(
@@ -79,10 +208,10 @@ def load_configuration(argv, environ=None, home=None):
         "host": None,
         "port": 8080,
         "model": DEFAULT_MODEL,
-        "config_dir": str(config_dir),
-        "config_file": str(config_file),
-        "data_dir": str(default_data_dir),
-        "api_key_file": str(config_dir / "llama-api-key"),
+        "config_dir": config_dir,
+        "config_file": config_file,
+        "data_dir": default_data_dir,
+        "api_key_file": config_dir / "llama-api-key",
         "skills_dir": None,
         "state_dir": None,
         "metrics_dir": None,
@@ -95,22 +224,17 @@ def load_configuration(argv, environ=None, home=None):
         key: "LAI_" + key.upper()
         for key in defaults
     }
-    values = {**defaults, **file_values}
-    values.update({
+    env_values = {
         key: environ[name]
         for key, name in env_names.items()
         if name in environ
-    })
+    }
+    values = {**defaults, **file_values}
+    values.update(normalize_config_values(env_values))
     values.update(cli)
+    values = normalize_config_values(values)
 
-    try:
-        values["port"] = int(values["port"])
-        if not 1 <= values["port"] <= 65535:
-            raise ValueError
-    except (TypeError, ValueError) as exc:
-        raise SystemExit("LAI port must be an integer from 1 to 65535") from exc
-
-    data_dir = Path(str(values["data_dir"])).expanduser()
+    data_dir = values["data_dir"]
     for key, fallback in {
         "config_dir": config_dir,
         "config_file": config_file,
@@ -121,9 +245,71 @@ def load_configuration(argv, environ=None, home=None):
         "metrics_dir": data_dir / "metrics",
         "audit_dir": data_dir / "audit",
     }.items():
-        values[key] = Path(str(values.get(key) or fallback)).expanduser()
+        values[key] = normalize_config_path(key, values.get(key) or fallback)
 
     return values, remaining
+
+
+def path_status(path, *, expect_dir=False, expect_file=False, secret=False):
+    try:
+        if path.exists():
+            if expect_dir and not path.is_dir():
+                return "ERROR: exists but is not a directory"
+            if expect_file and not path.is_file():
+                return "ERROR: exists but is not a file"
+            if secret and path.is_file() and path.stat().st_size <= 0:
+                return "ERROR: file is empty"
+            return "OK"
+        parent = path.parent
+        if parent.exists() and not parent.is_dir():
+            return "ERROR: parent exists but is not a directory"
+        return "MISSING"
+    except OSError as exc:
+        return f"ERROR: {exc}"
+
+
+def render_config_status(config=None):
+    config = CONFIG if config is None else config
+    lines = [
+        "# LAI Config",
+        f"Version: {VERSION}",
+        "",
+        "Effective values:",
+    ]
+    for key in sorted(config):
+        value = config[key]
+        if isinstance(value, Path):
+            value = str(value)
+        lines.append(f"- {key}: {value if value is not None else '[auto]'}")
+
+    checks = [
+        ("config_file", config["config_file"], False, True, False),
+        ("config_dir", config["config_dir"], True, False, False),
+        ("api_key_file", config["api_key_file"], False, True, True),
+        ("data_dir", config["data_dir"], True, False, False),
+        ("skills_dir", config["skills_dir"], True, False, False),
+        ("state_dir", config["state_dir"], True, False, False),
+        ("metrics_dir", config["metrics_dir"], True, False, False),
+        ("audit_dir", config["audit_dir"], True, False, False),
+    ]
+    if config.get("llama_server"):
+        checks.append(("llama_server", config["llama_server"], False, True, False))
+    if config.get("chat_template"):
+        checks.append(("chat_template", config["chat_template"], False, True, False))
+
+    lines.extend(["", "Checks:"])
+    for key, path, expect_dir, expect_file, secret in checks:
+        status = path_status(
+            path, expect_dir=expect_dir, expect_file=expect_file, secret=secret,
+        )
+        lines.append(f"- {key}: {status}")
+    lines.extend([
+        "",
+        "Notes:",
+        "- MISSING means the path does not exist yet; it is not fatal for deterministic commands.",
+        "- API key contents are never printed.",
+    ])
+    return "\n".join(lines)
 
 
 CONFIG, CLI_ARGS = load_configuration(sys.argv[1:])
@@ -4304,6 +4490,10 @@ def main():
             for key, value in CONFIG.items()
         }
         print(json.dumps(visible, indent=2, sort_keys=True))
+        return
+
+    if args and args[0] in {"--config-status", "config"}:
+        print(render_config_status())
         return
 
     if args and args[0] == "--context":

@@ -49,6 +49,7 @@ See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow.
 - policy decisions and user-action lifecycle outcomes in the audit trail;
 - crash-safe workspace checkpoints with explicit, drift-checked `lai recovery` / `lai resume`;
 - deterministic, explainable context ranking with bounded metadata-only `lai context`;
+- validated configuration diagnostics with secret-safe `lai config`;
 - no Python package dependencies in the current harness.
 
 ## Quick start
@@ -73,6 +74,7 @@ Configure `~/.config/lai/config.toml`, `LAI_*` environment variables, or leading
 @lai /review review my current Git changes
 @lai /audit
 lai spec
+lai config
 lai context "repair parser timeout"
 lai recovery
 # if recovery reports a compatible interrupted run:

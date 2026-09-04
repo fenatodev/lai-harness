@@ -33,7 +33,7 @@ Configuration precedence is:
 leading CLI flags > LAI_* environment variables > [lai] in config.toml > defaults
 ```
 
-The default file is `$XDG_CONFIG_HOME/lai/config.toml`, falling back to `~/.config/lai/config.toml`. Start from `config.example.toml`. Configuration flags must precede the mode, for example:
+The default file is `$XDG_CONFIG_HOME/lai/config.toml`, falling back to `~/.config/lai/config.toml`. Start from `config.example.toml`, then run `lai config` to verify effective values and path diagnostics without contacting the model server. Unknown TOML keys and invalid value types fail closed. Configuration flags must precede the mode, for example:
 
 ```bash
 lai --config /private/lai.toml --host 127.0.0.1 --port 8080 --doctor
@@ -60,11 +60,11 @@ Supported settings include:
 
 ## llama.cpp on Windows with WSL
 
-Copy `scripts/start-secure.ps1` to a private Windows location. In Windows, set `LAI_LLAMA_SERVER`, `LAI_API_KEY_FILE_WINDOWS`, and optionally `LAI_MODEL` and `LAI_LOG_DIR`. In WSL, set `LAI_WINDOWS_LAUNCHER` to that script's Windows path.
+For WSL with a Windows-hosted `llama-server`, copy `scripts/start-secure.ps1` to a private Windows location. In Windows, set `LAI_LLAMA_SERVER`, `LAI_API_KEY_FILE_WINDOWS`, and optionally `LAI_MODEL` and `LAI_LOG_DIR`. In WSL, set `LAI_WINDOWS_LAUNCHER` to that script's Windows path.
 
 The reference launcher requires an API-auth-capable `llama-server`, requests `--no-webui` and metrics when supported, and uses the development profile recorded in the benchmark document. Adjust context and GPU settings for your hardware. Do not reuse an internet-facing bind without firewall and authentication review.
 
-The repository intentionally does not include a model or chat template. Supply compatible files under their own license terms.
+For Linux-native or remote OpenAI-compatible servers, set `LAI_HOST`, `LAI_PORT`, and `LAI_API_KEY_FILE` directly and use `lai doctor` rather than the Windows launcher. The repository intentionally does not include a model or chat template. Supply compatible files under their own license terms.
 
 ## Extension from source
 

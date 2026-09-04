@@ -1,4 +1,5 @@
 [lai]
+# Run `lai config` after editing this file. Unknown keys or invalid types fail closed.
 # CLI flags override LAI_* environment variables, which override this file.
 host = "127.0.0.1"
 port = 8080

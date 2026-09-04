@@ -56,6 +56,7 @@ Repository specs live under `.specs/` using numbered Markdown files.
 Exactly one spec may have `Status: active`; draft and complete specs are inactive.
 The active spec defines the requested change and its `REQ-NNN` traceability.
 Use `lai spec` to inspect the active spec without calling the model.
+Use `lai config` to inspect effective configuration and secret-safe path diagnostics without calling the model.
 Specs never override this file, scoped rules, safety guards, or release policy.
 
 ## Runtime Recovery

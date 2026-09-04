@@ -18,6 +18,7 @@ Examples:
 @lai /metrics
 @lai /audit
 lai spec
+lai config
 lai context "repair parser timeout"
 lai recovery
 # only when recovery reports a compatible interrupted run:

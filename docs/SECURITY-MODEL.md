@@ -9,6 +9,7 @@ The user, opened repository, installed LAI code, and local endpoint are assumed 
 ## Implemented controls
 
 - API key is read from a private external file and sent as a Bearer header.
+- Configuration parsing rejects unknown TOML keys and invalid value types before runtime; diagnostics report secret file status without printing secret contents.
 - The reference server launcher refuses builds without API-key support and requests `--no-webui` when available.
 - File tools resolve targets against the repository root; parent and escaping-symlink paths are rejected.
 - Batch patch additionally refuses every symlink component and validates all replacements before any write.
