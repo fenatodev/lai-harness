@@ -22,3 +22,11 @@ JSON output exposes the same checks for scripts and future VS Code integration. 
 
 
 After readiness is healthy, use `lai run export --last` when a recorded run needs to be shared or inspected outside the live workspace.
+
+
+## Release preflight
+
+Release-mode runs preload a read-only release preflight context built from `lai readiness`, Git state, tags, and Makefile validation targets. This prevents small local models from wasting rounds on ad-hoc runtime probing before a release decision.
+
+
+Use `lai release-check --json` for a model-free release gate after `lai readiness` reports a clean, ready repository.

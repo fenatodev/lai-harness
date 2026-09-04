@@ -17,6 +17,8 @@ lai harness uses mode-specific skills, tools, token limits, and inference-round 
 | `/refactor` | Preserve observable behavior and validate | Read/project/Git/edit/create/bash |
 | `/implement` | Satisfy all explicit criteria with a batch-oriented patch | Inspect/search/Git/patch/create/bash |
 
+VS Code slash commands and public CLI aliases share the same contracts: `lai plan`, `lai debug`, `lai diagnose`, `lai ci-fix`, `lai release`, and the other mode names all dispatch to their matching mode.
+
 Context commands do not call the model: `/status`, `/metrics`, `/audit`, `/handoff`, `/readiness`, and `/clearcontext`.
 
 ## Guards
@@ -28,3 +30,6 @@ Context commands do not call the model: `/status`, `/metrics`, `/audit`, `/hando
 - **Post-patch sanity:** JavaScript syntax and added-line checks run first, followed by a compact model classifier. It catches the historical `newError(...)` regression when undeclared.
 
 These mechanisms reduce common failures; they do not prove semantic correctness or security.
+
+
+For deterministic release gates, use `lai release-check` instead of asking the model to decide from scratch. `/release` and `lai release` remain assisted release-review modes.

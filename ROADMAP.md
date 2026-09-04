@@ -23,3 +23,4 @@
 Roadmap items are intentions, not commitments. Model redistribution and automatic downloading are deliberately out of scope.
 
 - v0.4.0-alpha.20: sanitized run export bundle with `lai run export`.
+- v0.4.0-alpha.21: release preflight and public mode aliases before beta readiness.

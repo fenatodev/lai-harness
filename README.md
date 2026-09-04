@@ -90,6 +90,7 @@ lai semantics
 lai runs
 lai run last
 lai readiness
+lai release-check --json
 lai recovery
 # if recovery reports a compatible interrupted run:
 lai resume

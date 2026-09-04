@@ -112,9 +112,21 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             readiness_payload = json.loads(readiness.stdout)
-            self.assertEqual(readiness_payload["version"], "0.4.0-alpha.20")
+            self.assertEqual(readiness_payload["version"], "0.4.0-alpha.21")
             modes = {item["mode"] for item in readiness_payload["skills"]}
             self.assertTrue({"diagnose", "ci-fix", "release"}.issubset(modes))
+
+            release_check = subprocess.run(
+                [str(bin_dir / "lai"), "release-check", "--json"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            release_payload = json.loads(release_check.stdout)
+            self.assertEqual(release_payload["version"], "0.4.0-alpha.21")
+            self.assertIn("release_safety", {item["name"] for item in release_payload["checks"]})
 
             no_last = subprocess.run(
                 [str(bin_dir / "lai"), "run", "last"],
@@ -135,6 +147,21 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             )
             self.assertNotEqual(0, no_export.returncode)
             self.assertIn("No runs recorded", no_export.stderr)
+
+            for mode_command, expected in (
+                ("diagnose", "diagnose-alias-ok"),
+                ("ci-fix", "ci-fix-alias-ok"),
+                ("release", "release-alias-ok"),
+            ):
+                alias = subprocess.run(
+                    [str(bin_dir / "lai"), mode_command, f"respond only: {expected}"],
+                    cwd=sample_repo,
+                    env=install_env,
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                )
+                self.assertEqual(alias.stdout.strip(), expected)
 
             with FakeLlamaServer() as server:
                 runtime_env = {

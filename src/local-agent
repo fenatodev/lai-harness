@@ -12,7 +12,7 @@ import urllib.request
 import unicodedata
 from pathlib import Path
 
-VERSION = "0.4.0-alpha.20"
+VERSION = "0.4.0-alpha.21"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -90,6 +90,13 @@ SEMANTIC_CODE_CONTRACT = {
             "paths": ["src/local-agent", "docs/RUN-HISTORY.md", "docs/OBSERVABILITY.md"],
             "entrypoints": ["render_run_history_export", "write_run_history_export", "sanitize_run_history_export_event"],
             "terms": ["run", "export", "bundle", "diagnostic", "summary", "timeline", "report", "sanitized", "evidence"],
+        },
+        {
+            "id": "release-preflight",
+            "intent": "preload release readiness facts and preferred project validation commands for small local models",
+            "paths": ["src/local-agent", "src/lai", ".agents/skills/release/SKILL.md", "docs/READINESS.md"],
+            "entrypoints": ["render_release_preflight_context", "render_release_check", "release_validation_commands", "collect_readiness_status"],
+            "terms": ["release", "preflight", "check", "readiness", "validate", "make", "version", "tag", "branch", "beta"],
         },
         {
             "id": "operational-readiness",
@@ -4606,6 +4613,239 @@ def render_readiness_status(json_mode=False):
     return "\n".join(lines)
 
 
+def git_command_text(args, default="[unavailable]", timeout=10):
+    try:
+        proc = subprocess.run(
+            ["git", *args],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+        )
+    except Exception:
+        return default
+    if proc.returncode != 0:
+        return default
+    return proc.stdout.strip() or default
+
+
+def makefile_targets():
+    path = ROOT / "Makefile"
+    if not path.is_file():
+        return []
+    targets = []
+    for line in path.read_text(errors="replace").splitlines():
+        match = re.match(r"^([A-Za-z0-9_.-]+):(?:\s|$)", line)
+        if match and not match.group(1).startswith("."):
+            targets.append(match.group(1))
+    return sorted(dict.fromkeys(targets))
+
+
+def release_validation_commands():
+    targets = set(makefile_targets())
+    preferred = []
+    for target in ("check", "test-dev", "test", "validate"):
+        if target in targets:
+            preferred.append(f"make {target}")
+    if not preferred:
+        preferred.append("python3 -m unittest discover -s tests -v")
+    return preferred
+
+
+def render_release_preflight_context():
+    readiness = collect_readiness_status()
+    head = git_command_text(["rev-parse", "HEAD"])
+    exact_tag = git_command_text(
+        ["describe", "--tags", "--exact-match", "HEAD"],
+        default="[none]",
+    )
+    latest_tag = git_command_text(
+        ["describe", "--tags", "--abbrev=0"],
+        default="[none]",
+    )
+    commands = release_validation_commands()
+    checks = []
+    for check in readiness.get("checks", []):
+        checks.append(
+            f"- {check.get('name')}: {check.get('status')} "
+            f"{check.get('detail') or ''}".rstrip()
+        )
+    return "\n".join([
+        "RELEASE PREFLIGHT (read-only, generated before model reasoning):",
+        f"Product: {PRODUCT_NAME}",
+        f"Version: {VERSION}",
+        f"Repository: {ROOT}",
+        f"Branch: {readiness['git']['branch']}",
+        f"HEAD: {head}",
+        f"Exact tag on HEAD: {exact_tag}",
+        f"Latest reachable tag: {latest_tag}",
+        f"Git status: {readiness['git']['status']}",
+        f"Readiness overall: {readiness['overall']}",
+        "Preferred validation commands from this repository:",
+        *(f"- {command}" for command in commands),
+        "Readiness checks:",
+        *checks,
+        "Use this preflight before tool calls. Do not probe ad-hoc pytest/python commands; use Makefile/script commands above.",
+    ])
+
+
+
+def normalize_release_target(target=None):
+    value = (target or VERSION).strip()
+    if value.startswith("v"):
+        tag = value
+        version = value[1:]
+    else:
+        version = value
+        tag = "v" + value
+    return version, tag
+
+
+def collect_release_check(target=None):
+    target_version, expected_tag = normalize_release_target(target)
+    readiness = collect_readiness_status()
+    head = git_command_text(["rev-parse", "HEAD"])
+    exact_tag = git_command_text(
+        ["describe", "--tags", "--exact-match", "HEAD"],
+        default="[none]",
+    )
+    latest_tag = git_command_text(
+        ["describe", "--tags", "--abbrev=0"],
+        default="[none]",
+    )
+    commands = release_validation_commands()
+    checks = []
+
+    def add_check(name, status, detail=""):
+        checks.append({
+            "name": name,
+            "status": status,
+            "detail": str(detail or "")[:500],
+        })
+
+    add_check(
+        "version_target",
+        "ok" if VERSION == target_version else "fail",
+        f"current={VERSION} target={target_version}",
+    )
+    add_check(
+        "git_status",
+        "ok" if readiness["git"].get("clean") else "fail",
+        readiness["git"].get("status"),
+    )
+
+    if exact_tag == expected_tag:
+        tag_status = "ok"
+        tag_detail = "expected tag already points at HEAD"
+        phase = "released"
+    elif exact_tag == "[none]":
+        tag_status = "ok"
+        tag_detail = "expected tag not yet created on HEAD"
+        phase = "ready_to_tag"
+    else:
+        tag_status = "fail"
+        tag_detail = f"HEAD has {exact_tag}, expected {expected_tag}"
+        phase = "blocked"
+    add_check("tag_state", tag_status, tag_detail)
+
+    readiness_status = readiness.get("overall")
+    add_check(
+        "readiness",
+        "ok" if readiness_status == "ready" else ("fail" if readiness_status == "blocked" else "warn"),
+        readiness_status,
+    )
+    add_check(
+        "validation_commands",
+        "ok" if commands else "fail",
+        ", ".join(commands),
+    )
+    add_check(
+        "release_safety",
+        "ok",
+        "no tag, merge, push, upload, or publication was executed",
+    )
+
+    has_failure = any(check["status"] == "fail" for check in checks)
+    has_warning = any(check["status"] == "warn" for check in checks)
+    overall = "blocked" if has_failure else ("attention" if has_warning else "ready")
+    if overall == "blocked":
+        phase = "blocked"
+
+    return {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "target_version": target_version,
+        "expected_tag": expected_tag,
+        "repository": str(ROOT),
+        "branch": readiness["git"].get("branch"),
+        "origin": readiness["git"].get("origin"),
+        "head": head,
+        "exact_tag": exact_tag,
+        "latest_tag": latest_tag,
+        "phase": phase,
+        "overall": overall,
+        "readiness_overall": readiness_status,
+        "validation_commands": commands,
+        "checks": checks,
+    }
+
+
+def parse_release_check_args(args):
+    raw = list(args)
+    json_mode = "--json" in raw
+    raw = [item for item in raw if item != "--json"]
+    target = None
+    if "--target" in raw:
+        index = raw.index("--target")
+        try:
+            target = raw[index + 1]
+        except Exception:
+            raise SystemExit("Usage: lai release-check [--target VERSION] [--json]")
+        del raw[index:index + 2]
+    if raw:
+        if len(raw) == 1 and not raw[0].startswith("-"):
+            target = raw[0]
+        else:
+            raise SystemExit("Usage: lai release-check [--target VERSION] [--json]")
+    return target, json_mode
+
+
+def render_release_check(args=None):
+    target, json_mode = parse_release_check_args(args or [])
+    payload = collect_release_check(target=target)
+    if json_mode:
+        return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+
+    lines = [
+        "# lai release check",
+        "",
+        f"Product: {payload['product']}",
+        f"Version: {payload['version']}",
+        f"Target version: {payload['target_version']}",
+        f"Expected tag: {payload['expected_tag']}",
+        f"Repository: {payload['repository']}",
+        f"Branch: {payload['branch']}",
+        f"HEAD: {payload['head']}",
+        f"Exact tag on HEAD: {payload['exact_tag']}",
+        f"Latest reachable tag: {payload['latest_tag']}",
+        f"Phase: {payload['phase']}",
+        f"Overall: {payload['overall']}",
+        "",
+        "## Checks",
+    ]
+    for check in payload["checks"]:
+        detail = check.get("detail") or ""
+        lines.append(f"- [{check['status']}] {check['name']}: {detail}")
+    lines.extend([
+        "",
+        "## Preferred validation commands",
+        *(f"- {command}" for command in payload["validation_commands"]),
+        "",
+        "Release check is read-only. It does not tag, merge, push, upload, publish, call the model, or run validation commands.",
+    ])
+    return "\n".join(lines)
+
+
 def run_tool(name, args):
     print(
         f"\n[{name}] "
@@ -6181,6 +6421,10 @@ def main():
         print(render_readiness_status(json_mode="--json" in args[1:]))
         return
 
+    if args and args[0] == "--release-check":
+        print(render_release_check(args[1:]))
+        return
+
     if args and args[0] == "--context":
         print_context_candidates(" ".join(args[1:]).strip())
         return
@@ -6622,6 +6866,15 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
 
     if ranked_context_text:
         system += '\n\n' + ranked_context_text
+
+    if mode == "release":
+        system += "\n\n" + render_release_preflight_context()
+        system += (
+            "\n\nRelease-mode default: for simple release-readiness questions, "
+            "answer from RELEASE PREFLIGHT without tool calls. Only run "
+            "validation commands when the user explicitly asks to run or "
+            "execute validation in this turn."
+        )
 
     recovery_context = render_recovery_context(resume_checkpoint)
     if recovery_context:

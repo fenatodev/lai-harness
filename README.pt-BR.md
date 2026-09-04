@@ -59,6 +59,8 @@ lai runs
 lai run last
 lai run export --last
 lai readiness
+lai release-check --json
+lai release "verifique se esta versão está pronta"
 ```
 
 ## Segurança

@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.0-alpha.21] - 2026-09-04
+
+### Added
+- Preload a deterministic release preflight context for release-mode runs with Git state, tags, readiness checks, and Makefile validation commands.
+- Add model-free `lai release-check` / `lai release-check --json` for beta gates and release posture checks.
+- Dispatch public CLI mode aliases such as `lai diagnose`, `lai ci-fix`, and `lai release` to their matching modes.
+- Document release preflight behavior before beta readiness review.
+
+### Changed
+- Tighten release skill instructions so small local models prefer repository-defined validation commands over ad-hoc pytest/python probing.
+
+### Tests
+- Added regression coverage for release preflight content, deterministic release check, and installed public mode aliases.
+
 ## [0.4.0-alpha.5] - 2026-09-03
 
 ### Fixed

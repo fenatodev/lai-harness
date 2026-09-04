@@ -634,7 +634,7 @@ class LocalAgentTest(unittest.TestCase):
             check=True,
         )
         payload = json.loads(raw.stdout)
-        self.assertEqual(payload["version"], "0.4.0-alpha.20")
+        self.assertEqual(payload["version"], "0.4.0-alpha.21")
         self.assertEqual(payload["runs"][0]["run_id"], "run-1")
         self.assertEqual(payload["runs"][1]["run_id"], "run-2")
         self.assertIsNotNone(payload["runs"][1]["last_failure"])
@@ -726,7 +726,7 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("Authentication: OK", rendered)
         self.assertIn("mode_skills", rendered)
         payload = json.loads(raw)
-        self.assertEqual(payload["version"], "0.4.0-alpha.20")
+        self.assertEqual(payload["version"], "0.4.0-alpha.21")
         self.assertTrue(payload["server"]["authentication_ok"])
         self.assertIn(payload["overall"], {"ready", "attention"})
         self.assertTrue(
@@ -738,6 +738,98 @@ class LocalAgentTest(unittest.TestCase):
         self.assertTrue(
             any(item["mode"] == "release" for item in payload["skills"])
         )
+
+    def test_release_preflight_context_prefers_project_commands(self):
+        original_skills_dir = agent.SKILLS_DIR
+        original_metrics_dir = agent.METRICS_DIR
+        original_metrics_file = agent.METRICS_FILE
+        original_audit_dir = agent.AUDIT_DIR
+        original_audit_file = agent.AUDIT_FILE
+        try:
+            (self.root / "Makefile").write_text(
+                "check:\n\ttrue\n"
+                "test-dev:\n\t.venv/bin/python -m pytest -q\n"
+                "test:\n\tpython3 -m unittest discover -s tests -v\n"
+                "validate:\n\t./scripts/validate.sh\n"
+            )
+            agent.SKILLS_DIR = Path(__file__).parents[1] / ".agents" / "skills"
+            agent.METRICS_DIR = self.base / "data" / "metrics"
+            agent.METRICS_FILE = agent.METRICS_DIR / "events.jsonl"
+            agent.AUDIT_DIR = self.base / "data" / "audit"
+            agent.AUDIT_FILE = agent.AUDIT_DIR / "events.jsonl"
+            with mock.patch.object(agent, "gateway", return_value="127.0.0.1"), \
+                 mock.patch.object(agent, "doctor_status", return_value=(401, 200)):
+                context = agent.render_release_preflight_context()
+        finally:
+            agent.SKILLS_DIR = original_skills_dir
+            agent.METRICS_DIR = original_metrics_dir
+            agent.METRICS_FILE = original_metrics_file
+            agent.AUDIT_DIR = original_audit_dir
+            agent.AUDIT_FILE = original_audit_file
+
+        self.assertIn("RELEASE PREFLIGHT", context)
+        self.assertIn("Version: 0.4.0-alpha.21", context)
+        self.assertIn("Readiness overall:", context)
+        self.assertIn("- make check", context)
+        self.assertIn("- make test-dev", context)
+        self.assertIn("- make test", context)
+        self.assertIn("- make validate", context)
+        self.assertIn("Do not probe ad-hoc pytest/python commands", context)
+
+    def test_release_check_is_deterministic_and_read_only(self):
+        data_dir = self.base / "data"
+        env = {**os.environ, "LAI_DATA_DIR": str(data_dir)}
+        (self.root / "Makefile").write_text(
+            "check:\n\ttrue\n"
+            "test-dev:\n\t.venv/bin/python -m pytest -q\n"
+            "test:\n\tpython3 -m unittest discover -s tests -v\n"
+            "validate:\n\t./scripts/validate.sh\n"
+        )
+        subprocess.run(["git", "add", "Makefile"], cwd=self.root, check=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "-m",
+                "add Makefile",
+            ],
+            cwd=self.root,
+            check=True,
+            stdout=subprocess.DEVNULL,
+        )
+        result = subprocess.run(
+            [str(SOURCE), "--release-check", "--target", "0.4.0-alpha.21", "--json"],
+            cwd=self.root,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=8,
+            check=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["version"], "0.4.0-alpha.21")
+        self.assertEqual(payload["expected_tag"], "v0.4.0-alpha.21")
+        self.assertIn(payload["phase"], {"ready_to_tag", "released", "blocked"})
+        self.assertIn("make validate", payload["validation_commands"])
+        self.assertTrue(
+            any(item["name"] == "release_safety" for item in payload["checks"])
+        )
+
+        rendered = subprocess.run(
+            [str(SOURCE), "--release-check"],
+            cwd=self.root,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=8,
+            check=True,
+        )
+        self.assertIn("# lai release check", rendered.stdout)
+        self.assertIn("Release check is read-only", rendered.stdout)
 
     def test_deterministic_readiness_cli_needs_no_model(self):
         data_dir = self.base / "data"
@@ -753,7 +845,7 @@ class LocalAgentTest(unittest.TestCase):
         )
         payload = json.loads(result.stdout)
         self.assertEqual(payload["product"], "lai harness")
-        self.assertEqual(payload["version"], "0.4.0-alpha.20")
+        self.assertEqual(payload["version"], "0.4.0-alpha.21")
         self.assertEqual(payload["repository"], str(self.root.resolve()))
         self.assertIn("checks", payload)
 
@@ -1572,7 +1664,7 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "lai harness 0.4.0-alpha.20")
+        self.assertEqual(result.stdout.strip(), "lai harness 0.4.0-alpha.21")
 
     def test_deterministic_model_eval_plan_needs_no_server(self):
         result = subprocess.run(
@@ -1623,7 +1715,7 @@ class LocalAgentTest(unittest.TestCase):
         )
         payload = json.loads(result.stdout)
         self.assertEqual(payload["product"], "lai harness")
-        self.assertEqual(payload["version"], "0.4.0-alpha.20")
+        self.assertEqual(payload["version"], "0.4.0-alpha.21")
         scenario_ids = {item["id"] for item in payload["scenarios"]}
         self.assertIn("context-ranking", scenario_ids)
 
