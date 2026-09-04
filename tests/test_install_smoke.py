@@ -79,7 +79,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             workspace_payload = json.loads(workspace_status.stdout)
-            self.assertEqual(workspace_payload["version"], "0.4.0-beta.8")
+            self.assertEqual(workspace_payload["version"], "0.4.0-beta.9")
             self.assertEqual(workspace_payload["repository"], str(sample_repo.resolve()))
             self.assertIn("base_dir", workspace_payload)
 
@@ -105,6 +105,26 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertIn("# lai code semantics", semantics.stdout)
             self.assertIn("policy-gateway", semantics.stdout)
 
+            policy_check = subprocess.run(
+                [
+                    str(bin_dir / "lai"),
+                    "policy-check",
+                    "--tool",
+                    "bash",
+                    "--command",
+                    "git status --short",
+                    "--json",
+                ],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            policy_payload = json.loads(policy_check.stdout)
+            self.assertEqual(policy_payload["decision"], "ALLOW")
+            self.assertFalse(policy_payload["executed"])
+
             runs = subprocess.run(
                 [str(bin_dir / "lai"), "runs"],
                 cwd=sample_repo,
@@ -125,7 +145,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             readiness_payload = json.loads(readiness.stdout)
-            self.assertEqual(readiness_payload["version"], "0.4.0-beta.8")
+            self.assertEqual(readiness_payload["version"], "0.4.0-beta.9")
             modes = {item["mode"] for item in readiness_payload["skills"]}
             self.assertTrue({"diagnose", "ci-fix", "release"}.issubset(modes))
 
@@ -138,7 +158,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             release_payload = json.loads(release_check.stdout)
-            self.assertEqual(release_payload["version"], "0.4.0-beta.8")
+            self.assertEqual(release_payload["version"], "0.4.0-beta.9")
             self.assertIn("release_safety", {item["name"] for item in release_payload["checks"]})
 
             release_pack = subprocess.run(
@@ -146,7 +166,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                     str(bin_dir / "lai"),
                     "release-pack",
                     "--target",
-                    "0.4.0-beta.8",
+                    "0.4.0-beta.9",
                     "--out",
                     str(root / "release-pack"),
                     "--json",
@@ -158,7 +178,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             release_pack_payload = json.loads(release_pack.stdout)
-            self.assertEqual(release_pack_payload["version"], "0.4.0-beta.8")
+            self.assertEqual(release_pack_payload["version"], "0.4.0-beta.9")
             self.assertTrue(Path(release_pack_payload["files"]["release_body"]).is_file())
 
             governance = subprocess.run(
@@ -166,7 +186,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                     str(bin_dir / "lai"),
                     "release-governance",
                     "--target",
-                    "0.4.0-beta.8",
+                    "0.4.0-beta.9",
                     "--json",
                 ],
                 cwd=sample_repo,
@@ -176,7 +196,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             governance_payload = json.loads(governance.stdout)
-            self.assertEqual(governance_payload["version"], "0.4.0-beta.8")
+            self.assertEqual(governance_payload["version"], "0.4.0-beta.9")
             self.assertIn("manual_actions", governance_payload)
 
             alias_governance = subprocess.run(
@@ -188,7 +208,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             alias_governance_payload = json.loads(alias_governance.stdout)
-            self.assertEqual(alias_governance_payload["version"], "0.4.0-beta.8")
+            self.assertEqual(alias_governance_payload["version"], "0.4.0-beta.9")
             self.assertIn("github_release", {item["id"] for item in alias_governance_payload["manual_actions"]})
 
             project_handoff = subprocess.run(
@@ -196,7 +216,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                     str(bin_dir / "lai"),
                     "project-handoff",
                     "--target",
-                    "0.4.0-beta.8",
+                    "0.4.0-beta.9",
                     "--out",
                     str(root / "project-handoff"),
                     "--json",
@@ -208,11 +228,11 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             project_handoff_payload = json.loads(project_handoff.stdout)
-            self.assertEqual(project_handoff_payload["version"], "0.4.0-beta.8")
+            self.assertEqual(project_handoff_payload["version"], "0.4.0-beta.9")
             self.assertTrue(Path(project_handoff_payload["files"]["markdown"]).is_file())
 
             next_chat = subprocess.run(
-                [str(bin_dir / "lai"), "next-chat", "--target", "0.4.0-beta.8", "--json"],
+                [str(bin_dir / "lai"), "next-chat", "--target", "0.4.0-beta.9", "--json"],
                 cwd=sample_repo,
                 env=install_env,
                 text=True,
@@ -220,7 +240,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             next_chat_payload = json.loads(next_chat.stdout)
-            self.assertEqual(next_chat_payload["version"], "0.4.0-beta.8")
+            self.assertEqual(next_chat_payload["version"], "0.4.0-beta.9")
             self.assertIn("critical_rules", next_chat_payload)
 
             no_last = subprocess.run(

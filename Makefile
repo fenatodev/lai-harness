@@ -1,4 +1,4 @@
-.PHONY: help test test-dev lint check validate harness-score
+.PHONY: help test test-dev lint check validate harness-score harness-score-gate
 
 help:
 	@printf '%s\n' \
@@ -8,7 +8,8 @@ help:
 	  '  make lint          Run Ruff lint checks' \
 	  '  make check         Run fast deterministic static checks' \
 	  '  make validate      Run the complete publication gate' \
-	  '  make harness-score Measure repository harness maturity'
+	  '  make harness-score Measure repository harness maturity' \
+	  '  make harness-score-gate Require L4 repository harness maturity'
 
 test:
 	python3 -m unittest discover -s tests -v
@@ -17,10 +18,11 @@ test-dev:
 	.venv/bin/python -m pytest -q
 
 lint:
-	.venv/bin/ruff check src tests
+	.venv/bin/ruff check src tests .cursor/hooks
 
 check:
-	python3 -m compileall -q src tests
+	python3 -m compileall -q src tests .cursor/hooks
+	python3 -m py_compile src/local-agent .cursor/hooks/*.py
 	node --check vscode-extension/extension.js
 	bash -n scripts/*.sh
 	python3 -m json.tool vscode-extension/package.json >/dev/null
@@ -30,4 +32,7 @@ validate:
 	./scripts/validate.sh
 
 harness-score:
-	npx --yes harness-score@latest .
+	npx --yes harness-score@1.6.3 .
+
+harness-score-gate:
+	npx --yes harness-score@1.6.3 . --min-level 4

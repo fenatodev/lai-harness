@@ -1,0 +1,22 @@
+name: Harness maturity
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  harness:
+    name: Harness Score L4
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Gate harness maturity
+        uses: paladini/harness-score@7cf25e00af7336f0c6d0b5e69a6f0ca7f1b4553a # v1, harness-score 1.6.3 default
+        with:
+          min-level: "4"
+          badge: ""
+          report: ""

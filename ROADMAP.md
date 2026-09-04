@@ -23,6 +23,7 @@ Roadmap items are intentions, not commitments. Model redistribution and automati
 - v0.4.0-alpha.21: release preflight and public mode aliases before beta readiness.
 - v0.4.0-beta.1: first beta readiness cut with deterministic release gates and documented stabilization posture.
 - v0.4.0-beta.2: release polish with current GitHub metadata, release notes, checklist, and public VSIX artifact naming.
+- v0.4.0-beta.9: self-correcting development harness with policy-backed hooks and an L4 maturity CI ratchet.
 - v0.4.0-beta.8: opt-in remote GitHub release governance with protected-main and pre-release verification.
 - v0.4.0-beta.7: project handoff command and next-chat reference files for long-session migration.
 - v0.4.0-beta.6: release governance status for local readiness, release-pack state, and manual GitHub publication actions.

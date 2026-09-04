@@ -3,7 +3,7 @@
 ## Metadata
 
 - Mode: `full`
-- Status: `accepted`
+- Status: `complete`
 
 ## Goal
 

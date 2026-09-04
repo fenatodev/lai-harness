@@ -17,7 +17,7 @@ case "$command_name" in
         shift
         exec "$bin_dir/local-agent" "$@" --config-status
         ;;
-    status|metrics|audit|handoff|clear-context|recovery|context|semantics|runs|readiness|ready|release-check|release-pack|release-governance|governance|project-handoff|next-chat|workspace)
+    status|metrics|audit|handoff|clear-context|recovery|context|semantics|runs|readiness|ready|policy-check|release-check|release-pack|release-governance|governance|project-handoff|next-chat|workspace)
         shift
         if [ "$command_name" = "ready" ]; then
             exec "$bin_dir/local-agent" --readiness "$@"
