@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 
 import hashlib
+import hmac
+import ipaddress
 import json
 import os
 import re
+import secrets
 import shutil
 import shlex
 import subprocess
@@ -13,9 +16,10 @@ import urllib.error
 import urllib.request
 import urllib.parse
 import unicodedata
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "0.4.0-beta.10"
+VERSION = "0.4.0-beta.11"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -137,6 +141,13 @@ SEMANTIC_CODE_CONTRACT = {
             "terms": ["workspace", "safe", "dogfood", "smoke", "clone", "copy", "branch", "main", "protected", "clean"],
         },
         {
+            "id": "local-control-plane",
+            "intent": "expose authenticated loopback-only JSON status and policy surfaces for external gateways without remote execution",
+            "paths": ["src/local-agent", "src/lai", "docs/CONTROL-PLANE.md", "docs/SECURITY-MODEL.md"],
+            "entrypoints": ["run_control_server", "create_control_server", "LaiControlRequestHandler", "render_control_token"],
+            "terms": ["control", "serve", "http", "json", "bearer", "token", "loopback", "mobile", "gateway", "status", "readiness", "runs"],
+        },
+        {
             "id": "extension-shell",
             "intent": "connect VS Code chat requests to the local CLI while preserving workspace safety",
             "paths": ["vscode-extension/extension.js", "vscode-extension/package.json", "vscode-extension/README.md"],
@@ -160,6 +171,7 @@ CONFIG_OPTIONS = {
     "--port": "port",
     "--model": "model",
     "--api-key-file": "api_key_file",
+    "--control-api-key-file": "control_api_key_file",
     "--data-dir": "data_dir",
     "--skills-dir": "skills_dir",
     "--state-dir": "state_dir",
@@ -180,6 +192,7 @@ CONFIG_VALUE_KEYS = {
     "config_file",
     "data_dir",
     "api_key_file",
+    "control_api_key_file",
     "skills_dir",
     "state_dir",
     "metrics_dir",
@@ -194,6 +207,7 @@ CONFIG_PATH_KEYS = {
     "config_file",
     "data_dir",
     "api_key_file",
+    "control_api_key_file",
     "skills_dir",
     "state_dir",
     "metrics_dir",
@@ -350,6 +364,7 @@ def load_configuration(argv, environ=None, home=None):
         "config_file": config_file,
         "data_dir": default_data_dir,
         "api_key_file": config_dir / "llama-api-key",
+        "control_api_key_file": config_dir / "control-api-key",
         "skills_dir": None,
         "state_dir": None,
         "metrics_dir": None,
@@ -378,6 +393,7 @@ def load_configuration(argv, environ=None, home=None):
         "config_file": config_file,
         "data_dir": data_dir,
         "api_key_file": config_dir / "llama-api-key",
+        "control_api_key_file": config_dir / "control-api-key",
         "skills_dir": data_dir / "skills",
         "state_dir": data_dir / "state",
         "metrics_dir": data_dir / "metrics",
@@ -424,6 +440,7 @@ def render_config_status(config=None):
         ("config_file", config["config_file"], False, True, False),
         ("config_dir", config["config_dir"], True, False, False),
         ("api_key_file", config["api_key_file"], False, True, True),
+        ("control_api_key_file", config["control_api_key_file"], False, True, True),
         ("data_dir", config["data_dir"], True, False, False),
         ("skills_dir", config["skills_dir"], True, False, False),
         ("state_dir", config["state_dir"], True, False, False),
@@ -445,7 +462,7 @@ def render_config_status(config=None):
         "",
         "Notes:",
         "- MISSING means the path does not exist yet; it is not fatal for deterministic commands.",
-        "- API key contents are never printed.",
+        "- API key and control token contents are never printed.",
     ])
     return "\n".join(lines)
 
@@ -2941,6 +2958,430 @@ def llama_api_key():
     return key
 
 
+CONTROL_API_DEFAULT_BIND = "127.0.0.1"
+CONTROL_API_DEFAULT_PORT = 8765
+CONTROL_API_MAX_BODY_BYTES = 64 * 1024
+CONTROL_API_TOKEN_BYTES = 32
+
+
+def control_api_key_path(config=None):
+    config = CONFIG if config is None else config
+    return Path(config["control_api_key_file"]).expanduser()
+
+
+def control_api_token_status(path=None):
+    target = Path(path).expanduser() if path is not None else control_api_key_path()
+    result = {
+        "path": str(target),
+        "exists": False,
+        "secure": False,
+        "mode": None,
+        "detail": "missing",
+    }
+    try:
+        if target.is_symlink():
+            result["exists"] = True
+            result["detail"] = "symlink token files are not allowed"
+            return result
+        if not target.is_file():
+            if target.exists():
+                result["detail"] = "path exists but is not a regular file"
+            return result
+        mode = target.stat().st_mode & 0o777
+        result["exists"] = True
+        result["mode"] = format(mode, "04o")
+        if target.stat().st_size <= 0:
+            result["detail"] = "file is empty"
+            return result
+        if mode & 0o077:
+            result["detail"] = "permissions expose the token to group or other users"
+            return result
+        if not (mode & 0o400):
+            result["detail"] = "owner read permission is required"
+            return result
+        result["secure"] = True
+        result["detail"] = "ready"
+        return result
+    except OSError as exc:
+        result["detail"] = f"error: {exc}"
+        return result
+
+
+def control_api_key(path=None):
+    target = Path(path).expanduser() if path is not None else control_api_key_path()
+    status = control_api_token_status(target)
+    if not status["exists"]:
+        raise RuntimeError(f"LAI control API token not found: {target}")
+    if not status["secure"]:
+        raise RuntimeError(f"LAI control API token is unsafe: {status['detail']}")
+    token = target.read_text(encoding="utf-8", errors="strict").strip()
+    if not token:
+        raise RuntimeError(f"LAI control API token is empty: {target}")
+    return token
+
+
+def init_control_api_token(path=None, force=False):
+    target = Path(path).expanduser() if path is not None else control_api_key_path()
+    existed = target.exists() or target.is_symlink()
+    if existed and not force:
+        raise SystemExit(f"Control API token already exists: {target}. Use --force to replace it")
+    if existed and target.is_dir():
+        raise SystemExit(f"Control API token path is a directory: {target}")
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    token = secrets.token_urlsafe(CONTROL_API_TOKEN_BYTES)
+    temp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+    try:
+        fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(token + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(temp, 0o600)
+            os.replace(temp, target)
+            os.chmod(target, 0o600)
+        except Exception:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            raise
+    finally:
+        try:
+            temp.unlink()
+        except FileNotFoundError:
+            pass
+    status = control_api_token_status(target)
+    if not status["secure"]:
+        raise RuntimeError(f"Control API token initialization failed: {status['detail']}")
+    return {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "path": str(target),
+        "created": True,
+        "replaced": bool(existed),
+        "mode": status["mode"],
+        "secret_printed": False,
+    }
+
+
+CONTROL_TOKEN_USAGE = "Usage: lai control-token init [--force] [--json] | lai control-token status [--json]"
+
+
+def render_control_token(args=None):
+    raw = list(args or [])
+    json_mode = "--json" in raw
+    force = "--force" in raw
+    raw = [item for item in raw if item not in {"--json", "--force"}]
+    command = raw[0] if raw else "status"
+    if len(raw) > 1 or command not in {"init", "status"}:
+        raise SystemExit(CONTROL_TOKEN_USAGE)
+    if force and command != "init":
+        raise SystemExit(CONTROL_TOKEN_USAGE)
+    if command == "init":
+        payload = init_control_api_token(force=force)
+    else:
+        status = control_api_token_status()
+        payload = {
+            "product": PRODUCT_NAME,
+            "version": VERSION,
+            **status,
+            "secret_printed": False,
+        }
+    if json_mode:
+        return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    lines = [
+        "# lai control token",
+        f"Path: {payload['path']}",
+        f"Status: {'ready' if payload.get('secure', True) else payload.get('detail', 'not ready')}",
+    ]
+    if payload.get("created"):
+        lines.append(f"Created: yes (mode {payload.get('mode')})")
+        lines.append("Secret: [not printed]")
+    elif payload.get("mode"):
+        lines.append(f"Mode: {payload.get('mode')}")
+    return "\n".join(lines)
+
+
+def control_bind_is_loopback(bind):
+    value = str(bind or "").strip()
+    if value.lower() == "localhost":
+        return True
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return address.version == 4 and address.is_loopback
+
+
+def control_status_payload():
+    runs = collect_run_history()
+    spec = load_active_spec()
+    active_spec = None
+    if spec is not None:
+        active_spec = {
+            "title": spec.get("title"),
+            "mode": spec.get("mode"),
+            "status": spec.get("status"),
+            "requirements": spec.get("requirements") or [],
+        }
+    git_status = workspace_git_status()
+    return {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "repository": str(ROOT),
+        "git": {
+            "branch": workspace_git_branch(),
+            "status": git_status,
+            "clean": git_status == "[clean]",
+        },
+        "active_spec": active_spec,
+        "run_count": len(runs),
+        "latest_run": run_history_public_record(runs[-1]) if runs else None,
+        "capabilities": {
+            "model_execution": False,
+            "shell_execution": False,
+            "repository_write": False,
+            "policy_classification": True,
+        },
+    }
+
+
+def control_runs_payload(limit=10):
+    if not isinstance(limit, int) or not 1 <= limit <= 50:
+        raise ValueError("limit must be between 1 and 50")
+    runs = collect_run_history()
+    return {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "repository": str(ROOT),
+        "runs": [run_history_public_record(run) for run in runs[-limit:]],
+    }
+
+
+def control_policy_payload(request):
+    if not isinstance(request, dict):
+        raise ValueError("JSON object required")
+    tool = request.get("tool")
+    tool_args = request.get("args", {})
+    mode = request.get("mode")
+    if not isinstance(tool, str) or not tool.strip():
+        raise ValueError("tool must be a non-empty string")
+    if not isinstance(tool_args, dict):
+        raise ValueError("args must be a JSON object")
+    if mode is not None and not isinstance(mode, str):
+        raise ValueError("mode must be a string")
+    policy = evaluate_tool_policy(tool.strip(), tool_args, mode=mode)
+    return {
+        "decision": policy["decision"],
+        "reason": policy["reason"],
+        "tool": tool.strip(),
+        "mode": mode or "unknown",
+        "executed": False,
+    }
+
+
+class LaiControlRequestHandler(BaseHTTPRequestHandler):
+    server_version = "lai-control"
+    sys_version = ""
+
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(10)
+
+    def log_message(self, format, *args):
+        return
+
+    def _json(self, status, payload, extra_headers=None):
+        body = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Connection", "close")
+        for key, value in (extra_headers or {}).items():
+            self.send_header(key, value)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _authorized(self):
+        header = self.headers.get("Authorization", "")
+        prefix = "Bearer "
+        if not header.startswith(prefix):
+            return False
+        supplied = header[len(prefix):]
+        expected = getattr(self.server, "control_token", "")
+        return bool(expected) and hmac.compare_digest(supplied, expected)
+
+    def _require_auth(self):
+        if self._authorized():
+            return True
+        self._json(
+            401,
+            {"error": {"code": "unauthorized", "message": "valid bearer token required"}},
+            {"WWW-Authenticate": "Bearer"},
+        )
+        return False
+
+    def _read_json_body(self):
+        if self.headers.get("Transfer-Encoding"):
+            raise ValueError("transfer encoding is not supported")
+        media_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if media_type != "application/json":
+            raise TypeError("application/json required")
+        raw_length = self.headers.get("Content-Length")
+        if raw_length is None:
+            raise EOFError("Content-Length required")
+        try:
+            length = int(raw_length)
+        except ValueError as exc:
+            raise ValueError("invalid Content-Length") from exc
+        if length < 0:
+            raise ValueError("invalid Content-Length")
+        if length > CONTROL_API_MAX_BODY_BYTES:
+            raise OverflowError("request body too large")
+        raw = self.rfile.read(length)
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("malformed JSON") from exc
+
+    def do_GET(self):
+        if not self._require_auth():
+            return
+        parsed = urllib.parse.urlsplit(self.path)
+        if parsed.path == "/v1/status":
+            self._json(200, control_status_payload())
+            return
+        if parsed.path == "/v1/readiness":
+            self._json(200, collect_readiness_status())
+            return
+        if parsed.path == "/v1/runs":
+            query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+            try:
+                limit = int((query.get("limit") or ["10"])[0])
+                payload = control_runs_payload(limit=limit)
+            except (TypeError, ValueError):
+                self._json(400, {"error": {"code": "invalid_limit", "message": "limit must be between 1 and 50"}})
+                return
+            self._json(200, payload)
+            return
+        self._json(404, {"error": {"code": "not_found", "message": "endpoint not found"}})
+
+    def _method_not_allowed(self):
+        if not self._require_auth():
+            return
+        self._json(405, {"error": {"code": "method_not_allowed", "message": "method not allowed"}})
+
+    def do_POST(self):
+        if not self._require_auth():
+            return
+        parsed = urllib.parse.urlsplit(self.path)
+        if parsed.path != "/v1/policy-check":
+            if parsed.path in {"/v1/status", "/v1/readiness", "/v1/runs"}:
+                self._json(405, {"error": {"code": "method_not_allowed", "message": "method not allowed"}})
+            else:
+                self._json(404, {"error": {"code": "not_found", "message": "endpoint not found"}})
+            return
+        try:
+            request = self._read_json_body()
+        except TypeError as exc:
+            self._json(415, {"error": {"code": "unsupported_media_type", "message": str(exc)}})
+            return
+        except EOFError as exc:
+            self._json(411, {"error": {"code": "length_required", "message": str(exc)}})
+            return
+        except OverflowError as exc:
+            self._json(413, {"error": {"code": "payload_too_large", "message": str(exc)}})
+            return
+        except ValueError as exc:
+            self._json(400, {"error": {"code": "invalid_request", "message": str(exc)}})
+            return
+        try:
+            payload = control_policy_payload(request)
+        except ValueError as exc:
+            self._json(400, {"error": {"code": "invalid_policy_request", "message": str(exc)}})
+            return
+        self._json(200, payload)
+
+    def do_PUT(self):
+        self._method_not_allowed()
+
+    def do_DELETE(self):
+        self._method_not_allowed()
+
+    def do_PATCH(self):
+        self._method_not_allowed()
+
+    def do_OPTIONS(self):
+        self._method_not_allowed()
+
+
+CONTROL_SERVE_USAGE = "Usage: lai serve [--bind 127.0.0.1] [--port 8765]"
+
+
+def parse_control_serve_args(args=None):
+    raw = list(args or [])
+    bind = CONTROL_API_DEFAULT_BIND
+    port = CONTROL_API_DEFAULT_PORT
+    index = 0
+    while index < len(raw):
+        item = raw[index]
+        if item in {"--bind", "--port"}:
+            index += 1
+            if index >= len(raw):
+                raise SystemExit(CONTROL_SERVE_USAGE)
+            value = raw[index]
+            if item == "--bind":
+                bind = value
+            else:
+                try:
+                    port = int(value)
+                except ValueError as exc:
+                    raise SystemExit(CONTROL_SERVE_USAGE) from exc
+            index += 1
+            continue
+        raise SystemExit(CONTROL_SERVE_USAGE)
+    if not control_bind_is_loopback(bind):
+        raise SystemExit("lai serve is loopback-only in this beta; use 127.0.0.1 or localhost")
+    if not 1 <= port <= 65535:
+        raise SystemExit("lai serve port must be between 1 and 65535")
+    return {"bind": bind, "port": port}
+
+
+def create_control_server(bind=CONTROL_API_DEFAULT_BIND, port=CONTROL_API_DEFAULT_PORT, token=None):
+    if not control_bind_is_loopback(bind):
+        raise ValueError("control API bind must be loopback-only")
+    if not 0 <= int(port) <= 65535:
+        raise ValueError("control API port must be between 0 and 65535")
+    actual_bind = "127.0.0.1" if str(bind).lower() == "localhost" else str(bind)
+    server = ThreadingHTTPServer((actual_bind, int(port)), LaiControlRequestHandler)
+    server.daemon_threads = True
+    server.control_token = control_api_key() if token is None else str(token)
+    if not server.control_token:
+        server.server_close()
+        raise ValueError("control API token must not be empty")
+    return server
+
+
+def run_control_server(args=None):
+    options = parse_control_serve_args(args)
+    try:
+        server = create_control_server(options["bind"], options["port"])
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise SystemExit(f"lai serve: {exc}") from exc
+    host, port = server.server_address[:2]
+    print(f"lai control API listening on http://{host}:{port}", flush=True)
+    print("scope=loopback auth=bearer model_execution=false shell_execution=false", flush=True)
+    try:
+        server.serve_forever(poll_interval=0.5)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
+
 def server_ready(host):
     req = urllib.request.Request(
         f"http://{host}:{LLAMA_PORT}/props",
@@ -5201,7 +5642,7 @@ def release_pack_publish_commands(release_payload):
 
 def release_pack_title(target_version):
     if target_version == VERSION:
-        return f"v{target_version} — release state convergence"
+        return f"v{target_version} — local control plane foundation"
     return f"v{target_version} — lai harness release"
 
 
@@ -8141,6 +8582,14 @@ def main():
 
     if args and args[0] in {"--config-status", "config"}:
         print(render_config_status())
+        return
+
+    if args and args[0] == "--control-token":
+        print(render_control_token(args[1:]))
+        return
+
+    if args and args[0] == "--control-serve":
+        run_control_server(args[1:])
         return
 
     if args and args[0] == "--policy-check":

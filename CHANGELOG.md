@@ -1,3 +1,22 @@
+## [0.4.0-beta.11] - 2026-09-04
+
+### Added
+- Added `lai serve`, an authenticated loopback-only HTTP/JSON control plane implemented with the Python standard library.
+- Added `lai control-token init|status` with a control-plane bearer token separate from the llama.cpp API key.
+- Added read-only HTTP surfaces for status, readiness, public run summaries, and deterministic policy classification.
+- Added focused control-plane tests plus installed-wrapper smoke coverage that starts the server and queries `/v1/status`.
+- Added `docs/CONTROL-PLANE.md` and a semantic `local-control-plane` subsystem contract.
+
+### Safety
+- Control tokens are generated with cryptographic randomness, written mode `0600`, never printed by default, and not silently overwritten.
+- `lai serve` rejects non-loopback binds in beta.11.
+- The HTTP surface exposes no model execution, arbitrary shell/Git execution, repository writes, or release publication.
+- JSON request bodies are bounded and malformed/media-type/method errors fail through structured responses.
+
+### Architecture
+- Recorded `lai-gateway` as a separate mobile transport project (Telegram first, then private PWA/Tailscale).
+- Recorded a separate commercial-automation dogfood/product repository rather than expanding the coding harness into CRM/social automation.
+
 ## [0.4.0-beta.10] - 2026-09-04
 
 ### Added
