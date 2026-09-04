@@ -1,5 +1,5 @@
 ---
-description: Testing and regression rules for changes affecting LAI Harness source behavior or fixtures.
+description: Testing and regression rules for changes affecting lai harness source behavior or fixtures.
 globs:
   - "tests/**"
   - "src/**"

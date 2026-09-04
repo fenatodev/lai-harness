@@ -1,6 +1,6 @@
 # Context intelligence
 
-LAI Harness uses a small deterministic ranking layer to reduce repository-discovery rounds for constrained local models. It does not replace `read`, `search`, or `inspect`, and ranked files are never treated as already inspected evidence.
+lai harness uses a small deterministic ranking layer to reduce repository-discovery rounds for constrained local models. It does not replace `read`, `search`, or `inspect`, and ranked files are never treated as already inspected evidence.
 
 ## Where it runs
 
@@ -58,4 +58,4 @@ Workspace `recent` and `modified` paths are normalized and revalidated before th
 
 Ranking is advisory. Repository filenames and sampled text can influence candidate order, including malicious or misleading content. The model must still inspect a file before relying on its contents, and all existing repository rules, mode gates, policy decisions, validation requirements, and recovery checks remain authoritative.
 
-LAI Harness does not use embeddings, vector databases, external indexing services, MCP, delegates, or learning for this feature. Rankings are recomputed from current local evidence and are not persisted as a separate index.
+lai harness does not use embeddings, vector databases, external indexing services, MCP, delegates, or learning for this feature. Rankings are recomputed from current local evidence and are not persisted as a separate index.

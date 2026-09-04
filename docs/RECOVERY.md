@@ -1,6 +1,6 @@
 # Runtime recovery
 
-LAI Harness keeps one versioned recovery checkpoint per workspace under `$LAI_DATA_DIR/checkpoints`.
+lai harness keeps one versioned recovery checkpoint per workspace under `$LAI_DATA_DIR/checkpoints`.
 The checkpoint is operational state, not repository content and not conversation persistence.
 
 ## What is recorded

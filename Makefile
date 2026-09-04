@@ -2,7 +2,7 @@
 
 help:
 	@printf '%s\n' \
-	  'LAI Harness development commands:' \
+	  'lai harness development commands:' \
 	  '  make test          Run the Python test suite' \
 	  '  make test-dev      Run tests with pytest' \
 	  '  make lint          Run Ruff lint checks' \

@@ -26,7 +26,7 @@ Small models produced plausible but unsupported review findings. Review and secu
 
 ## Post-patch sanity
 
-A fixture introduced `throw newError(...)`; tests passed because that branch was not executed. LAI Harness added deterministic syntax and added-line analysis, including this regression class, followed by a very small diff-only model check. Sanity complements rather than replaces project validation.
+A fixture introduced `throw newError(...)`; tests passed because that branch was not executed. lai harness added deterministic syntax and added-line analysis, including this regression class, followed by a very small diff-only model check. Sanity complements rather than replaces project validation.
 
 ## Metrics and audit
 

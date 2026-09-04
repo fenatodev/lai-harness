@@ -883,7 +883,7 @@ class LocalAgentTest(unittest.TestCase):
             environ={}, home=self.root,
         )
         shown = agent.render_config_status(values)
-        self.assertIn("# LAI Config", shown)
+        self.assertIn("# lai config", shown)
         self.assertIn("api_key_file", shown)
         self.assertIn("Checks:", shown)
         self.assertIn("OK", shown)
@@ -902,7 +902,7 @@ class LocalAgentTest(unittest.TestCase):
             cwd=self.root, env=env, text=True, capture_output=True,
             timeout=5, check=True,
         )
-        self.assertIn("# LAI Config", result.stdout)
+        self.assertIn("# lai config", result.stdout)
         self.assertIn("api_key_file", result.stdout)
         self.assertNotIn("super-secret-test-key", result.stdout)
 
@@ -1212,7 +1212,7 @@ class LocalAgentTest(unittest.TestCase):
             check=True,
         )
 
-        self.assertIn("# LAI Active Spec", result.stdout)
+        self.assertIn("# lai active spec", result.stdout)
         self.assertIn("Path: .specs/001-feature.md", result.stdout)
         self.assertIn("Mode: full", result.stdout)
         self.assertIn("Requirements: REQ-001", result.stdout)
@@ -1225,7 +1225,7 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "LAI Harness 0.4.0-alpha.13")
+        self.assertEqual(result.stdout.strip(), "lai harness 0.4.0-alpha.14")
 
     def test_deterministic_model_eval_plan_needs_no_server(self):
         result = subprocess.run(
@@ -1235,7 +1235,7 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertIn("# LAI Model Evaluation", result.stdout)
+        self.assertIn("# lai model evaluation", result.stdout)
         self.assertIn("Current model:", result.stdout)
         self.assertIn("implement-small-diff", result.stdout)
         self.assertIn("does not call, start, or download a model", result.stdout)
@@ -1249,8 +1249,8 @@ class LocalAgentTest(unittest.TestCase):
             check=True,
         )
         payload = json.loads(result.stdout)
-        self.assertEqual(payload["product"], "LAI Harness")
-        self.assertEqual(payload["version"], "0.4.0-alpha.13")
+        self.assertEqual(payload["product"], "lai harness")
+        self.assertEqual(payload["version"], "0.4.0-alpha.14")
         scenario_ids = {item["id"] for item in payload["scenarios"]}
         self.assertIn("context-ranking", scenario_ids)
 
@@ -1306,7 +1306,7 @@ class LocalAgentTest(unittest.TestCase):
             check=True,
         )
 
-        self.assertIn("# LAI Model Evaluation Score", result.stdout)
+        self.assertIn("# lai model evaluation score", result.stdout)
         self.assertLess(
             result.stdout.index("## ministral-baseline"),
             result.stdout.index("## qwen-candidate"),
@@ -1344,7 +1344,7 @@ class LocalAgentTest(unittest.TestCase):
 
     def test_branding_doc_preserves_lai_command_and_compatibility_ids(self):
         branding = (Path(__file__).parents[1] / "docs" / "BRANDING.md").read_text()
-        self.assertIn("LAI Harness", branding)
+        self.assertIn("lai harness", branding)
         self.assertIn("lai", branding)
         self.assertIn("local-agent", branding)
         self.assertIn("lai-local-agent", branding)
@@ -1364,7 +1364,11 @@ class LocalAgentTest(unittest.TestCase):
                 if candidate in allowed:
                     continue
                 text = candidate.read_text(encoding="utf-8")
-                if "LAI — Local AI Agent" in text or "# LAI —" in text:
+                if (
+                    "LAI Harness" in text
+                    or "LAI — Local AI Agent" in text
+                    or "# LAI —" in text
+                ):
                     stale.append(candidate.relative_to(repo).as_posix())
         self.assertEqual(stale, [])
 

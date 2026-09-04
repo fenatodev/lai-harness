@@ -1,8 +1,8 @@
 {
   "name": "lai-chat",
-  "displayName": "LAI Harness",
-  "description": "LAI Harness: compact VS Code coding harness for local OpenAI-compatible LLM servers",
-  "version": "0.4.0-alpha.13",
+  "displayName": "lai harness",
+  "description": "lai harness: compact VS Code coding harness for local OpenAI-compatible LLM servers",
+  "version": "0.4.0-alpha.14",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -21,7 +21,7 @@
   ],
   "contributes": {
     "configuration": {
-      "title": "LAI Harness",
+      "title": "lai harness",
       "properties": {
         "lai.agentPath": {
           "type": "string",
@@ -34,7 +34,7 @@
       {
         "id": "lai-local-agent.lai",
         "name": "lai",
-        "fullName": "LAI Harness",
+        "fullName": "lai harness",
         "description": "Compact coding harness for a local LLM",
         "commands": [
           {

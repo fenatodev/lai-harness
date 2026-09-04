@@ -7,13 +7,13 @@
 
 ## Goal
 
-Make LAI Harness use explicit specs to define requested changes before implementation, with stable requirement IDs and traceable validation.
+Make lai harness use explicit specs to define requested changes before implementation, with stable requirement IDs and traceable validation.
 
 ## Requirements
 
 ### REQ-001
 
-LAI Harness must recognize specs stored under `.specs/`.
+lai harness must recognize specs stored under `.specs/`.
 
 ### REQ-002
 

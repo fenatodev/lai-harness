@@ -1,4 +1,4 @@
-# LAI Harness Specs
+# lai harness Specs
 
 Specs define WHAT must change before implementation begins.
 

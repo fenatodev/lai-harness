@@ -1,6 +1,6 @@
 # Model Evaluation
 
-LAI Harness keeps the current model until a replacement wins in repeatable local tests. The benchmark harness is deterministic and does not download, start, or contact a model server.
+lai harness keeps the current model until a replacement wins in repeatable local tests. The benchmark harness is deterministic and does not download, start, or contact a model server.
 
 Use it to compare small local coding models on the actual LAI workflow instead of switching defaults based on general benchmarks.
 

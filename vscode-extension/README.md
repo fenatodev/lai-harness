@@ -1,4 +1,4 @@
-# LAI Harness for VS Code
+# lai harness for VS Code
 
 This extension connects the `@lai` chat participant to a separately installed `local-agent` harness. It does not contain a model, model server, API key, workspace state, or audit data.
 

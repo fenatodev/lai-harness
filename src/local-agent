@@ -12,8 +12,8 @@ import urllib.request
 import unicodedata
 from pathlib import Path
 
-VERSION = "0.4.0-alpha.13"
-PRODUCT_NAME = "LAI Harness"
+VERSION = "0.4.0-alpha.14"
+PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
 CONFIG_OPTIONS = {
@@ -78,8 +78,8 @@ CONFIG_DIRECTORY_KEYS = {
 
 def config_error(message, config_file=None):
     if config_file:
-        raise SystemExit(f"Invalid LAI config {config_file}: {message}")
-    raise SystemExit(f"Invalid LAI configuration: {message}")
+        raise SystemExit(f"Invalid lai config {config_file}: {message}")
+    raise SystemExit(f"Invalid lai configuration: {message}")
 
 
 def validate_config_mapping(mapping, *, config_file=None, file_scope=False):
@@ -272,7 +272,7 @@ def path_status(path, *, expect_dir=False, expect_file=False, secret=False):
 def render_config_status(config=None):
     config = CONFIG if config is None else config
     lines = [
-        "# LAI Config",
+        "# lai config",
         f"Version: {VERSION}",
         "",
         "Effective values:",
@@ -1097,12 +1097,12 @@ def render_model_evaluation_plan(json_mode=False):
         return json.dumps(payload, indent=2, sort_keys=True)
 
     lines = [
-        "# LAI Model Evaluation",
+        "# lai model evaluation",
         f"Version: {VERSION}",
         f"Current model: {MODEL}",
         "",
         "Purpose:",
-        "- Compare small local coding models on the LAI Harness workflow before changing defaults.",
+        "- Compare small local coding models on the lai harness workflow before changing defaults.",
         "- Use the same scenarios, recording format, and scoring rubric for every model.",
         "- This command is deterministic and does not call, start, or download a model.",
         "",
@@ -1238,7 +1238,7 @@ def render_model_evaluation_score(records):
         item["total"] += score
         item["scenarios"].append((record["scenario"], score, record["outcome"], record["validation"]))
 
-    lines = ["# LAI Model Evaluation Score", ""]
+    lines = ["# lai model evaluation score", ""]
     ranked = sorted(
         grouped.items(),
         key=lambda item: (-(item[1]["total"] / item[1]["count"]), item[0]),
@@ -4813,7 +4813,7 @@ def main():
     if args and args[0] == "--doctor":
         host = gateway()
         unauthenticated, authenticated = doctor_status(host)
-        print("# LAI Doctor")
+        print("# lai doctor")
         print(f"Server address: {host}:{LLAMA_PORT}")
         print(f"Unauthenticated /props: HTTP {unauthenticated or '000'}")
         print(f"Authenticated /props:   HTTP {authenticated or '000'}")
@@ -4833,7 +4833,7 @@ def main():
 
     if args and args[0] == "--spec-status":
         spec = load_active_spec()
-        print("# LAI Active Spec")
+        print("# lai active spec")
         if spec is None:
             print("Status: none")
             return
@@ -4869,7 +4869,7 @@ def main():
 
     if args and args[0] == "--clear-context":
         clear_workspace_state()
-        print("LAI workspace context cleared.")
+        print("lai workspace context cleared.")
         return
 
     if args and args[0] == "--status":
@@ -4883,7 +4883,7 @@ def main():
         modified = state.get("modified_files") or []
         validation = state.get("last_validation")
 
-        print("# LAI Workspace Status")
+        print("# lai workspace status")
         print()
         print(f"Repository: {ROOT}")
         print(

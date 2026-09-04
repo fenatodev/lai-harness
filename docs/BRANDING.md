@@ -1,8 +1,8 @@
 # Branding
 
-The canonical user-facing product name is **LAI Harness**.
+The canonical user-facing product name is **lai harness**.
 
-Use **LAI Harness** in public documentation, extension display names, configuration titles, status text, and release descriptions.
+Use **lai harness** in public documentation, extension display names, configuration titles, status text, and release descriptions.
 
 The primary command remains:
 
@@ -29,4 +29,4 @@ Changing compatibility identifiers should be a separate migration with aliases, 
 
 ## Style
 
-Prefer “LAI Harness” when describing the product and “`lai`” when describing the command. Avoid presenting “LAI — Local AI Agent” as a current product title.
+Prefer “lai harness” when describing the product and “`lai`” when describing the command. Avoid presenting “LAI — Local AI Agent” as a current product title.

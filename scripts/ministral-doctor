@@ -17,7 +17,7 @@ auth="$(curl -sS --max-time 3 -o /dev/null -w '%{http_code}' \
     -H "Authorization: Bearer ${api_key}" \
     "http://${host}:${port}/props" 2>/dev/null || true)"
 
-echo "# LAI Doctor"
+echo "# lai doctor"
 echo "Server address: ${host}:${port}"
 echo "Unauthenticated /props: HTTP ${unauth:-000}"
 echo "Authenticated /props:   HTTP ${auth:-000}"

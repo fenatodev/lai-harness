@@ -1,5 +1,5 @@
 ---
-description: Core safety invariants for LAI Harness runtime, tools, policy, and executable scripts.
+description: Core safety invariants for lai harness runtime, tools, policy, and executable scripts.
 globs:
   - "src/**"
   - "scripts/**"

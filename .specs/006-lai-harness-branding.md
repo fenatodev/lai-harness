@@ -1,4 +1,4 @@
-# Spec: LAI Harness Branding
+# Spec: lai harness Branding
 
 ## Metadata
 
@@ -7,13 +7,13 @@
 
 ## Goal
 
-Standardize the user-facing product identity as LAI Harness while preserving the established `lai` command and compatibility identifiers.
+Standardize the user-facing product identity as lai harness while preserving the established `lai` command and compatibility identifiers.
 
 ## Requirements
 
 ### REQ-001
 
-User-facing documentation must consistently describe the product as LAI Harness.
+User-facing documentation must consistently describe the product as lai harness.
 
 ### REQ-002
 
@@ -25,11 +25,11 @@ Compatibility identifiers such as repository name, extension participant ID, pub
 
 ### REQ-004
 
-The version command must present the product as LAI Harness.
+The version command must present the product as lai harness.
 
 ### REQ-005
 
-The VS Code extension metadata must keep the visible name and configuration title aligned with LAI Harness.
+The VS Code extension metadata must keep the visible name and configuration title aligned with lai harness.
 
 ### REQ-006
 
@@ -41,7 +41,7 @@ Tests must protect the branding boundary so future changes do not accidentally r
 
 ## Acceptance Criteria
 
-- `lai version` reports LAI Harness with the alpha.12 version.
+- `lai version` reports lai harness with the alpha.12 version.
 - `lai` remains the executable command installed by the local installer.
 - The VS Code chat participant remains `@lai` and the participant ID remains compatible.
 - No public documentation page presents the old product title `LAI — Local AI Agent`.
@@ -71,7 +71,7 @@ The command name `lai` is already short, useful, and present in examples. The in
 
 ## Implementation Notes
 
-Use `LAI Harness` as the canonical product name. Use `lai` only for the CLI command or chat participant. Use `local-agent` only when referring to the internal executable path.
+Use `lai harness` as the canonical product name. Use `lai` only for the CLI command or chat participant. Use `local-agent` only when referring to the internal executable path.
 
 ## Traceability
 

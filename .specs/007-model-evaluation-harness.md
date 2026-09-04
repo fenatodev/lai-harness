@@ -7,13 +7,13 @@
 
 ## Goal
 
-Add a deterministic model-evaluation layer so LAI Harness can compare small local coding models before changing the default model.
+Add a deterministic model-evaluation layer so lai harness can compare small local coding models before changing the default model.
 
 ## Requirements
 
 ### REQ-001
 
-LAI Harness must expose a deterministic model-evaluation command through the `lai` wrapper while preserving the existing `lai` command and runtime flow.
+lai harness must expose a deterministic model-evaluation command through the `lai` wrapper while preserving the existing `lai` command and runtime flow.
 
 ### REQ-002
 
@@ -46,7 +46,7 @@ Validation must cover CLI routing, deterministic output, sample records, scoring
 - `lai model sample` prints JSONL records for all built-in scenarios.
 - `lai model score <path>` scores a repo-relative JSONL file.
 - `lai model score ../outside.jsonl` fails closed.
-- `lai version` reports `LAI Harness 0.4.0-alpha.13`.
+- `lai version` reports `lai harness 0.4.0-alpha.13`.
 - Existing agent modes and deterministic commands continue to work.
 
 ## Validation

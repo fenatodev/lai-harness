@@ -13,4 +13,4 @@ git diff --check
 ./scripts/check-publication.sh
 ./scripts/package-vsix.sh "${1:-/tmp/lai-local-agent-validation.vsix}"
 
-echo "All LAI publication gates passed."
+echo "All lai harness publication gates passed."

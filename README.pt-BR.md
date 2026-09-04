@@ -1,10 +1,10 @@
-# LAI Harness
+# lai harness
 
 **Um harness de programação compacto e auditável para LLMs locais.**
 
-Modelos locais pequenos se tornam muito mais úteis quando a arquitetura do agente é otimizada ao redor deles. O LAI Harness é um harness experimental para VS Code, construído para reduzir contexto desnecessário, schemas de ferramentas e rodadas repetidas de inferência.
+Modelos locais pequenos se tornam muito mais úteis quando a arquitetura do agente é otimizada ao redor deles. O lai harness é um harness experimental para VS Code, construído para reduzir contexto desnecessário, schemas de ferramentas e rodadas repetidas de inferência.
 
-Ele complementa agentes cloud de alto contexto: o LAI Harness atende ciclos locais rápidos e delimitados; outro agente pode assumir trabalhos amplos usando o handoff persistente.
+Ele complementa agentes cloud de alto contexto: o lai harness atende ciclos locais rápidos e delimitados; outro agente pode assumir trabalhos amplos usando o handoff persistente.
 
 ## Destaques
 
@@ -15,7 +15,7 @@ Ele complementa agentes cloud de alto contexto: o LAI Harness atende ciclos loca
 - sanity check após patches;
 - métricas, auditoria forense e contexto por workspace;
 - cliente Python sem dependências externas;
-- identidade pública padronizada como LAI Harness, mantendo o comando `lai`;
+- identidade pública padronizada como lai harness, mantendo o comando `lai`;
 - avaliação determinística de modelos locais com `lai model` antes de trocar o default.
 
 ## Início rápido
