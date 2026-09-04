@@ -159,6 +159,121 @@ class GuardIntegrationTest(unittest.TestCase):
             retry_messages[-1]["content"],
         )
 
+    def test_plan_final_synthesis_retries_truncation(self):
+        partial = "PARTIAL_PLAN_MUST_NOT_BE_RETURNED"
+
+        responder = SequenceResponder([
+            tool_call(
+                "search-one",
+                "search",
+                {"query": "first"},
+            ),
+            tool_call(
+                "search-two",
+                "search",
+                {"query": "second"},
+            ),
+            truncated_completion(partial, tokens=1536),
+            completion("complete final plan"),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--plan",
+                "Inspect the repository and produce a concise plan.",
+            )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "complete final plan")
+        self.assertNotIn(partial, result.stdout)
+
+        self.assertEqual(
+            [payload["max_tokens"] for payload in responder.payloads],
+            [256, 256, 1536, 3072],
+        )
+
+        metric_events = [
+            json.loads(line)
+            for line in (
+                self.data / "metrics" / "events.jsonl"
+            ).read_text().splitlines()
+        ]
+
+        truncations = [
+            event
+            for event in metric_events
+            if (
+                event.get("type") == "agent_limit"
+                and event.get("reason") == "response_truncated"
+            )
+        ]
+
+        self.assertEqual(len(truncations), 1)
+        self.assertTrue(truncations[0]["retry"])
+        self.assertEqual(truncations[0]["max_tokens"], 1536)
+        self.assertEqual(truncations[0]["retry_max_tokens"], 3072)
+
+    def test_plan_final_synthesis_second_truncation_fails_cleanly(self):
+        first_partial = "FIRST_PARTIAL_PLAN"
+        second_partial = "SECOND_PARTIAL_PLAN"
+
+        responder = SequenceResponder([
+            tool_call(
+                "search-one",
+                "search",
+                {"query": "first"},
+            ),
+            tool_call(
+                "search-two",
+                "search",
+                {"query": "second"},
+            ),
+            truncated_completion(first_partial, tokens=1536),
+            truncated_completion(second_partial, tokens=3072),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--plan",
+                "Inspect the repository and produce a concise plan.",
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "plan synthesis truncated twice",
+            result.stderr,
+        )
+        self.assertNotIn(first_partial, result.stdout)
+        self.assertNotIn(second_partial, result.stdout)
+
+        self.assertEqual(
+            [payload["max_tokens"] for payload in responder.payloads],
+            [256, 256, 1536, 3072],
+        )
+
+        metric_events = [
+            json.loads(line)
+            for line in (
+                self.data / "metrics" / "events.jsonl"
+            ).read_text().splitlines()
+        ]
+
+        truncations = [
+            event
+            for event in metric_events
+            if (
+                event.get("type") == "agent_limit"
+                and event.get("reason") == "response_truncated"
+            )
+        ]
+
+        self.assertEqual(len(truncations), 2)
+        self.assertTrue(truncations[0]["retry"])
+        self.assertFalse(truncations[1]["retry"])
+
     def test_separate_rounds_each_get_one_truncation_retry(self):
         responder = SequenceResponder([
             truncated_completion("partial create", tokens=640),
@@ -852,6 +967,100 @@ class GuardIntegrationTest(unittest.TestCase):
 
         self.assertEqual(result.stderr.count("\n[inspect] "), 2)
         self.assertNotIn("PRE-WRITE EXPLORATION ENDED", str(responder.payloads))
+
+    def test_post_write_phase_forces_validation_before_exploration(self):
+        target = self.repo / "result.py"
+        target.write_text("value = 0\n")
+
+        responder = SequenceResponder([
+            tool_call(
+                "read",
+                "read",
+                {"path": "result.py"},
+            ),
+            tool_call(
+                "edit",
+                "edit",
+                {
+                    "path": "result.py",
+                    "old": "value = 0",
+                    "new": "value = 1",
+                },
+            ),
+            tool_call(
+                "wander",
+                "search",
+                {"query": "value"},
+            ),
+            tool_call(
+                "validate",
+                "bash",
+                {
+                    "command": (
+                        "python3 -m py_compile result.py"
+                    ),
+                },
+            ),
+            completion("implemented and validated"),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--fix",
+                "Change result.py value from 0 to 1 and validate it.",
+            )
+
+        self.assertEqual(
+            target.read_text(),
+            "value = 1\n",
+        )
+
+        post_write_tools = {
+            tool["function"]["name"]
+            for tool in responder.payloads[2].get("tools", [])
+        }
+        self.assertEqual(post_write_tools, {"bash"})
+
+        blocked_messages = responder.payloads[3]["messages"]
+        self.assertTrue(any(
+            (
+                "BLOCKED: post-write progress phase=validate"
+                in str(message.get("content", ""))
+            )
+            for message in blocked_messages
+        ))
+
+        self.assertEqual(
+            responder.payloads[-1].get("tools", []),
+            [],
+        )
+
+        self.assertEqual(
+            result.stdout.strip(),
+            "implemented and validated",
+        )
+
+        metric_events = [
+            json.loads(line)
+            for line in (
+                self.data / "metrics" / "events.jsonl"
+            ).read_text().splitlines()
+        ]
+
+        blocked = [
+            event
+            for event in metric_events
+            if (
+                event.get("type") == "progress_guard"
+                and event.get("reason")
+                == "post_write_tool_blocked"
+            )
+        ]
+
+        self.assertEqual(len(blocked), 1)
+        self.assertEqual(blocked[0]["phase"], "validate")
+        self.assertEqual(blocked[0]["tool_name"], "search")
 
     def test_validation_bash_remains_available_after_successful_write(self):
         responder = SequenceResponder([

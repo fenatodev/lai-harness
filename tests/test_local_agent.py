@@ -469,6 +469,7 @@ class LocalAgentTest(unittest.TestCase):
         self.assertTrue(metric["ok"])
 
     def test_workspace_state_round_trip_and_handoff(self):
+        (self.root / "sample.txt").write_text("sample\n")
         state = agent.load_workspace_state()
         state["last_mode"] = "test"
         state["last_task"] = "synthetic task"
@@ -482,6 +483,95 @@ class LocalAgentTest(unittest.TestCase):
         agent.clear_workspace_state()
         self.assertFalse(handoff_path.exists())
         self.assertFalse(current.exists())
+
+    def test_workspace_state_prunes_unverified_paths_on_save(self):
+        sample = self.root / "sample.txt"
+        sample.write_text("sample\n")
+
+        directory = self.root / "nested"
+        directory.mkdir()
+
+        outside = (
+            self.root.parent
+            / f"{self.root.name}-outside.txt"
+        )
+        outside.write_text("outside\n")
+
+        try:
+            state = agent.load_workspace_state()
+            state["recent_files"] = [
+                "sample.txt",
+                "missing.py",
+                str(sample),
+                str(directory),
+                str(self.root),
+                str(outside),
+                "../outside.txt",
+            ]
+            state["modified_files"] = [
+                str(sample),
+                "missing.py",
+                str(outside),
+            ]
+
+            handoff_path = agent.save_workspace_state(state)
+            loaded = agent.load_workspace_state()
+
+            self.assertEqual(
+                loaded["recent_files"],
+                ["sample.txt"],
+            )
+            self.assertEqual(
+                loaded["modified_files"],
+                ["sample.txt"],
+            )
+
+            handoff = handoff_path.read_text()
+
+            self.assertIn("- sample.txt", handoff)
+            self.assertNotIn("missing.py", handoff)
+            self.assertNotIn(str(outside), handoff)
+            self.assertNotIn(f"- {self.root}", handoff)
+            self.assertNotIn(f"- {sample}", handoff)
+
+        finally:
+            outside.unlink(missing_ok=True)
+
+    def test_workspace_state_prunes_legacy_invalid_paths_on_load(self):
+        sample = self.root / "sample.txt"
+        sample.write_text("sample\n")
+
+        json_path, _ = agent.workspace_state_paths()
+        json_path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        json_path.write_text(
+            json.dumps({
+                "root": str(agent.ROOT),
+                "recent_files": [
+                    "sample.txt",
+                    "ghost.py",
+                    str(self.root),
+                ],
+                "modified_files": [
+                    "ghost.py",
+                    str(sample),
+                ],
+            })
+        )
+
+        loaded = agent.load_workspace_state()
+
+        self.assertEqual(
+            loaded["recent_files"],
+            ["sample.txt"],
+        )
+        self.assertEqual(
+            loaded["modified_files"],
+            ["sample.txt"],
+        )
 
     def test_api_key_file_is_configurable(self):
         key_file = self.root / "key"
