@@ -12,6 +12,10 @@ Each non-selection run writes a workspace-scoped JSON checkpoint under `$LAI_DAT
 
 `lai recovery` is deterministic and does not call the model. A non-terminal checkpoint is resumable only when current branch, Git status, and every recorded tracked-file hash still match. `lai resume` creates a new run ID linked to the interrupted run; terminal or drifted checkpoints are not resumed.
 
+## Context ranking
+
+`lai context <task>` is deterministic and does not call the model. The ranker may inspect Git metadata and bounded local text samples, but it injects only candidate paths, scores, and reason labels. Rankings are advisory and are not persisted as a separate runtime record.
+
 ## Metrics
 
 `/metrics` groups recent JSONL events by `run_id` and mode. Events can contain:

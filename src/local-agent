@@ -9,9 +9,10 @@ import sys
 import tomllib
 import urllib.error
 import urllib.request
+import unicodedata
 from pathlib import Path
 
-VERSION = "0.4.0-alpha.9"
+VERSION = "0.4.0-alpha.10"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
 CONFIG_OPTIONS = {
@@ -2978,6 +2979,252 @@ def api_call(
     return result
 
 
+CONTEXT_INVENTORY_LIMIT = 400
+CONTEXT_RESULT_LIMIT = 8
+CONTEXT_INTELLIGENCE_MODES = {"plan", "debug", "fix", "implement", "refactor"}
+CONTEXT_RENDER_LIMIT = 1800
+CONTEXT_SAMPLE_BYTES = 32768
+CONTEXT_IGNORED_DIRS = {
+    ".git", ".specs", "node_modules", ".venv", "venv", "dist", "build",
+    ".next", "coverage", "__pycache__", ".pytest_cache", ".mypy_cache",
+}
+CONTEXT_TEXT_SUFFIXES = {
+    ".py", ".js", ".cjs", ".mjs", ".jsx", ".ts", ".tsx", ".json",
+    ".toml", ".yaml", ".yml", ".md", ".txt", ".sh", ".go", ".rs",
+    ".java", ".kt", ".html", ".css", ".scss", ".sql",
+}
+CONTEXT_MANIFESTS = {
+    "AGENTS.md", "Makefile", "package.json", "pyproject.toml",
+    "requirements.txt", "requirements-dev.txt", "go.mod", "Cargo.toml",
+    "pom.xml", "build.gradle", "build.gradle.kts", "Dockerfile",
+}
+CONTEXT_STOPWORDS = {
+    "the", "and", "for", "with", "from", "this", "that", "into", "add",
+    "fix", "make", "change", "update", "create", "repair", "test", "tests",
+    "file", "files", "code", "repo", "repository", "project", "task",
+    "inspect", "search", "context", "src", "para", "com", "arquivo", "arquivos",
+    "codigo", "projeto", "teste", "testes",
+    "uma", "um", "que", "por", "dos", "das", "de", "do", "da",
+}
+
+
+def _context_fold_text(value):
+    return "".join(
+        char for char in unicodedata.normalize("NFKD", str(value or ""))
+        if not unicodedata.combining(char)
+    ).lower()
+
+
+def context_task_terms(task):
+    values = re.findall(r"[A-Za-z0-9_.:/-]+", _context_fold_text(task))
+    terms = set()
+    for value in values:
+        for part in re.split(r"[./:_-]+", value):
+            if len(part) >= 3 and part not in CONTEXT_STOPWORDS and not part.isdigit():
+                terms.add(part)
+    return sorted(terms)
+
+
+def _context_path_allowed(rel):
+    path = Path(str(rel).replace("\\", "/"))
+    if path.is_absolute() or ".." in path.parts:
+        return False
+    if any(part in CONTEXT_IGNORED_DIRS for part in path.parts):
+        return False
+    candidate = ROOT / path
+    try:
+        if candidate.is_symlink():
+            return False
+        resolved = candidate.resolve(strict=True)
+        resolved.relative_to(ROOT.resolve())
+        return resolved.is_file()
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def repository_context_inventory(max_files=CONTEXT_INVENTORY_LIMIT):
+    max_files = max(1, min(int(max_files), 800))
+    paths = []
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+            cwd=ROOT, text=False, capture_output=True, timeout=10,
+        )
+        if proc.returncode == 0:
+            paths = [
+                item.decode("utf-8", errors="replace")
+                for item in proc.stdout.split(b"\0") if item
+            ]
+    except Exception:
+        paths = []
+
+    if not paths:
+        try:
+            for current, dirs, files in os.walk(ROOT):
+                dirs[:] = sorted(d for d in dirs if d not in CONTEXT_IGNORED_DIRS)
+                for name in sorted(files):
+                    candidate = Path(current) / name
+                    try:
+                        rel = candidate.relative_to(ROOT).as_posix()
+                    except ValueError:
+                        continue
+                    paths.append(rel)
+                    if len(paths) >= max_files * 2:
+                        break
+                if len(paths) >= max_files * 2:
+                    break
+        except OSError:
+            pass
+    normalized = []
+    seen = set()
+    for raw in sorted(paths):
+        rel = str(raw).replace("\\", "/")
+        while rel.startswith("./"):
+            rel = rel[2:]
+        if not rel or rel in seen or not _context_path_allowed(rel):
+            continue
+        seen.add(rel)
+        normalized.append(rel)
+        if len(normalized) >= max_files:
+            break
+    return normalized
+
+
+def context_git_changed_paths():
+    try:
+        proc = subprocess.run(
+            ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+            cwd=ROOT, text=False, capture_output=True, timeout=10,
+        )
+        if proc.returncode != 0:
+            return set()
+    except Exception:
+        return set()
+    output = set()
+    for item in proc.stdout.split(b"\0"):
+        if len(item) < 4 or item[2:3] != b" ":
+            continue
+        rel = item[3:].decode("utf-8", errors="replace").replace("\\", "/")
+        if _context_path_allowed(rel):
+            output.add(rel)
+    return output
+
+def context_spec_references(active_spec, inventory):
+    if not active_spec or not isinstance(active_spec, dict):
+        return set()
+    text = str(active_spec.get("text") or "")
+    known = set(inventory)
+    output = set()
+    for raw in re.findall(r"`([^`\n]+)`", text):
+        rel = raw.strip().replace("\\", "/")
+        while rel.startswith("./"):
+            rel = rel[2:]
+        if rel in known:
+            output.add(rel)
+    return output
+
+
+def _context_content_match_count(rel, terms):
+    path = ROOT / rel
+    if path.suffix.lower() not in CONTEXT_TEXT_SUFFIXES and path.name not in CONTEXT_MANIFESTS:
+        return 0
+    try:
+        if path.stat().st_size > 262144:
+            return 0
+        text = _context_fold_text(
+            path.read_bytes()[:CONTEXT_SAMPLE_BYTES].decode("utf-8", errors="replace")
+        )
+    except (OSError, UnicodeError):
+        return 0
+    return sum(1 for term in terms if len(term) >= 4 and term in text)
+
+
+def rank_context_candidates(task, workspace_state=None, active_spec=None, limit=CONTEXT_RESULT_LIMIT):
+    inventory = repository_context_inventory()
+    if not inventory:
+        return []
+    terms = context_task_terms(task)
+    changed = context_git_changed_paths()
+    state = workspace_state if isinstance(workspace_state, dict) else load_workspace_state()
+    try:
+        recent = set(normalize_workspace_state_paths(state.get("recent_files") or []))
+        modified = set(normalize_workspace_state_paths(state.get("modified_files") or []))
+    except Exception:
+        recent, modified = set(), set()
+    spec_refs = context_spec_references(active_spec, inventory)
+    active_spec_rel = None
+    if active_spec and active_spec.get("path"):
+        try:
+            active_spec_rel = active_spec["path"].resolve().relative_to(ROOT.resolve()).as_posix()
+        except (OSError, RuntimeError, ValueError):
+            active_spec_rel = None
+    ranked = []
+    for rel in inventory:
+        if rel == active_spec_rel:
+            continue
+        reasons = []
+        score = 0
+        path_low = _context_fold_text(rel)
+        path_parts = set(re.split(r"[./_\-]+", path_low))
+        if rel in changed:
+            score += 60
+            reasons.append("git_changed")
+        if rel in modified:
+            score += 35
+            reasons.append("modified")
+        if rel in recent:
+            score += 18
+            reasons.append("recent")
+        if rel in spec_refs:
+            score += 45
+            reasons.append("spec_reference")
+        if any(term in path_low or term in path_parts for term in terms):
+            score += 50
+            reasons.append("task_path_match")
+        matches = _context_content_match_count(rel, terms)
+        if matches:
+            score += min(32, matches * 8)
+            reasons.append("content_match")
+        if Path(rel).name in CONTEXT_MANIFESTS:
+            score += 10
+            reasons.append("manifest")
+        if score:
+            ranked.append({"path": rel, "score": score, "reasons": reasons})
+    ranked.sort(key=lambda item: (-item["score"], item["path"]))
+    return ranked[:max(1, min(int(limit), CONTEXT_RESULT_LIMIT))]
+
+def render_context_candidates(candidates, max_chars=CONTEXT_RENDER_LIMIT):
+    lines = [
+        "CONTEXT CANDIDATES (advisory metadata only; inspect files before relying on them):"
+    ]
+    for item in candidates or []:
+        reasons = ",".join(item.get("reasons") or []) or "none"
+        lines.append(
+            f"- score={int(item.get('score') or 0)} path={item.get('path')} reasons={reasons}"
+        )
+    if len(lines) == 1:
+        lines.append("- [none]")
+    return "\n".join(lines)[:max(80, min(int(max_chars), CONTEXT_RENDER_LIMIT))]
+
+
+def print_context_candidates(task):
+    state = load_workspace_state()
+    spec = load_active_spec()
+    ranked = rank_context_candidates(
+        task, workspace_state=state, active_spec=spec, limit=CONTEXT_RESULT_LIMIT,
+    )
+    print("# LAI Context Candidates")
+    print("Task: " + str(task or "[none]")[:300])
+    if not ranked:
+        print("- [none]")
+        return
+    for item in ranked:
+        print(
+            f"- {item['path']} | score={item['score']} | reasons="
+            + ",".join(item["reasons"])
+        )
+
+
 STATE_BASE = CONFIG["state_dir"]
 
 def post_patch_sanity(
@@ -4059,6 +4306,10 @@ def main():
         print(json.dumps(visible, indent=2, sort_keys=True))
         return
 
+    if args and args[0] == "--context":
+        print_context_candidates(" ".join(args[1:]).strip())
+        return
+
     if args and args[0] == "--recovery":
         print_recovery_status()
         return
@@ -4324,6 +4575,15 @@ def main():
 
     active_spec = None if selection_mode else load_active_spec()
     active_spec_context = render_active_spec_context(active_spec)
+    ranked_context = (
+        rank_context_candidates(
+            task, workspace_state=prior_workspace_state, active_spec=active_spec,
+            limit=CONTEXT_RESULT_LIMIT,
+        )
+        if mode in CONTEXT_INTELLIGENCE_MODES
+        else []
+    )
+    ranked_context_text = render_context_candidates(ranked_context) if ranked_context else ""
 
     host = gateway()
 
@@ -4448,6 +4708,9 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
 
     if active_spec_context:
         system += "\n\n" + active_spec_context
+
+    if ranked_context_text:
+        system += '\n\n' + ranked_context_text
 
     recovery_context = render_recovery_context(resume_checkpoint)
     if recovery_context:

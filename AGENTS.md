@@ -75,6 +75,7 @@ Recovery compatibility must fail closed when repository evidence has drifted.
 - Never weaken tests solely to make faulty implementation code pass.
 - Required validation must finish before success is claimed.
 - Deterministic safety gates take precedence over model instructions.
+- Ranked context candidates are advisory metadata only; inspect current files before relying on their contents or implications.
 - A syntax check proves syntax only.
 - A targeted test proves only its covered behavior.
 - Do not install dependencies during autonomous agent work.

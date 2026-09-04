@@ -1095,6 +1095,52 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("Workflow: full", system)
         self.assertIn("REQ-001", system)
 
+    def test_main_injects_ranked_context_only_in_selected_modes(self):
+        candidate = [{
+            "path": "src/worker.py", "score": 80,
+            "reasons": ["task_path_match", "git_changed"],
+        }]
+        selected = ["--plan", "--debug", "--fix", "--implement", "--refactor"]
+        for flag in selected:
+            captured = {}
+
+            def stop_at_model(host, messages, **kwargs):
+                captured["messages"] = messages
+                raise RuntimeError("STOP_AT_MODEL")
+
+            with self.subTest(flag=flag), \
+                 mock.patch.object(agent, "CLI_ARGS", [flag, "repair worker"]), \
+                 mock.patch.object(agent, "server_ready", return_value=True), \
+                 mock.patch.object(agent, "rank_context_candidates", return_value=candidate), \
+                 mock.patch.object(agent, "load_mode_skill", return_value="synthetic skill"), \
+                 mock.patch.object(agent, "api_call", side_effect=stop_at_model), \
+                 mock.patch.object(agent, "record_metric_event"), \
+                 mock.patch.object(agent, "record_audit_event"):
+                with self.assertRaisesRegex(RuntimeError, "STOP_AT_MODEL"):
+                    agent.main()
+
+            system = captured["messages"][0]["content"]
+            self.assertIn("CONTEXT CANDIDATES", system)
+            self.assertIn("src/worker.py", system)
+
+        captured = {}
+
+        def stop_general(host, messages, **kwargs):
+            captured["messages"] = messages
+            raise RuntimeError("STOP_AT_MODEL")
+
+        with mock.patch.object(agent, "CLI_ARGS", ["plain task"]), \
+             mock.patch.object(agent, "server_ready", return_value=True), \
+             mock.patch.object(agent, "rank_context_candidates", return_value=candidate), \
+             mock.patch.object(agent, "api_call", side_effect=stop_general), \
+             mock.patch.object(agent, "record_metric_event"), \
+             mock.patch.object(agent, "record_audit_event"):
+            with self.assertRaisesRegex(RuntimeError, "STOP_AT_MODEL"):
+                agent.main()
+
+        system = captured["messages"][0]["content"]
+        self.assertNotIn("CONTEXT CANDIDATES", system)
+
     def test_deterministic_spec_status_needs_no_server(self):
         specs = self.root / ".specs"
         specs.mkdir()
@@ -1121,7 +1167,7 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "lai-local-agent 0.4.0-alpha.9")
+        self.assertEqual(result.stdout.strip(), "lai-local-agent 0.4.0-alpha.10")
 
     def test_deterministic_show_config_obeys_cli_without_server(self):
         result = subprocess.run(
@@ -1134,6 +1180,83 @@ class LocalAgentTest(unittest.TestCase):
         shown = json.loads(result.stdout)
         self.assertEqual(shown["host"], "127.0.0.9")
         self.assertEqual(shown["port"], 9012)
+
+    def test_context_task_terms_normalize_accents(self):
+        terms = agent.context_task_terms("corrigir autenticação do usuário")
+        self.assertIn("autenticacao", terms)
+        self.assertIn("usuario", terms)
+
+    def test_context_inventory_is_bounded_and_excludes_generated_and_symlinks(self):
+        (self.root / "src").mkdir()
+        (self.root / "src" / "app.py").write_text("print('ok')\n")
+        (self.root / ".github" / "workflows").mkdir(parents=True)
+        (self.root / ".github" / "workflows" / "ci.yml").write_text("name: CI\n")
+        (self.root / "node_modules").mkdir()
+        (self.root / "node_modules" / "noise.js").write_text("noise\n")
+        (self.root / "link.py").symlink_to(self.root / "src" / "app.py")
+        files = agent.repository_context_inventory(max_files=20)
+        self.assertIn("src/app.py", files)
+        self.assertIn(".github/workflows/ci.yml", files)
+        self.assertNotIn("node_modules/noise.js", files)
+        self.assertNotIn("link.py", files)
+        self.assertLessEqual(len(files), 20)
+
+    def test_context_ranking_combines_explainable_signals(self):
+        (self.root / "src").mkdir()
+        (self.root / "src" / "worker.py").write_text("timeout = 30\n")
+        (self.root / "src" / "noise.py").write_text("unrelated = True\n")
+        state = {"recent_files": ["src/worker.py"], "modified_files": []}
+        spec = {"text": "Change `src/worker.py` timeout behavior."}
+        with mock.patch.object(agent, "context_git_changed_paths", return_value={"src/worker.py"}):
+            ranked = agent.rank_context_candidates(
+                "repair worker timeout", workspace_state=state, active_spec=spec, limit=8,
+            )
+        self.assertEqual(ranked[0]["path"], "src/worker.py")
+        reasons = set(ranked[0]["reasons"])
+        self.assertIn("git_changed", reasons)
+        self.assertIn("recent", reasons)
+        self.assertIn("spec_reference", reasons)
+        self.assertIn("task_path_match", reasons)
+        self.assertIn("content_match", reasons)
+
+    def test_context_ranking_is_deterministic(self):
+        (self.root / "a.py").write_text("target token\n")
+        (self.root / "b.py").write_text("target token\n")
+        with mock.patch.object(agent, "context_git_changed_paths", return_value=set()):
+            first = agent.rank_context_candidates("target token", workspace_state={}, limit=8)
+            second = agent.rank_context_candidates("target token", workspace_state={}, limit=8)
+        self.assertEqual(first, second)
+        self.assertEqual([item["path"] for item in first], sorted(item["path"] for item in first))
+
+    def test_context_render_is_metadata_only_and_bounded(self):
+        candidates = [{
+            "path": "src/worker.py", "score": 99,
+            "reasons": ["git_changed", "content_match"],
+        }]
+        shown = agent.render_context_candidates(candidates, max_chars=180)
+        self.assertIn("src/worker.py", shown)
+        self.assertIn("git_changed", shown)
+        self.assertNotIn("timeout = 30", shown)
+        self.assertLessEqual(len(shown), 180)
+    def test_deterministic_context_cli_needs_no_server(self):
+        (self.root / "worker.py").write_text("timeout = 30\n")
+        env = {**__import__("os").environ, "LAI_DATA_DIR": str(self.base / "data")}
+        result = subprocess.run(
+            [str(SOURCE.parent / "lai"), "context", "repair worker timeout"],
+            cwd=self.root, env=env, text=True, capture_output=True,
+            timeout=5, check=True,
+        )
+        self.assertIn("# LAI Context Candidates", result.stdout)
+        self.assertIn("worker.py", result.stdout)
+
+    def test_context_ranking_degrades_when_git_signal_is_unavailable(self):
+        (self.root / "worker.py").write_text("timeout = 30\n")
+        with mock.patch.object(agent, "context_git_changed_paths", return_value=set()):
+            ranked = agent.rank_context_candidates(
+                "worker timeout", workspace_state={"recent_files": ["missing.py"]}, limit=8,
+            )
+        self.assertEqual(ranked[0]["path"], "worker.py")
+        self.assertNotIn("missing.py", [item["path"] for item in ranked])
 
 
 if __name__ == "__main__":

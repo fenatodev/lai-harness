@@ -7,7 +7,7 @@ LAI has four runtime layers: the VS Code chat participant, the Python harness, a
 1. `@lai` receives a command and prompt.
 2. The extension adds bounded context: active filename, at most eight diagnostics for write/debug modes, and up to 800 characters of selected text.
 3. It starts `local-agent` in the selected workspace.
-4. The harness resolves the Git root, loads workspace state, the active repository spec, and the mode skill, selects only that mode's tool schemas, and calls the local endpoint.
+4. The harness resolves the Git root, loads workspace state, the active repository spec, and the mode skill, and builds bounded ranked context metadata for selected modes before inference.
 5. Every tool action crosses the central policy boundary before dispatch; `ASK` stops the run for user action and `DENY` blocks execution.
 6. Allowed tool results return to the model until it answers or reaches the mode's round limit.
 7. Runtime checkpoint, workspace state, metrics, and applicable audit events are persisted outside the repository.
@@ -30,6 +30,10 @@ Skills are compact mode contracts stored in `skills/`. Tools are selected by mod
 ### Repository specs
 
 Numbered specs under `.specs/` define the requested change. At most one may be `active`; multiple active specs, invalid requirement IDs, missing validation references, and symlinked spec paths fail closed. Draft and complete specs do not affect runtime. The active spec is injected as normative context beneath repository safety rules.
+
+### Context intelligence
+
+For `plan`, `debug`, `fix`, `implement`, and `refactor`, the harness ranks a bounded repository inventory before inference. Signals include task/path terms, live Git changes, verified recent/modified workspace paths, active-spec path references, known manifests, and bounded text sampling. Only candidate path, score, and reason metadata are injected; file contents still require normal inspection. `lai context <task>` exposes the same ranking without calling the model.
 
 ### Policy and lifecycle
 

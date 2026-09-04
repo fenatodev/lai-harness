@@ -8,6 +8,10 @@ Early OpenCode experiments worked but introduced prompt and schema overhead that
 
 Sequential read→infer cycles repeatedly paid prefill and tool-call costs. `inspect` reads several already-known files together and, in debug mode, follows bounded local JavaScript/TypeScript dependencies. The tradeoff is a hard cap that can omit wider context.
 
+## Deterministic context ranking
+
+Small models should not spend several inference rounds merely discovering likely files. Before selected modes call the model, LAI ranks a bounded repository inventory using explainable signals from the task, live Git changes, verified workspace state, active-spec references, manifests, and bounded text sampling. Only path/score/reason metadata is injected. This reduces discovery overhead without introducing embeddings, a vector database, or another model-facing tool.
+
 ## Transactional batch patch
 
 `patch` validates exact unique replacements across all targets before writing. This reduces rounds and prevents a predictable stale second replacement from leaving a partial logical batch. It is not an OS-level transaction; an I/O failure during writes can still leave partial results.
