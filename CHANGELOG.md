@@ -1,3 +1,19 @@
+## [0.4.0-beta.13] - 2026-09-04
+
+### Added
+- Added explicit shell-free remote capability profiles separate from local mode tool sets.
+- Added asynchronous remote `diagnose` and `release` while keeping their local CLI tool sets unchanged.
+- Added lifecycle/status reporting for the `shell-free-read-only` profile and focused fake-model schema inspection tests.
+
+### Safety
+- Remote control children never receive `bash`, `edit`, `create`, `patch`, or `rewrite` schemas.
+- Unsupported write-capable modes still fail before scheduling, and callers still cannot choose commands, executables, cwd, argv prefixes, or environment overrides.
+- Local `bash` remains explicitly unsandboxed; beta.13 avoids exposing it remotely instead of making a stronger containment claim.
+
+### Architecture
+- Capability reduction now happens before model inference by intersecting local mode tools with a dedicated remote profile.
+- `diagnose`/`release` remote utility no longer depends on trying to classify arbitrary shell as read-only.
+
 ## [0.4.0-beta.12] - 2026-09-04
 
 ### Added

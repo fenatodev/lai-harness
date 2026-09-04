@@ -20,7 +20,7 @@ Ele complementa agentes cloud de alto contexto: o lai harness atende ciclos loca
 - mapa semântico determinístico com `lai semantics` para orientar modelos pequenos pelos subsistemas;
 - histórico determinístico de execuções com `lai runs`, `lai run show` e exportação sanitizada com `lai run export`;
 - verificação operacional com `lai readiness`;
-- control plane local autenticado com `lai serve`, limitado a loopback, com runs assíncronos serializados de `plan`/`review`/`security` e sem execução HTTP de shell/escrita;
+- control plane local autenticado com `lai serve`, limitado a loopback, com runs assíncronos serializados de `plan`/`review`/`security`/`diagnose`/`release` sob perfis remotos explícitos sem shell e sem execução HTTP de shell/escrita;
 - `lai policy-check` determinístico para classificar ações sem executá-las e reutilizar a mesma policy nos hooks do repositório;
 - hooks de desenvolvimento com gate L4 do Harness Score separado do CI do produto;
 - skills focadas `diagnose`, `ci-fix` e `release`, além de gates de preflight, para operar o beta com menos risco.
@@ -67,11 +67,11 @@ lai control-token status --json
 # após `lai control-token init` uma vez:
 lai serve --bind 127.0.0.1 --port 8765
 make harness-score-gate
-lai release-check --target 0.4.0-beta.12 --json
-lai release-pack --target 0.4.0-beta.12 --with-vsix --json
-lai release-governance --target 0.4.0-beta.12 --remote --json
-lai project-handoff --target 0.4.0-beta.12 --remote --json
-lai release "verifique se beta.12 está pronto"
+lai release-check --target 0.4.0-beta.13 --json
+lai release-pack --target 0.4.0-beta.13 --with-vsix --json
+lai release-governance --target 0.4.0-beta.13 --remote --json
+lai project-handoff --target 0.4.0-beta.13 --remote --json
+lai release "verifique se beta.13 está pronto"
 ```
 
 ## Segurança

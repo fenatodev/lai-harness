@@ -23,7 +23,7 @@ import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "0.4.0-beta.12"
+VERSION = "0.4.0-beta.13"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -973,6 +973,39 @@ TOOLS = [
         }
     }
 ]
+
+LOCAL_TOOL_NAMES_BY_MODE = {
+    "general": frozenset({"project", "read", "search", "list", "git", "edit", "create", "bash"}),
+    "fix": frozenset({"project", "read", "search", "list", "git", "edit", "bash"}),
+    "test": frozenset({"project", "read", "search", "list", "git", "bash"}),
+    "review": frozenset({"read", "search", "list", "git"}),
+    "debug": frozenset({"inspect", "search", "git", "bash"}),
+    "diagnose": frozenset({"project", "read", "inspect", "search", "list", "git", "bash"}),
+    "refactor": frozenset({"project", "read", "search", "list", "git", "edit", "create", "bash"}),
+    "security": frozenset({"read", "search", "list", "git"}),
+    "plan": frozenset({"inspect", "search"}),
+    "release": frozenset({"project", "read", "inspect", "search", "list", "git", "bash"}),
+    "ci-fix": frozenset({"inspect", "search", "git", "patch", "rewrite", "create", "bash"}),
+    "implement": frozenset({"inspect", "search", "git", "patch", "rewrite", "create", "bash"}),
+}
+
+
+def tool_names_for_mode(mode, remote_control_child=False):
+    names = set(LOCAL_TOOL_NAMES_BY_MODE.get(mode, frozenset()))
+    if not remote_control_child:
+        return names
+    remote_names = CONTROL_RUN_TOOL_NAMES_BY_MODE.get(mode)
+    if remote_names is None:
+        raise ValueError(f"mode {mode} has no remote control capability profile")
+    names.intersection_update(remote_names)
+    forbidden = names & CONTROL_RUN_FORBIDDEN_TOOL_NAMES
+    if forbidden:
+        raise RuntimeError(
+            "remote control capability profile contains forbidden tool(s): "
+            + ", ".join(sorted(forbidden))
+        )
+    return names
+
 
 POLICY_DECISIONS = {"ALLOW", "ASK", "DENY"}
 
@@ -2966,7 +2999,16 @@ CONTROL_API_DEFAULT_BIND = "127.0.0.1"
 CONTROL_API_DEFAULT_PORT = 8765
 CONTROL_API_MAX_BODY_BYTES = 64 * 1024
 CONTROL_API_TOKEN_BYTES = 32
-CONTROL_RUN_ALLOWED_MODES = ("plan", "review", "security")
+CONTROL_RUN_TOOL_PROFILE = "shell-free-read-only"
+CONTROL_RUN_TOOL_NAMES_BY_MODE = {
+    "plan": frozenset({"inspect", "search"}),
+    "review": frozenset({"read", "search", "list", "git"}),
+    "security": frozenset({"read", "search", "list", "git"}),
+    "diagnose": frozenset({"project", "read", "inspect", "search", "list", "git"}),
+    "release": frozenset({"project", "read", "inspect", "search", "list", "git"}),
+}
+CONTROL_RUN_ALLOWED_MODES = tuple(CONTROL_RUN_TOOL_NAMES_BY_MODE)
+CONTROL_RUN_FORBIDDEN_TOOL_NAMES = frozenset({"bash", "edit", "create", "patch", "rewrite"})
 CONTROL_RUN_TASK_MAX_CHARS = 4000
 CONTROL_RUN_QUEUE_LIMIT = 4
 CONTROL_RUN_RETAIN_LIMIT = 20
@@ -3156,6 +3198,7 @@ def control_status_payload(server=None):
             "repository_write": False,
             "policy_classification": True,
             "async_read_only_runs": True,
+            "remote_tool_profile": CONTROL_RUN_TOOL_PROFILE,
             "allowed_run_modes": list(CONTROL_RUN_ALLOWED_MODES),
         },
         "control_runs": control_run_queue_summary(server) if server is not None else None,
@@ -3254,6 +3297,7 @@ def _control_run_public_record_locked(server, record):
         "stdout_truncated": bool(record.get("stdout_truncated")),
         "stderr_truncated": bool(record.get("stderr_truncated")),
         "cancel_requested": bool(record.get("cancel_requested")),
+        "tool_profile": record.get("tool_profile", CONTROL_RUN_TOOL_PROFILE),
     }
 
 
@@ -3346,6 +3390,7 @@ def control_submit_run(server, request):
             "stdout_truncated": False,
             "stderr_truncated": False,
             "cancel_requested": False,
+            "tool_profile": CONTROL_RUN_TOOL_PROFILE,
         }
         server.control_run_records[control_run_id] = record
         server.control_run_tasks[control_run_id] = task
@@ -6096,7 +6141,7 @@ def release_pack_publish_commands(release_payload):
 
 def release_pack_title(target_version):
     if target_version == VERSION:
-        return f"v{target_version} — asynchronous read-only control runs"
+        return f"v{target_version} — remote capability profiles"
     return f"v{target_version} — lai harness release"
 
 
@@ -9436,41 +9481,19 @@ If the provided selection does not support a factual claim, omit that claim.
 Describe what the text actually shows before adding interpretation.
 Answer in at most 60 words unless the user explicitly requests more detail."""
 
-    tool_names_by_mode = {
-        "general": {"project", "read", "search", "list", "git", "edit", "create", "bash"},
-        "fix": {"project", "read", "search", "list", "git", "edit", "bash"},
-        "test": {"project", "read", "search", "list", "git", "bash"},
-        "review": {"read", "search", "list", "git"},
-        "debug": {"inspect", "search", "git", "bash"},
-        "diagnose": {"project", "read", "inspect", "search", "list", "git", "bash"},
-        "refactor": {"project", "read", "search", "list", "git", "edit", "create", "bash"},
-        "security": {"read", "search", "list", "git"},
-        "plan": {"inspect", "search"},
-        "release": {"project", "read", "inspect", "search", "list", "git", "bash"},
-        "ci-fix": {
-            "inspect",
-            "search",
-            "git",
-            "patch",
-            "rewrite",
-            "create",
-            "bash",
-        },
-        "implement": {
-            "inspect",
-            "search",
-            "git",
-            "patch",
-            "rewrite",
-            "create",
-            "bash",
-        },
-    }
+    remote_control_child = os.environ.get(CONTROL_RUN_CHILD_ENV) == "1"
+    try:
+        selected_tool_names = tool_names_for_mode(
+            mode, remote_control_child=remote_control_child
+        )
+    except (ValueError, RuntimeError) as exc:
+        print(f"Agent stopped: {exc}.", file=sys.stderr)
+        raise SystemExit(2)
 
     mode_tools = [
         tool
         for tool in TOOLS
-        if tool["function"]["name"] in tool_names_by_mode.get(mode, set())
+        if tool["function"]["name"] in selected_tool_names
     ]
 
     max_tokens_by_mode = {

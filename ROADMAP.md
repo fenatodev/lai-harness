@@ -4,10 +4,10 @@
 
 - Extend semantic code contracts as subsystems split out of `src/local-agent`.
 - Extend the model-evaluation harness with automated run capture and hardware profiles.
-- Harden the `ALLOW` / `ASK` / `DENY` policy with structured commands or a stronger execution boundary.
+- Keep generic `bash` out of remote control profiles; introduce structured execution only for narrowly justified remote validation needs.
 - Expand end-to-end fixtures for every mode and guard.
 - Add JSON schemas and configurable retention for state, metrics, and audit events.
-- Add explicit remote `ASK` approval objects only after hardening the structured read-only shell boundary; write-capable mobile operation remains later.
+- Design explicit remote `ASK` approval objects only after the read-only mobile gateway is dogfooded; write-capable mobile operation remains later.
 
 ## Adjacent projects
 
@@ -29,6 +29,7 @@ Roadmap items are intentions, not commitments. Model redistribution and automati
 - v0.4.0-alpha.21: release preflight and public mode aliases before beta readiness.
 - v0.4.0-beta.1: first beta readiness cut with deterministic release gates and documented stabilization posture.
 - v0.4.0-beta.2: release polish with current GitHub metadata, release notes, checklist, and public VSIX artifact naming.
+- v0.4.0-beta.13: explicit shell-free remote capability profiles with read-only `diagnose` and `release` control runs.
 - v0.4.0-beta.12: serialized asynchronous `plan`/`review`/`security` control runs with bounded lifecycle, output, queueing, and cancellation.
 - v0.4.0-beta.11: authenticated loopback local control plane foundation for future mobile gateways.
 - v0.4.0-beta.10: release-state convergence with remote-aware handoff and tag-safe main integration evidence.
