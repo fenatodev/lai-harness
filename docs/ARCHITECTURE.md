@@ -8,8 +8,9 @@ LAI has four runtime layers: the VS Code chat participant, the Python harness, a
 2. The extension adds bounded context: active filename, at most eight diagnostics for write/debug modes, and up to 800 characters of selected text.
 3. It starts `local-agent` in the selected workspace.
 4. The harness resolves the Git root, loads workspace state, the active repository spec, and the mode skill, selects only that mode's tool schemas, and calls the local endpoint.
-5. Tool results return to the model until it answers or reaches the mode's round limit.
-6. State, metrics, and applicable audit events are persisted outside the repository.
+5. Every tool action crosses the central policy boundary before dispatch; `ASK` stops the run for user action and `DENY` blocks execution.
+6. Allowed tool results return to the model until it answers or reaches the mode's round limit.
+7. State, metrics, and applicable audit events are persisted outside the repository.
 
 ## Components
 
@@ -19,7 +20,7 @@ LAI has four runtime layers: the VS Code chat participant, the Python harness, a
 
 ### Python harness
 
-`src/local-agent` uses only Python's standard library. It owns prompting, tool dispatch, mode gates, output limits, endpoint authentication, persistence, and audit correlation.
+`src/local-agent` uses only Python's standard library. It owns prompting, centralized policy evaluation, tool dispatch, mode gates, output limits, endpoint authentication, persistence, and audit correlation.
 
 ### Skills and tool schemas
 
@@ -28,6 +29,10 @@ Skills are compact mode contracts stored in `skills/`. Tools are selected by mod
 ### Repository specs
 
 Numbered specs under `.specs/` define the requested change. At most one may be `active`; multiple active specs, invalid requirement IDs, missing validation references, and symlinked spec paths fail closed. Draft and complete specs do not affect runtime. The active spec is injected as normative context beneath repository safety rules.
+
+### Policy and lifecycle
+
+Every builtin tool action is evaluated as `ALLOW`, `ASK`, or `DENY` before dispatcher execution. `ASK` never auto-executes and terminates the current run with `user_action_required`; `DENY` fails closed while allowing the model to choose a different safe action. Mode allowlists and validation guards remain independent defense-in-depth layers.
 
 ### llama.cpp and model
 
@@ -39,7 +44,7 @@ State is keyed by a SHA-256-derived workspace identity under `$LAI_DATA_DIR/stat
 
 ### Metrics and audit
 
-Metrics use one `run_id` per process invocation and record API/tool duration, token usage, and schema count. Audit events record patch paths, before/after hashes, post-patch sanity, validation, and final status. These stores are operational records, not telemetry uploads.
+Metrics use one `run_id` per process invocation and record API/tool duration, token usage, and schema count. Audit events record policy decisions, lifecycle outcomes, patch paths, before/after hashes, post-patch sanity, validation, and final status. These stores are operational records, not telemetry uploads.
 
 ## Guard sequence for implementation
 

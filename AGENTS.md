@@ -63,7 +63,7 @@ Specs never override this file, scoped rules, safety guards, or release policy.
 - Preserve repository path confinement.
 - Preserve symlink/path-escape protections.
 - Preserve read-only Git inspection boundaries.
-- Direct agent-driven Git mutation remains blocked unless replaced by a future explicit policy.
+- Direct agent-driven Git mutation is an `ASK` policy decision and never executes automatically; human action remains required.
 - Never weaken tests solely to make faulty implementation code pass.
 - Required validation must finish before success is claimed.
 - Deterministic safety gates take precedence over model instructions.
@@ -77,7 +77,7 @@ Specs never override this file, scoped rules, safety guards, or release policy.
 
 Avoid unrelated cleanup, speculative abstractions, and roadmap-driven scope creep.
 
-Planned features such as structured policy, runtime isolation, MCP, plugins, ACP, browser execution, delegation, and learning are not implemented merely because they appear in the roadmap.
+Planned features such as runtime isolation, MCP, plugins, ACP, browser execution, delegation, and learning are not implemented merely because they appear in the roadmap.
 
 Do not introduce them unless the current task explicitly targets them.
 

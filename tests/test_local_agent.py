@@ -307,19 +307,22 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("+after", diff)
         self.assertEqual(target.read_text(), "after\n")
 
-    def test_bash_denylist_blocks_known_dangerous_commands(self):
-        commands = [
-            "sudo true",
-            "pip install package",
-            "rm -rf generated",
-            "git reset --hard HEAD",
-            "git push origin main",
-            "docker compose down",
-            "TRUNCATE TABLE records",
-        ]
-        for command in commands:
+    def test_policy_classifies_sensitive_shell_commands(self):
+        cases = {
+            "git commit -m test": "ASK",
+            "pip install package": "ASK",
+            "npm add package": "ASK",
+            "sudo true": "DENY",
+            "rm -rf generated": "DENY",
+            "docker compose down": "DENY",
+            "TRUNCATE TABLE records": "DENY",
+            "git status --short": "ALLOW",
+            "python3 -m pytest -q": "ALLOW",
+        }
+        for command, expected in cases.items():
             with self.subTest(command=command):
-                self.assertTrue(agent.tool_bash({"command": command}).startswith("BLOCKED:"))
+                policy = agent.evaluate_tool_policy("bash", {"command": command})
+                self.assertEqual(policy["decision"], expected)
 
     def test_bash_blocks_git_mutation_subcommands(self):
         subcommands = [
@@ -331,7 +334,7 @@ class LocalAgentTest(unittest.TestCase):
         for subcommand in subcommands:
             with self.subTest(subcommand=subcommand):
                 result = agent.tool_bash({"command": f"git {subcommand} synthetic-target"})
-                self.assertTrue(result.startswith("BLOCKED:"), result)
+                self.assertTrue(result.startswith("POLICY ASK:"), result)
                 self.assertIn(f"git {subcommand}", result)
 
     def test_bash_blocks_git_mutation_with_global_options_paths_and_chains(self):
@@ -346,7 +349,7 @@ class LocalAgentTest(unittest.TestCase):
         ]
         for command in commands:
             with self.subTest(command=command):
-                self.assertTrue(agent.tool_bash({"command": command}).startswith("BLOCKED:"))
+                self.assertTrue(agent.tool_bash({"command": command}).startswith("POLICY ASK:"))
 
     def test_bash_preserves_git_inspection_commands(self):
         commands = [
@@ -372,7 +375,47 @@ class LocalAgentTest(unittest.TestCase):
         ]
         for command in commands:
             with self.subTest(command=command):
-                self.assertTrue(agent.tool_bash({"command": command}).startswith("BLOCKED:"))
+                self.assertTrue(agent.tool_bash({"command": command}).startswith("POLICY ASK:"))
+
+    def test_policy_ask_and_deny_do_not_execute(self):
+        commands = [
+            ("git commit -m test", "POLICY ASK:"),
+            ("pip install package", "POLICY ASK:"),
+            ("rm -rf generated", "POLICY DENY:"),
+            ("sudo true", "POLICY DENY:"),
+        ]
+        for command, prefix in commands:
+            with self.subTest(command=command):
+                with mock.patch.object(agent.subprocess, "run") as run:
+                    result = agent.tool_bash({"command": command})
+                self.assertTrue(result.startswith(prefix), result)
+                run.assert_not_called()
+
+    def test_policy_blocks_write_tools_in_read_only_modes(self):
+        old_mode = agent.ACTIVE_MODE
+        try:
+            agent.ACTIVE_MODE = "review"
+            policy = agent.evaluate_tool_policy("patch", {"changes": []})
+        finally:
+            agent.ACTIVE_MODE = old_mode
+        self.assertEqual(policy["decision"], "DENY")
+        self.assertIn("review", policy["reason"])
+
+    def test_policy_decision_is_audited_by_dispatcher(self):
+        agent.AUDIT_DIR = self.root / "audit"
+        agent.AUDIT_FILE = agent.AUDIT_DIR / "events.jsonl"
+        agent.METRICS_DIR = self.root / "metrics"
+        agent.METRICS_FILE = agent.METRICS_DIR / "events.jsonl"
+        agent.METRICS_PRUNED = False
+        with mock.patch.object(agent.subprocess, "run") as run:
+            result = agent.run_tool("bash", {"command": "git commit -m test"})
+        self.assertTrue(result.startswith("POLICY ASK:"), result)
+        run.assert_not_called()
+        event = json.loads(agent.AUDIT_FILE.read_text())
+        self.assertEqual(event["type"], "policy_decision")
+        self.assertEqual(event["tool"], "bash")
+        self.assertEqual(event["decision"], "ASK")
+        self.assertIn("git commit", event["reason"])
 
     def test_metrics_and_audit_write_jsonl(self):
         agent.METRICS_DIR = self.root / "metrics"
@@ -472,6 +515,30 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("Reason: overall_round_limit_reached", shown)
         self.assertIn("Round limit: 14", shown)
         self.assertNotIn("a" * 64, shown)
+
+    def test_audit_prints_policy_and_user_action_lifecycle(self):
+        agent.AUDIT_DIR = self.root / "audit"
+        agent.AUDIT_FILE = agent.AUDIT_DIR / "events.jsonl"
+        agent.record_audit_event({
+            "type": "policy_decision",
+            "tool": "bash",
+            "decision": "ASK",
+            "reason": "git commit requires explicit user action",
+        })
+        agent.record_audit_event({
+            "type": "run_outcome",
+            "outcome": "user_action_required",
+            "tool": "bash",
+            "reason": "git commit requires explicit user action",
+        })
+        output = io.StringIO()
+        with redirect_stdout(output):
+            agent.print_lai_audit()
+        shown = output.getvalue()
+        self.assertIn("## Policy decision", shown)
+        self.assertIn("Decision: ASK", shown)
+        self.assertIn("## Run outcome", shown)
+        self.assertIn("Outcome: user_action_required", shown)
 
     def test_patch_dispatch_records_hashes_and_tool_metric(self):
         target = self.root / "sample.txt"
@@ -902,7 +969,7 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "lai-local-agent 0.4.0-alpha.7")
+        self.assertEqual(result.stdout.strip(), "lai-local-agent 0.4.0-alpha.8")
 
     def test_deterministic_show_config_obeys_cli_without_server(self):
         result = subprocess.run(

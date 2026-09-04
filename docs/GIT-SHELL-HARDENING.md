@@ -2,13 +2,13 @@
 
 **Status:** implemented for the v0.4.0-alpha.1 candidate.
 
-The dedicated `git` tool exposes only `changes`, `status`, `diff`, and `diff-staged`. Guarded shell execution now recognizes direct Git invocations and blocks known mutating subcommands before starting `bash`.
+The dedicated `git` tool exposes only `changes`, `status`, `diff`, and `diff-staged`. Guarded shell execution recognizes direct Git invocations and classifies known mutating subcommands as `ASK` before starting `bash`.
 
 ## Implemented policy
 
-Git mutation subcommands are blocked in guarded shell execution while common inspection commands remain available. This makes accidental model-driven commits and index/history changes less likely without describing the shell as a sandbox.
+Git mutation subcommands are `ASK` decisions in guarded shell execution while common inspection commands remain `ALLOW`. This makes accidental model-driven commits and index/history changes less likely without describing the shell as a sandbox.
 
-Blocked set:
+`ASK` set:
 
 - `add`, `commit`, `am`;
 - `merge`, `rebase`, `cherry-pick`, `revert`;
@@ -26,17 +26,17 @@ Tested inspection set:
 
 ## Benefit
 
-The change narrows an inconsistent policy boundary: review through the dedicated tool is read-only, while model-generated shell commands can currently stage or commit. Blocking mutations reduces accidental state changes and makes documentation easier to reason about.
+The change narrows an inconsistent policy boundary: review through the dedicated tool is read-only, while model-generated shell commands can currently stage or commit. Stopping mutations for explicit user action reduces accidental state changes and makes documentation easier to reason about.
 
 ## Compatibility risk
 
-Repository tests sometimes create synthetic Git histories with `git init`, `add`, and `commit`. Those commands would no longer work when requested through the LAI shell tool. Test harnesses invoked outside LAI remain unaffected. User-requested local commits would also require a separate explicitly authorized mechanism rather than generic shell.
+Repository tests sometimes create synthetic Git histories with `git init`, `add`, and `commit`. Those commands stop with `POLICY ASK` when requested through the LAI shell tool. Test harnesses invoked outside LAI remain unaffected. User-requested local commits would also require a separate explicitly authorized mechanism rather than generic shell.
 
-Regex-only blocking remains bypassable through scripts, aliases, alternate executables, command construction, or another interpreter. A denylist improvement is defense in depth, not containment.
+Command detection remains bypassable through scripts, aliases, alternate executables, command construction, or another interpreter. A denylist improvement is defense in depth, not containment.
 
 ## Regression tests
 
-- table-driven blocking covers every required mutation plus `fetch`;
+- table-driven `ASK` classification covers every required mutation plus `fetch`;
 - options before subcommands include `git -C path add`, `git -c key=value commit`, and `git --git-dir=... reset`;
 - command chains, newlines, and absolute executable paths are covered;
 - status, diff, rev-parse, branch inspection, and config reads are allowed;

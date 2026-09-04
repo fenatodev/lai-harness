@@ -37,7 +37,7 @@ See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow.
 - ten compact tools, selected per mode;
 - multi-file `inspect` and transactional exact-replacement `patch`;
 - repository-root path confinement and explicit symlink checks for batch patches;
-- dedicated read-only Git inspection tool and blocking of direct Git mutations through guarded shell execution;
+- centralized `ALLOW` / `ASK` / `DENY` policy with read-only Git inspection and human-gated Git mutation;
 - validation guard after edits in implementation modes;
 - acceptance guard for explicitly requested test changes;
 - evidence-driven debug, review, and security modes;
@@ -46,6 +46,7 @@ See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow.
 - persistent, Git-aware workspace handoff;
 - repository-local `.specs/` with stable `REQ-NNN` traceability;
 - deterministic `lai spec` inspection with quick/full workflow guidance;
+- policy decisions and user-action lifecycle outcomes in the audit trail;
 - no Python package dependencies in the current harness.
 
 ## Quick start
@@ -97,7 +98,7 @@ Detailed contracts are in [Modes](docs/MODES.md).
 
 ## Security boundary
 
-LAI is **not a sandbox**. File tools resolve paths against the repository root, the dedicated Git tool is read-only, and dangerous command patterns are denied. However, the `bash` tool executes commands with the user's OS permissions and a denylist cannot cover every equivalent spelling or indirect action. Use LAI only in trusted, disposable or backed-up workspaces under a least-privilege account. Review [Security model](docs/SECURITY-MODEL.md).
+LAI is **not a sandbox**. Every builtin tool action crosses a deterministic policy boundary. Safe actions are `ALLOW`, sensitive Git/dependency mutations are `ASK` and stop for explicit user action, and selected destructive commands are `DENY`. However, allowed `bash` commands still execute with the user's OS permissions and command inspection cannot cover every equivalent spelling or indirect action. Use LAI only in trusted, disposable or backed-up workspaces under a least-privilege account. Review [Security model](docs/SECURITY-MODEL.md).
 
 Never commit API keys, state, metrics, audit logs, model files, or real project handoffs. The included `.gitignore` blocks their common locations.
 
@@ -118,14 +119,14 @@ These are historical, hardware-specific observations—not universal benchmarks 
 - Linux/WSL-first development workflow;
 - launcher examples assume `llama.cpp`, while the HTTP client only requires a compatible endpoint;
 - model and prompt behavior vary substantially;
-- shell control is denylist-based, not containment;
+- shell policy is structured as `ALLOW` / `ASK` / `DENY`, but command detection is not containment;
 - no extension marketplace package or automatic model installer;
 - metrics/audit retention is basic and local;
 - no guarantee that model output is correct, safe, or license-compatible.
 
 ## Roadmap and project history
 
-The next priorities are stronger command policy, configuration validation, broader fixtures, packaging, and cleaner provider abstraction. See [Roadmap](ROADMAP.md), [Design decisions](docs/DESIGN-DECISIONS.md), and the failure-driven [Development journey](docs/DEVELOPMENT-JOURNEY.md).
+The next priorities are a stronger execution boundary, configuration validation, broader fixtures, packaging, and cleaner provider abstraction. See [Roadmap](ROADMAP.md), [Design decisions](docs/DESIGN-DECISIONS.md), and the failure-driven [Development journey](docs/DEVELOPMENT-JOURNEY.md).
 
 ## License and third parties
 

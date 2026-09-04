@@ -15,13 +15,13 @@ The user, opened repository, installed LAI code, and local endpoint are assumed 
 - The dedicated Git tool exposes status and diff operations only.
 - `AGENTS.md` must be read before file edits when present.
 - Mode-specific schemas keep write tools away from review/security/plan/debug/test modes.
-- A command denylist blocks selected package installation, destructive filesystem/Docker/database/system commands, and direct Git mutations including index, history, branch, remote, and configuration changes.
+- A centralized policy classifies every builtin tool action as `ALLOW`, `ASK`, or `DENY`. Known Git mutations and dependency installs are `ASK` and never auto-execute; selected destructive filesystem/Docker/database/system commands and privilege escalation are `DENY`.
 - Validation, acceptance, evidence, debug-evidence, and sanity gates constrain conclusions.
 - Output sizes, file counts, tool rounds, and command durations are bounded.
 
 ## Residual risks
 
-The `bash` tool is not sandboxed. It uses command inspection plus a regex denylist and executes with the LAI user's permissions. Direct known Git mutations are blocked, but aliases, wrapper scripts, alternate executables, interpreters, shell features, or unlisted commands can bypass intent. Its working directory is the repository root, but OS-level reads and writes are not confined there.
+The `bash` tool is not sandboxed. It uses command inspection to feed the central policy and executes `ALLOW` commands with the LAI user's permissions. Known Git mutations and dependency installs stop at `ASK`; selected destructive patterns stop at `DENY`. Aliases, wrapper scripts, alternate executables, interpreters, shell features, or unlisted commands can still bypass intent. Its working directory is the repository root, but OS-level reads and writes are not confined there.
 
 Model prompt injection from repository files, malicious dependencies invoked by tests, symlink races, endpoint interception on an untrusted network, extension-host compromise, and sensitive content in state/audit output remain possible. Hashes establish content identity, not benign behavior.
 

@@ -101,6 +101,33 @@ class GuardIntegrationTest(unittest.TestCase):
             check=check,
         )
 
+    def test_policy_ask_stops_run_and_records_user_action_outcome(self):
+        responder = SequenceResponder([
+            tool_call(
+                "commit",
+                "bash",
+                {"command": "git commit -m synthetic"},
+            ),
+        ])
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--fix",
+                "commit the current work",
+            )
+
+        self.assertTrue(result.stdout.strip().startswith("POLICY ASK:"))
+        self.assertEqual(len(responder.payloads), 1)
+        events = [
+            json.loads(line)
+            for line in (self.data / "audit" / "events.jsonl").read_text().splitlines()
+        ]
+        policy = [event for event in events if event.get("type") == "policy_decision"]
+        outcomes = [event for event in events if event.get("type") == "run_outcome"]
+        self.assertEqual(policy[-1]["decision"], "ASK")
+        self.assertEqual(outcomes[-1]["outcome"], "user_action_required")
+        self.assertEqual(outcomes[-1]["tool"], "bash")
+
     def test_truncated_response_is_discarded_and_retried_once(self):
         partial = "PARTIAL_OUTPUT_MUST_NOT_ENTER_HISTORY"
 
