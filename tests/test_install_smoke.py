@@ -66,6 +66,17 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertIn(str(sample_repo), status.stdout)
             self.assertIn("## Git status", status.stdout)
 
+            model_plan = subprocess.run(
+                [str(bin_dir / "lai"), "model", "plan"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("# LAI Model Evaluation", model_plan.stdout)
+            self.assertIn("does not call, start, or download a model", model_plan.stdout)
+
             with FakeLlamaServer() as server:
                 runtime_env = {
                     **install_env,

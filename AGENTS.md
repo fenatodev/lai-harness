@@ -117,3 +117,7 @@ Runtime behavior changes require focused regression coverage before the full sui
 Before release, run the complete publication gate:
 
 - `make validate`
+
+## Model evaluation records
+
+Keep model-evaluation artifacts deterministic and secret-free. Do not change the default model, download model weights, or add network-dependent benchmark behavior without a dedicated spec.

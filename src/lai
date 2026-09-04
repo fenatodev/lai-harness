@@ -21,6 +21,10 @@ case "$command_name" in
         shift
         exec "$bin_dir/local-agent" "--$command_name" "$@"
         ;;
+    model|models)
+        shift
+        exec "$bin_dir/local-agent" --model-eval "$@"
+        ;;
     spec)
         shift
         exec "$bin_dir/local-agent" --spec-status "$@"

@@ -52,6 +52,7 @@ See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow and [Brandin
 - crash-safe workspace checkpoints with explicit, drift-checked `lai recovery` / `lai resume`;
 - deterministic, explainable context ranking with bounded metadata-only `lai context`;
 - validated configuration diagnostics with secret-safe `lai config`;
+- deterministic `lai model` benchmark planning, JSONL samples, and local scoring;
 - no Python package dependencies in the current harness.
 
 ## Quick start

@@ -40,3 +40,7 @@ Missing directories or optional files are diagnostics, not fatal errors for dete
 For WSL with a Windows-hosted `llama-server`, the WSL launcher calls `powershell.exe` with `scripts/start-secure.ps1`. Set `LAI_WINDOWS_LAUNCHER` in WSL and set `LAI_LLAMA_SERVER`, `LAI_API_KEY_FILE_WINDOWS`, and optional model/log settings in Windows.
 
 For Linux-native or remote OpenAI-compatible servers, set `LAI_HOST`, `LAI_PORT`, and `LAI_API_KEY_FILE` directly and run `lai doctor`. Do not expose a server beyond loopback or a private network without firewall and authentication review.
+
+## Model evaluation
+
+Use `lai model plan`, `lai model sample`, and `lai model score` to compare local models before changing `LAI_MODEL`. These commands are deterministic and do not download, start, or contact a model server.

@@ -12,7 +12,7 @@ import urllib.request
 import unicodedata
 from pathlib import Path
 
-VERSION = "0.4.0-alpha.12"
+VERSION = "0.4.0-alpha.13"
 PRODUCT_NAME = "LAI Harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -984,6 +984,307 @@ def safe_path(value):
         raise ValueError("Path outside repository is blocked")
 
     return p
+
+
+MODEL_EVALUATION_SCENARIOS = [
+    {
+        "id": "plan-repo-change",
+        "mode": "plan",
+        "prompt": "Plan a small repository change without editing files.",
+        "signals": [
+            "inspects only relevant files",
+            "names concrete files and validation steps",
+            "does not claim edits or tests were run",
+        ],
+    },
+    {
+        "id": "debug-repro",
+        "mode": "debug",
+        "prompt": "Reproduce a failing behavior and identify the root cause.",
+        "signals": [
+            "runs or proposes a focused reproduction",
+            "connects the failure to source evidence",
+            "keeps the final diagnosis bounded by observed data",
+        ],
+    },
+    {
+        "id": "implement-small-diff",
+        "mode": "implement",
+        "prompt": "Implement a narrow change and validate it.",
+        "signals": [
+            "reads before writing",
+            "produces a minimal diff",
+            "runs a relevant validation command",
+        ],
+    },
+    {
+        "id": "review-supported-findings",
+        "mode": "review",
+        "prompt": "Review the current diff and report only supported findings.",
+        "signals": [
+            "uses git/read evidence",
+            "drops unsupported findings",
+            "does not edit files in review mode",
+        ],
+    },
+    {
+        "id": "security-defensive",
+        "mode": "security",
+        "prompt": "Inspect a small security-sensitive change defensively.",
+        "signals": [
+            "avoids offensive instructions",
+            "grounds findings in code paths",
+            "distinguishes risk from confirmed vulnerability",
+        ],
+    },
+    {
+        "id": "context-ranking",
+        "mode": "context",
+        "prompt": "Rank likely files for a task without calling the model.",
+        "signals": [
+            "returns deterministic ranked candidates",
+            "does not treat candidates as inspected evidence",
+            "keeps output metadata-only and bounded",
+        ],
+    },
+]
+
+MODEL_EVALUATION_REQUIRED_FIELDS = {
+    "model",
+    "scenario",
+    "outcome",
+    "validation",
+}
+MODEL_EVALUATION_NUMERIC_FIELDS = {
+    "latency_ms",
+    "prompt_tokens",
+    "completion_tokens",
+    "tool_calls",
+    "truncation_retries",
+    "policy_blocks",
+    "hallucination_flags",
+}
+MODEL_EVALUATION_OUTCOMES = {"pass", "partial", "fail", "not_run"}
+MODEL_EVALUATION_VALIDATION = {"pass", "fail", "not_run"}
+
+
+def model_evaluation_payload():
+    return {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "current_model": MODEL,
+        "scenarios": MODEL_EVALUATION_SCENARIOS,
+        "result_schema": {
+            "required": sorted(MODEL_EVALUATION_REQUIRED_FIELDS),
+            "numeric": sorted(MODEL_EVALUATION_NUMERIC_FIELDS),
+            "outcome": sorted(MODEL_EVALUATION_OUTCOMES),
+            "validation": sorted(MODEL_EVALUATION_VALIDATION),
+        },
+        "scoring": {
+            "outcome": 40,
+            "validation": 25,
+            "no_hallucination_flags": 15,
+            "no_policy_blocks": 10,
+            "low_truncation": 5,
+            "efficiency": 5,
+        },
+    }
+
+
+def render_model_evaluation_plan(json_mode=False):
+    payload = model_evaluation_payload()
+    if json_mode:
+        return json.dumps(payload, indent=2, sort_keys=True)
+
+    lines = [
+        "# LAI Model Evaluation",
+        f"Version: {VERSION}",
+        f"Current model: {MODEL}",
+        "",
+        "Purpose:",
+        "- Compare small local coding models on the LAI Harness workflow before changing defaults.",
+        "- Use the same scenarios, recording format, and scoring rubric for every model.",
+        "- This command is deterministic and does not call, start, or download a model.",
+        "",
+        "Scenarios:",
+    ]
+    for scenario in MODEL_EVALUATION_SCENARIOS:
+        lines.append(f"- {scenario['id']} [{scenario['mode']}]: {scenario['prompt']}")
+        for signal in scenario["signals"]:
+            lines.append(f"  - signal: {signal}")
+    lines.extend([
+        "",
+        "Record results as JSONL with:",
+        "- model, scenario, outcome, validation",
+        "- latency_ms, prompt_tokens, completion_tokens, tool_calls",
+        "- truncation_retries, policy_blocks, hallucination_flags, notes",
+        "",
+        "Commands:",
+        "- lai model plan",
+        "- lai model plan --json",
+        "- lai model sample > model-eval/results.jsonl",
+        "- lai model score model-eval/results.jsonl",
+        "",
+        "Decision rule:",
+        "- Keep the current default unless another model wins clearly on correctness, validation, policy obedience, and acceptable latency.",
+    ])
+    return "\n".join(lines)
+
+
+def render_model_evaluation_sample():
+    lines = []
+    for scenario in MODEL_EVALUATION_SCENARIOS:
+        record = {
+            "model": MODEL,
+            "scenario": scenario["id"],
+            "outcome": "not_run",
+            "validation": "not_run",
+            "latency_ms": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "tool_calls": 0,
+            "truncation_retries": 0,
+            "policy_blocks": 0,
+            "hallucination_flags": 0,
+            "notes": "fill after running this scenario",
+        }
+        lines.append(json.dumps(record, ensure_ascii=False, sort_keys=True))
+    return "\n".join(lines)
+
+
+def normalize_model_eval_record(record, line_number):
+    if not isinstance(record, dict):
+        raise ValueError(f"line {line_number}: record must be a JSON object")
+    missing = sorted(MODEL_EVALUATION_REQUIRED_FIELDS - set(record))
+    if missing:
+        raise ValueError(f"line {line_number}: missing {', '.join(missing)}")
+    normalized = dict(record)
+    for key in ("model", "scenario", "outcome", "validation"):
+        if not isinstance(normalized.get(key), str) or not normalized[key].strip():
+            raise ValueError(f"line {line_number}: {key} must be a non-empty string")
+        normalized[key] = normalized[key].strip()
+    normalized["outcome"] = normalized["outcome"].lower()
+    normalized["validation"] = normalized["validation"].lower()
+    if normalized["outcome"] not in MODEL_EVALUATION_OUTCOMES:
+        raise ValueError(f"line {line_number}: invalid outcome {normalized['outcome']!r}")
+    if normalized["validation"] not in MODEL_EVALUATION_VALIDATION:
+        raise ValueError(f"line {line_number}: invalid validation {normalized['validation']!r}")
+    for key in MODEL_EVALUATION_NUMERIC_FIELDS:
+        value = normalized.get(key, 0)
+        if isinstance(value, bool):
+            raise ValueError(f"line {line_number}: {key} must be a non-negative number")
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"line {line_number}: {key} must be a non-negative number") from exc
+        if numeric < 0:
+            raise ValueError(f"line {line_number}: {key} must be a non-negative number")
+        normalized[key] = numeric
+    return normalized
+
+
+def load_model_evaluation_records(path):
+    records = []
+    for line_number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"line {line_number}: invalid JSON: {exc.msg}") from exc
+        records.append(normalize_model_eval_record(parsed, line_number))
+    if not records:
+        raise ValueError("no model evaluation records found")
+    return records
+
+
+def score_model_evaluation_record(record):
+    score = 0.0
+    outcome = record["outcome"]
+    validation = record["validation"]
+    if outcome == "not_run":
+        return 0.0
+    if outcome == "pass":
+        score += 40
+    elif outcome == "partial":
+        score += 20
+    if validation == "pass":
+        score += 25
+    elif validation == "not_run":
+        score += 5
+    hallucinations = record["hallucination_flags"]
+    score += max(0, 15 - hallucinations * 5)
+    policy_blocks = record["policy_blocks"]
+    score += max(0, 10 - policy_blocks * 5)
+    truncations = record["truncation_retries"]
+    score += max(0, 5 - truncations * 2)
+    latency_ms = record["latency_ms"]
+    tool_calls = record["tool_calls"]
+    if latency_ms <= 120000 and tool_calls <= 8:
+        score += 5
+    elif latency_ms <= 240000 and tool_calls <= 12:
+        score += 2
+    return min(100.0, score)
+
+
+def render_model_evaluation_score(records):
+    grouped = {}
+    for record in records:
+        model = record["model"]
+        item = grouped.setdefault(model, {"count": 0, "total": 0.0, "scenarios": []})
+        score = score_model_evaluation_record(record)
+        item["count"] += 1
+        item["total"] += score
+        item["scenarios"].append((record["scenario"], score, record["outcome"], record["validation"]))
+
+    lines = ["# LAI Model Evaluation Score", ""]
+    ranked = sorted(
+        grouped.items(),
+        key=lambda item: (-(item[1]["total"] / item[1]["count"]), item[0]),
+    )
+    for model, data in ranked:
+        average = data["total"] / data["count"]
+        lines.append(f"## {model}")
+        lines.append(f"- records: {data['count']}")
+        lines.append(f"- average_score: {average:.1f}")
+        lines.append(f"- total_score: {data['total']:.1f}")
+        for scenario, score, outcome, validation in sorted(data["scenarios"]):
+            lines.append(
+                f"  - {scenario}: {score:.1f} "
+                f"(outcome={outcome}, validation={validation})"
+            )
+        lines.append("")
+    lines.extend([
+        "Decision rule:",
+        "- Prefer the winner only if it improves correctness and validation without worse policy obedience.",
+        "- Keep the current default when results are close or based on too few records.",
+    ])
+    return "\n".join(lines).rstrip()
+
+
+def handle_model_evaluation(args):
+    command = args[0] if args else "plan"
+    if command in {"plan", "list"}:
+        json_mode = len(args) > 1 and args[1] == "--json"
+        print(render_model_evaluation_plan(json_mode=json_mode))
+        return
+    if command == "sample":
+        print(render_model_evaluation_sample())
+        return
+    if command == "score":
+        if len(args) != 2:
+            raise SystemExit("Usage: lai model score <repo-relative-results.jsonl>")
+        try:
+            path = safe_path(args[1])
+            records = load_model_evaluation_records(path)
+            print(render_model_evaluation_score(records))
+        except (OSError, ValueError) as exc:
+            raise SystemExit(f"Invalid model evaluation results: {exc}") from exc
+        return
+    raise SystemExit(
+        "Usage: lai model [plan [--json]|sample|score <repo-relative-results.jsonl>]"
+    )
 
 
 def trim(text):
@@ -4499,6 +4800,10 @@ def main():
 
     if args and args[0] == "--context":
         print_context_candidates(" ".join(args[1:]).strip())
+        return
+
+    if args and args[0] == "--model-eval":
+        handle_model_evaluation(args[1:])
         return
 
     if args and args[0] == "--recovery":

@@ -2,7 +2,7 @@
 
 ## Near term
 
-- Evaluate small local coding models with a repeatable LAI Harness benchmark.
+- Extend the model-evaluation harness with automated run capture and hardware profiles.
 - Harden the `ALLOW` / `ASK` / `DENY` policy with structured commands or a stronger execution boundary.
 - Add configuration validation and a non-WSL server workflow.
 - Expand end-to-end fixtures for every mode and guard.
@@ -14,7 +14,7 @@
 - Support multiple OpenAI-compatible local providers without provider-specific prompts.
 - Add interactive approval UI and scoped approval grants for `ASK` operations.
 - Provide an optional containerized/disposable executor.
-- Measure more models, quantizations, context sizes, and hardware profiles.
+- Use model-evaluation data to decide whether Qwen Coder or another <=8 GB model should replace the current baseline.
 - Explore signed releases and provenance attestations.
 
 Roadmap items are intentions, not commitments. Model redistribution and automatic downloading are deliberately out of scope.

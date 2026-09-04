@@ -15,7 +15,8 @@ Ele complementa agentes cloud de alto contexto: o LAI Harness atende ciclos loca
 - sanity check após patches;
 - métricas, auditoria forense e contexto por workspace;
 - cliente Python sem dependências externas;
-- identidade pública padronizada como LAI Harness, mantendo o comando `lai`.
+- identidade pública padronizada como LAI Harness, mantendo o comando `lai`;
+- avaliação determinística de modelos locais com `lai model` antes de trocar o default.
 
 ## Início rápido
 
@@ -38,6 +39,14 @@ Configure `LAI_HOST`, `LAI_PORT` e `LAI_MODEL`, instale a extensão a partir do 
 @lai /implement implemente a mudança e valide
 @lai /review revise minhas alterações Git atuais
 @lai /handoff contexto para continuar no Codex
+```
+
+Para comparar modelos locais sem trocar o default no escuro:
+
+```bash
+lai model plan
+lai model sample > model-eval/results.jsonl
+lai model score model-eval/results.jsonl
 ```
 
 ## Segurança

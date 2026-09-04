@@ -1225,7 +1225,122 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "LAI Harness 0.4.0-alpha.12")
+        self.assertEqual(result.stdout.strip(), "LAI Harness 0.4.0-alpha.13")
+
+    def test_deterministic_model_eval_plan_needs_no_server(self):
+        result = subprocess.run(
+            [str(SOURCE), "--model-eval", "plan"],
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        self.assertIn("# LAI Model Evaluation", result.stdout)
+        self.assertIn("Current model:", result.stdout)
+        self.assertIn("implement-small-diff", result.stdout)
+        self.assertIn("does not call, start, or download a model", result.stdout)
+
+    def test_deterministic_model_eval_json_and_sample_are_parseable(self):
+        result = subprocess.run(
+            [str(SOURCE), "--model-eval", "plan", "--json"],
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["product"], "LAI Harness")
+        self.assertEqual(payload["version"], "0.4.0-alpha.13")
+        scenario_ids = {item["id"] for item in payload["scenarios"]}
+        self.assertIn("context-ranking", scenario_ids)
+
+        sample = subprocess.run(
+            [str(SOURCE), "--model-eval", "sample"],
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        records = [json.loads(line) for line in sample.stdout.splitlines()]
+        self.assertEqual(len(records), len(agent.MODEL_EVALUATION_SCENARIOS))
+        self.assertEqual(records[0]["outcome"], "not_run")
+        self.assertEqual(records[0]["validation"], "not_run")
+        normalized = agent.normalize_model_eval_record(records[0], 1)
+        self.assertEqual(agent.score_model_evaluation_record(normalized), 0.0)
+
+    def test_model_eval_scoring_ranks_models(self):
+        results_dir = self.root / "model-eval"
+        results_dir.mkdir()
+        records = [
+            {
+                "model": "ministral-baseline",
+                "scenario": "implement-small-diff",
+                "outcome": "pass",
+                "validation": "pass",
+                "latency_ms": 80000,
+                "tool_calls": 6,
+                "truncation_retries": 0,
+                "policy_blocks": 0,
+                "hallucination_flags": 0,
+            },
+            {
+                "model": "qwen-candidate",
+                "scenario": "implement-small-diff",
+                "outcome": "partial",
+                "validation": "fail",
+                "latency_ms": 180000,
+                "tool_calls": 11,
+                "truncation_retries": 1,
+                "policy_blocks": 1,
+                "hallucination_flags": 1,
+            },
+        ]
+        path = results_dir / "results.jsonl"
+        path.write_text("\n".join(json.dumps(item) for item in records) + "\n")
+
+        result = subprocess.run(
+            [str(SOURCE), "--model-eval", "score", "model-eval/results.jsonl"],
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+
+        self.assertIn("# LAI Model Evaluation Score", result.stdout)
+        self.assertLess(
+            result.stdout.index("## ministral-baseline"),
+            result.stdout.index("## qwen-candidate"),
+        )
+        self.assertIn("average_score: 100.0", result.stdout)
+
+    def test_model_eval_score_rejects_bad_paths_and_records(self):
+        outside = self.base / "outside.jsonl"
+        outside.write_text("{}\n")
+        escaped = subprocess.run(
+            [str(SOURCE), "--model-eval", "score", "../outside.jsonl"],
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+        )
+        self.assertNotEqual(escaped.returncode, 0)
+        self.assertIn("outside repository", escaped.stderr.lower())
+
+        bad_path = self.root / "bad.jsonl"
+        bad_path.write_text(json.dumps({
+            "model": "bad",
+            "scenario": "plan-repo-change",
+            "outcome": "pass",
+            "validation": "pass",
+            "latency_ms": -1,
+        }) + "\n")
+        bad = subprocess.run(
+            [str(SOURCE), "--model-eval", "score", "bad.jsonl"],
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+        )
+        self.assertNotEqual(bad.returncode, 0)
+        self.assertIn("latency_ms must be a non-negative number", bad.stderr)
 
     def test_branding_doc_preserves_lai_command_and_compatibility_ids(self):
         branding = (Path(__file__).parents[1] / "docs" / "BRANDING.md").read_text()
