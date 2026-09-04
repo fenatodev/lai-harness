@@ -3,12 +3,9 @@
 ## Near term
 
 - Extend semantic code contracts as subsystems split out of `src/local-agent`.
-- Polish run-history detail views before broader tool-loop/session UX work.
 - Extend the model-evaluation harness with automated run capture and hardware profiles.
 - Harden the `ALLOW` / `ASK` / `DENY` policy with structured commands or a stronger execution boundary.
-- Add configuration validation and a non-WSL server workflow.
 - Expand end-to-end fixtures for every mode and guard.
-- Package and test the VS Code extension reproducibly.
 - Add JSON schemas and configurable retention for state, metrics, and audit events.
 
 ## Later
@@ -24,3 +21,4 @@ Roadmap items are intentions, not commitments. Model redistribution and automati
 
 - v0.4.0-alpha.20: sanitized run export bundle with `lai run export`.
 - v0.4.0-alpha.21: release preflight and public mode aliases before beta readiness.
+- v0.4.0-beta.1: first beta readiness cut with deterministic release gates and documented stabilization posture.

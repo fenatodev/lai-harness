@@ -30,7 +30,7 @@ local-agent (Python standard library)
                   user-supplied GGUF
 ```
 
-See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow, [Branding](docs/BRANDING.md) for naming rules, and [Semantic code contracts](docs/SEMANTIC-CODE-CONTRACTS.md) for subsystem navigation metadata.
+See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow, [Branding](docs/BRANDING.md) for naming rules, [Semantic code contracts](docs/SEMANTIC-CODE-CONTRACTS.md) for subsystem navigation metadata, and [Beta readiness](docs/BETA-READINESS.md) for the beta.1 release posture.
 
 ## Features
 
@@ -56,7 +56,7 @@ See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow, [Branding](
 - deterministic `lai semantics` subsystem map for model-friendly code navigation;
 - deterministic `lai runs` / `lai run show` browser and sanitized `lai run export` bundle for local run history;
 - deterministic `lai readiness` environment and repository health check;
-- focused `diagnose`, `ci-fix`, and `release` skills for safer pre-beta operations;
+- focused `diagnose`, `ci-fix`, and `release` skills plus release preflight gates for safer beta operations;
 - no Python package dependencies in the current harness.
 
 ## Quick start
@@ -79,7 +79,7 @@ Configure `~/.config/lai/config.toml`, `LAI_*` environment variables, or leading
 @lai /debug reproduce why the timeout becomes NaN
 @lai /diagnose explain why the CI is failing
 @lai /ci-fix repair the failing publication gate
-@lai /release verify whether alpha.19 is ready
+@lai /release verify whether beta.1 is ready
 @lai /implement add the requested test and minimal fix
 @lai /review review my current Git changes
 @lai /audit
@@ -90,7 +90,7 @@ lai semantics
 lai runs
 lai run last
 lai readiness
-lai release-check --json
+lai release-check --target 0.4.0-beta.1 --json
 lai recovery
 # if recovery reports a compatible interrupted run:
 lai resume

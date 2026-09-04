@@ -20,7 +20,7 @@ Ele complementa agentes cloud de alto contexto: o lai harness atende ciclos loca
 - mapa semântico determinístico com `lai semantics` para orientar modelos pequenos pelos subsistemas;
 - histórico determinístico de execuções com `lai runs`, `lai run show` e exportação sanitizada com `lai run export`;
 - verificação operacional com `lai readiness`;
-- skills focadas `diagnose`, `ci-fix` e `release` para preparar o beta com menos risco.
+- skills focadas `diagnose`, `ci-fix` e `release`, além de gates de preflight, para operar o beta com menos risco.
 
 ## Início rápido
 
@@ -59,8 +59,8 @@ lai runs
 lai run last
 lai run export --last
 lai readiness
-lai release-check --json
-lai release "verifique se esta versão está pronta"
+lai release-check --target 0.4.0-beta.1 --json
+lai release "verifique se beta.1 está pronto"
 ```
 
 ## Segurança
@@ -75,4 +75,4 @@ As medições documentadas vieram de uma máquina e fixtures específicas. Elas 
 
 O código original do LAI usa MIT. VS Code, llama.cpp, modelos, GGUF e templates permanecem sob termos próprios e não são redistribuídos. Consulte [THIRD_PARTY.md](THIRD_PARTY.md).
 
-A documentação técnica principal está em inglês no diretório [`docs/`](docs/).
+A documentação técnica principal está em inglês no diretório [`docs/`](docs/), incluindo [Beta readiness](docs/BETA-READINESS.md).

@@ -30,3 +30,8 @@ Release-mode runs preload a read-only release preflight context built from `lai 
 
 
 Use `lai release-check --json` for a model-free release gate after `lai readiness` reports a clean, ready repository.
+
+
+## Beta readiness
+
+For beta cuts, use `lai readiness`, `lai release-check --target 0.4.0-beta.1 --json`, `make validate`, and the checks in [Beta readiness](BETA-READINESS.md). The beta gate is deterministic and does not tag, merge, push, upload, or publish artifacts.

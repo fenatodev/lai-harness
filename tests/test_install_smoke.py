@@ -112,7 +112,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             readiness_payload = json.loads(readiness.stdout)
-            self.assertEqual(readiness_payload["version"], "0.4.0-alpha.21")
+            self.assertEqual(readiness_payload["version"], "0.4.0-beta.1")
             modes = {item["mode"] for item in readiness_payload["skills"]}
             self.assertTrue({"diagnose", "ci-fix", "release"}.issubset(modes))
 
@@ -125,7 +125,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             release_payload = json.loads(release_check.stdout)
-            self.assertEqual(release_payload["version"], "0.4.0-alpha.21")
+            self.assertEqual(release_payload["version"], "0.4.0-beta.1")
             self.assertIn("release_safety", {item["name"] for item in release_payload["checks"]})
 
             no_last = subprocess.run(

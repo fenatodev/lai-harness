@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.0-beta.1] - 2026-09-04
+
+### Changed
+- Promote the harness from alpha to beta after the readiness, diagnostic skills, sanitized run export, and release preflight gates stabilized.
+- Update public quick-start examples and release documentation for the beta.1 target.
+
+### Added
+- Document the beta.1 release posture, expected validation sequence, and remaining non-goals.
+- Add a traceable beta-readiness spec for the first beta cut.
+
+### Tests
+- Keep the full local validation suite and isolated install smoke aligned with the beta.1 version.
+
+
 ## [0.4.0-alpha.21] - 2026-09-04
 
 ### Added
