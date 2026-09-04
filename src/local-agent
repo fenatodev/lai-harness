@@ -15,7 +15,7 @@ import urllib.parse
 import unicodedata
 from pathlib import Path
 
-VERSION = "0.4.0-beta.9"
+VERSION = "0.4.0-beta.10"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -4878,13 +4878,19 @@ def normalize_release_target(target=None):
 def collect_release_check(target=None):
     target_version, expected_tag = normalize_release_target(target)
     readiness = collect_readiness_status()
+    branch = readiness["git"].get("branch")
     head = git_command_text(["rev-parse", "HEAD"])
+    origin_main = git_command_text(["rev-parse", "origin/main"], default="[unavailable]")
     exact_tag = git_command_text(
         ["describe", "--tags", "--exact-match", "HEAD"],
         default="[none]",
     )
     latest_tag = git_command_text(
         ["describe", "--tags", "--abbrev=0"],
+        default="[none]",
+    )
+    tag_target = git_command_text(
+        ["rev-parse", f"{expected_tag}^{{}}"],
         default="[none]",
     )
     commands = release_validation_commands()
@@ -4908,18 +4914,47 @@ def collect_release_check(target=None):
         readiness["git"].get("status"),
     )
 
-    if exact_tag == expected_tag:
-        tag_status = "ok"
-        tag_detail = "expected tag already points at HEAD"
-        phase = "released"
-    elif exact_tag == "[none]":
-        tag_status = "ok"
-        tag_detail = "expected tag not yet created on HEAD"
-        phase = "ready_to_tag"
+    on_main = branch == "main"
+    main_synced = on_main and origin_main != "[unavailable]" and head == origin_main
+    if on_main:
+        if origin_main == "[unavailable]":
+            integration_status = "fail"
+            integration_detail = "origin/main is unavailable; cannot prove the local main tag target"
+        elif head != origin_main:
+            integration_status = "fail"
+            integration_detail = f"local main {head} differs from origin/main {origin_main}"
+        else:
+            integration_status = "ok"
+            integration_detail = "local main matches the origin/main tracking ref"
     else:
+        integration_status = "ok"
+        integration_detail = f"candidate branch {branch}; merge through protected main before tagging"
+    add_check("main_integration", integration_status, integration_detail)
+
+    if tag_target != "[none]" and tag_target != head:
         tag_status = "fail"
-        tag_detail = f"HEAD has {exact_tag}, expected {expected_tag}"
+        tag_detail = f"{expected_tag} points to {tag_target}, not HEAD {head}"
         phase = "blocked"
+    elif tag_target == head and not main_synced:
+        tag_status = "fail"
+        tag_detail = f"{expected_tag} points to HEAD but tagging is invalid until synchronized main is checked out"
+        phase = "blocked"
+    elif tag_target == head:
+        tag_status = "ok"
+        tag_detail = "expected tag peels to synchronized main HEAD"
+        phase = "released"
+    elif on_main and main_synced:
+        tag_status = "ok"
+        tag_detail = "expected tag does not exist; synchronized main is the candidate tag target"
+        phase = "ready_to_tag"
+    elif on_main:
+        tag_status = "fail"
+        tag_detail = "expected tag does not exist but main integration evidence is invalid"
+        phase = "blocked"
+    else:
+        tag_status = "ok"
+        tag_detail = "expected tag does not exist; candidate must integrate through protected main before tagging"
+        phase = "ready_for_integration"
     add_check("tag_state", tag_status, tag_detail)
 
     readiness_status = readiness.get("overall")
@@ -4944,6 +4979,8 @@ def collect_release_check(target=None):
     overall = "blocked" if has_failure else ("attention" if has_warning else "ready")
     if overall == "blocked":
         phase = "blocked"
+    elif overall != "ready" and phase == "ready_to_tag":
+        phase = "attention"
 
     return {
         "product": PRODUCT_NAME,
@@ -4951,11 +4988,14 @@ def collect_release_check(target=None):
         "target_version": target_version,
         "expected_tag": expected_tag,
         "repository": str(ROOT),
-        "branch": readiness["git"].get("branch"),
+        "branch": branch,
         "origin": readiness["git"].get("origin"),
         "head": head,
+        "origin_main": origin_main,
         "exact_tag": exact_tag,
         "latest_tag": latest_tag,
+        "tag_target": tag_target,
+        "tag_ready": phase == "ready_to_tag" and overall == "ready",
         "phase": phase,
         "overall": overall,
         "readiness_overall": readiness_status,
@@ -5000,8 +5040,11 @@ def render_release_check(args=None):
         f"Repository: {payload['repository']}",
         f"Branch: {payload['branch']}",
         f"HEAD: {payload['head']}",
+        f"origin/main: {payload['origin_main']}",
         f"Exact tag on HEAD: {payload['exact_tag']}",
         f"Latest reachable tag: {payload['latest_tag']}",
+        f"Expected tag target: {payload['tag_target']}",
+        f"Tag ready: {payload['tag_ready']}",
         f"Phase: {payload['phase']}",
         f"Overall: {payload['overall']}",
         "",
@@ -5158,7 +5201,7 @@ def release_pack_publish_commands(release_payload):
 
 def release_pack_title(target_version):
     if target_version == VERSION:
-        return f"v{target_version} — self-correcting development harness"
+        return f"v{target_version} — release state convergence"
     return f"v{target_version} — lai harness release"
 
 
@@ -7752,7 +7795,7 @@ def handle_safe_workspace(raw):
 
 
 
-PROJECT_HANDOFF_USAGE = "Usage: lai project-handoff [--target VERSION] [--out DIR] [--force] [--json]"
+PROJECT_HANDOFF_USAGE = "Usage: lai project-handoff [--target VERSION] [--remote] [--out DIR] [--force] [--json]"
 PROJECT_HANDOFF_DEFAULT_BASE = Path("/tmp")
 
 
@@ -7763,6 +7806,7 @@ def project_handoff_default_dir(expected_tag):
 def parse_project_handoff_args(args):
     raw = list(args)
     json_mode = False
+    remote = False
     force = False
     out_dir = None
     target = None
@@ -7772,6 +7816,8 @@ def parse_project_handoff_args(args):
         item = raw[index]
         if item == "--json":
             json_mode = True
+        elif item == "--remote":
+            remote = True
         elif item == "--force":
             force = True
         elif item == "--target":
@@ -7796,7 +7842,7 @@ def parse_project_handoff_args(args):
         else:
             raise SystemExit(PROJECT_HANDOFF_USAGE)
 
-    return {"target": target, "out_dir": out_dir, "force": force, "json": json_mode}
+    return {"target": target, "remote": remote, "out_dir": out_dir, "force": force, "json": json_mode}
 
 
 def project_handoff_resolve_out_dir(raw_out, expected_tag):
@@ -7807,9 +7853,11 @@ def project_handoff_resolve_out_dir(raw_out, expected_tag):
     return target
 
 
-def project_handoff_payload(target=None):
+def project_handoff_payload(target=None, remote=False):
     release_payload = collect_release_check(target=target)
-    governance = collect_release_governance(target=target)
+    governance_local = collect_release_governance(target=target, remote=False)
+    governance_remote = collect_release_governance(target=target, remote=True) if remote else None
+    governance_effective = governance_remote or governance_local
     safe_workspace = collect_safe_workspace_status([])
     spec = load_active_spec()
     active_spec = None
@@ -7840,9 +7888,13 @@ def project_handoff_payload(target=None):
         "exact_tag": release_payload.get("exact_tag"),
         "release_check_overall": release_payload.get("overall"),
         "release_check_phase": release_payload.get("phase"),
-        "release_governance_overall": governance.get("overall"),
-        "release_pack": governance.get("release_pack"),
-        "manual_actions": governance.get("manual_actions"),
+        "release_governance_overall": governance_effective.get("overall"),
+        "release_governance_local_overall": governance_local.get("overall"),
+        "release_governance_remote_overall": governance_remote.get("overall") if governance_remote else None,
+        "release_governance_remote_enabled": bool(governance_remote),
+        "release_governance_remote": (governance_remote or {}).get("remote", {"enabled": False}),
+        "release_pack": governance_effective.get("release_pack"),
+        "manual_actions": governance_effective.get("manual_actions"),
         "safe_workspace_base": safe_workspace.get("base_dir"),
         "safe_workspace_count": len(safe_workspace.get("workspaces") or []),
         "active_spec": active_spec,
@@ -7857,15 +7909,19 @@ def project_handoff_payload(target=None):
             "Use feature branches for every implementation and keep main/release branches write-protected.",
             "Use safe workspaces before dogfooding write-capable modes such as implement, fix, and ci-fix.",
             "Use release-check, release-pack, release-governance, and project-handoff as deterministic commands; they must not call the model.",
-            "Treat GitHub branch protection and GitHub Release publication as manual public actions.",
+            "Treat GitHub branch protection and GitHub Release publication as externally verified state; project-handoff --remote may verify them read-only but never mutate them.",
         ],
         "next_recommended_steps": [
             "Verify the current beta tag and CI before starting a new beta.",
-            "Enable GitHub branch protection for main in repository settings.",
-            "Publish the latest beta GitHub Release as a pre-release using the generated release pack.",
+            "Use remote governance when live GitHub branch protection or Release state affects the next action.",
+            "Only tag from synchronized protected main after required CI is green.",
             "Continue with small beta hardening cuts only; avoid large architecture changes until dogfooding data justifies them.",
         ],
-        "safety": "read-only summary; no model call, tag, merge, push, upload, publication, or repository file mutation was executed",
+        "safety": (
+            "read-only summary; "
+            + ("remote mode performs GitHub API GET requests only; " if remote else "offline mode performs no GitHub API requests; ")
+            + "no model call, tag, merge, push, upload, publication, or repository file mutation was executed"
+        ),
     }
 
 
@@ -7891,7 +7947,9 @@ def render_project_handoff_markdown(payload):
         f"- Latest tag: `{payload['latest_tag']}`",
         f"- Exact tag on HEAD: `{payload['exact_tag']}`",
         f"- Release check: `{payload['release_check_overall']} / {payload['release_check_phase']}`",
-        f"- Release governance: `{payload['release_governance_overall']}`",
+        f"- Release governance (effective): `{payload['release_governance_overall']}`",
+        f"- Release governance (local/offline): `{payload['release_governance_local_overall']}`",
+        f"- Release governance (remote): `{payload['release_governance_remote_overall'] if payload['release_governance_remote_enabled'] else '[not requested]'}`",
         f"- Safe workspace base: `{payload['safe_workspace_base']}`",
         f"- Safe workspace count: `{payload['safe_workspace_count']}`",
         "",
@@ -7903,6 +7961,25 @@ def render_project_handoff_markdown(payload):
             lines.append(f"- `{action.get('id')}`: {action.get('title')} — {action.get('detail')}")
     else:
         lines.append("- [none reported]")
+
+    remote_state = payload.get("release_governance_remote") or {"enabled": False}
+    if remote_state.get("enabled"):
+        branch_state = remote_state.get("branch_protection") or {}
+        release_state = remote_state.get("release") or {}
+        asset_state = release_state.get("asset") or {}
+        lines.extend([
+            "",
+            "## Remote GitHub evidence",
+            "",
+            f"- Repository: `{remote_state.get('repository')}`",
+            f"- Authenticated: `{remote_state.get('authenticated')}`",
+            f"- Credential source: `{remote_state.get('credential_source')}`",
+            f"- Branch protection: `{branch_state.get('status', '[unknown]')}` — {branch_state.get('detail', '')}",
+            f"- GitHub Release: `{release_state.get('status', '[unknown]')}` — {release_state.get('detail', '')}",
+            f"- VSIX digest match: `{asset_state.get('digest_match')}`",
+            f"- Local VSIX SHA-256: `{asset_state.get('local_sha256')}`",
+            f"- Remote VSIX digest: `{asset_state.get('remote_digest')}`",
+        ])
 
     lines.extend([
         "",
@@ -7960,8 +8037,8 @@ def render_project_handoff_markdown(payload):
         "git branch --show-current",
         "git describe --tags --exact-match HEAD || true",
         f"lai release-check --target {payload['target_version']} --json",
-        f"lai release-governance --target {payload['target_version']} --json",
-        f"lai project-handoff --target {payload['target_version']} --json",
+        f"lai release-governance --target {payload['target_version']}" + (" --remote" if payload['release_governance_remote_enabled'] else "") + " --json",
+        f"lai project-handoff --target {payload['target_version']}" + (" --remote" if payload['release_governance_remote_enabled'] else "") + " --json",
         "```",
         "",
         "## Prompt to paste into the next ChatGPT chat",
@@ -7983,8 +8060,8 @@ def render_project_handoff_markdown(payload):
     return "\n".join(lines)
 
 
-def write_project_handoff(target=None, out_dir=None, force=False):
-    payload = project_handoff_payload(target=target)
+def write_project_handoff(target=None, remote=False, out_dir=None, force=False):
+    payload = project_handoff_payload(target=target, remote=remote)
     output_dir = project_handoff_resolve_out_dir(out_dir, payload["expected_tag"])
     if output_dir.exists() and any(output_dir.iterdir()) and not force:
         raise SystemExit(f"Project handoff directory already exists and is not empty: {output_dir}. Use --force or --out DIR")
@@ -8013,6 +8090,7 @@ def render_project_handoff(args=None):
     if options["out_dir"]:
         payload = write_project_handoff(
             target=options["target"],
+            remote=options["remote"],
             out_dir=options["out_dir"],
             force=options["force"],
         )
@@ -8039,7 +8117,7 @@ def render_project_handoff(args=None):
         lines.append(payload["safety"])
         return "\n".join(lines)
 
-    payload = project_handoff_payload(target=options["target"])
+    payload = project_handoff_payload(target=options["target"], remote=options["remote"])
     if options["json"]:
         return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
     return render_project_handoff_markdown(payload)

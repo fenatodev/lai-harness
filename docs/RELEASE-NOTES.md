@@ -1,40 +1,44 @@
 # Release notes
 
-## lai harness v0.4.0-beta.9 — self-correcting development harness
+## lai harness v0.4.0-beta.10 — release state convergence
 
-This beta closes the repository development feedback loop around lai harness without expanding model autonomy.
+This beta makes release state harder to misread and harder to tag from the wrong commit.
 
 ### What changed
 
-- Added deterministic `lai policy-check`, which reuses the existing `ALLOW` / `ASK` / `DENY` runtime policy and never executes the requested action.
-- Added a repository-local shell gate that delegates to `lai policy-check`, blocks `DENY`, requires review for `ASK`, and fails closed when policy evidence is unavailable.
-- Added a repository-confined, best-effort feedback hook for fast syntax/lint feedback after edits.
-- Strengthened deterministic denial for force push, hard reset, npm publication, and recursive forced PowerShell deletion.
-- Added an explicit `verify-change` workflow for focused-to-full validation.
-- Added a separate Harness Score CI workflow pinned to the v1 action revision and gated at L4.
-- Extended remote release governance so protected `main` must also require `Harness Score L4`.
+- Added opt-in `lai project-handoff --remote` and `lai next-chat --remote`.
+- Handoff output now preserves the local/offline governance result while also exposing the remote governance result when requested.
+- The effective handoff status and `manual_actions` come from remote verification when `--remote` is enabled.
+- Remote handoff evidence includes protected-main status, GitHub pre-release state, credential source metadata, and VSIX digest comparison without rendering credentials.
+- `lai release-check` now resolves the expected tag target directly and blocks if the tag already points to another commit.
+- A clean feature branch reports `ready_for_integration`; it can no longer report `ready_to_tag`.
+- `ready_to_tag` requires `main`, a clean/readiness-valid checkout, and `HEAD == origin/main`.
+- A tag is considered `released` only when it peels to synchronized `main` HEAD.
+
+### Why this matters
+
+Beta.9 could verify a published release remotely, but `project-handoff` still recorded only offline governance and therefore reported `action_required` after publication. Separately, the beta.8 release exposed a tag-target hazard: a release tag could exist on an older commit before the intended protected-main integration was complete.
+
+Beta.10 converts both incidents into deterministic checks instead of relying on operator memory.
 
 ### Harness maturity
 
-Harness Score 1.6.3 now measures the repository as **L4 Self-correcting, 93/108 (86%)**, up from beta.8's **L3 Sensing, 76/108 (70%)**. Hooks & Guardrails are 14/14 and CI Feedback remains 14/14.
-
-The remaining score gaps are intentionally not filled with decorative subagent, MCP, type-checker, or lockfile artifacts. They remain candidates only when they solve a concrete project need.
+Harness Score remains **L4 Self-correcting, 93/108 (86%)**. This beta does not add decorative score artifacts; it improves release correctness using mechanisms the project already needs.
 
 ### Safety boundary
 
-- Development hooks are guards, not an OS sandbox.
-- The shell hook reuses the same deterministic policy boundary as the product instead of maintaining a divergent denylist.
-- Hook failure does not silently become allow.
-- Feedback checks are advisory; focused tests and CI remain authoritative.
-- The maturity workflow is read-only and separate from product CI.
+- Default `release-check`, `release-governance`, and `project-handoff` remain model-free and repository-read-only.
+- `project-handoff --remote` reuses the existing GitHub GET-only governance path.
+- No remote handoff path can tag, merge, push, upload, publish, or change branch protection.
+- Offline tag readiness uses only local Git metadata and the local `origin/main` tracking ref; GitHub CI remains an explicit separate gate.
 
 ### Validation gate
 
 ```bash
 lai readiness
-lai policy-check --tool bash --command 'git status --short' --json
-lai release-check --target 0.4.0-beta.9 --json
-lai release-pack --target 0.4.0-beta.9 --with-vsix --json
+lai release-check --target 0.4.0-beta.10 --json
+lai release-pack --target 0.4.0-beta.10 --with-vsix --json
+lai project-handoff --target 0.4.0-beta.10 --json
 make lint
 make check
 make test-dev
@@ -45,6 +49,6 @@ make validate
 
 ### Release body for GitHub
 
-lai harness v0.4.0-beta.9 adds a self-correcting repository development harness around the existing local coding agent. The new deterministic `lai policy-check` lets the shell gate reuse the product's `ALLOW` / `ASK` / `DENY` policy without executing commands, while a best-effort feedback hook catches narrow syntax and lint problems immediately after edits.
+lai harness v0.4.0-beta.10 converges release state across `release-check`, remote governance, and project handoff. Feature branches now report `ready_for_integration`; `ready_to_tag` is reserved for synchronized protected `main`, and an expected tag pointing at another commit blocks the release check.
 
-The repository now gates Harness Score L4 in a separate CI workflow and remote release governance verifies that `Harness Score L4` is required on protected `main`. Harness Score 1.6.3 measures this cut at L4 Self-correcting, 93/108 (86%).
+The handoff can optionally include live GitHub verification with `--remote`, preserving local/offline evidence while using verified branch protection, pre-release state, and VSIX digest evidence as the effective release posture. Remote verification remains GET-only and model-free. Harness Score remains L4 Self-correcting at 93/108 (86%).
