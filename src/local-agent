@@ -13,7 +13,7 @@ import urllib.request
 import unicodedata
 from pathlib import Path
 
-VERSION = "0.4.0-beta.6"
+VERSION = "0.4.0-beta.7"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -112,6 +112,13 @@ SEMANTIC_CODE_CONTRACT = {
             "paths": ["src/local-agent", "src/lai", "docs/RELEASE-GOVERNANCE.md", "docs/RELEASE-CHECKLIST.md"],
             "entrypoints": ["render_release_governance", "collect_release_governance", "release_governance_pack_status"],
             "terms": ["release", "governance", "publication", "branch", "protection", "github", "manual", "pre-release", "status"],
+        },
+        {
+            "id": "project-handoff",
+            "intent": "produce a portable next-chat project handoff without model calls or repository mutation",
+            "paths": ["src/local-agent", "src/lai", "docs/PROJECT-HANDOFF.md", "docs/RELEASE-GOVERNANCE.md"],
+            "entrypoints": ["render_project_handoff", "write_project_handoff", "project_handoff_payload"],
+            "terms": ["handoff", "next", "chat", "session", "context", "continuity", "transfer", "summary", "reference"],
         },
         {
             "id": "operational-readiness",
@@ -5039,7 +5046,7 @@ def release_pack_publish_commands(release_payload):
 
 def release_pack_title(target_version):
     if target_version == VERSION:
-        return f"v{target_version} — release publication pack"
+        return f"v{target_version} — project handoff"
     return f"v{target_version} — lai harness release"
 
 
@@ -7314,6 +7321,299 @@ def handle_safe_workspace(raw):
 
 
 
+PROJECT_HANDOFF_USAGE = "Usage: lai project-handoff [--target VERSION] [--out DIR] [--force] [--json]"
+PROJECT_HANDOFF_DEFAULT_BASE = Path("/tmp")
+
+
+def project_handoff_default_dir(expected_tag):
+    return PROJECT_HANDOFF_DEFAULT_BASE / f"lai-harness-project-handoff-{release_pack_slug(expected_tag)}"
+
+
+def parse_project_handoff_args(args):
+    raw = list(args)
+    json_mode = False
+    force = False
+    out_dir = None
+    target = None
+    positional = []
+    index = 0
+    while index < len(raw):
+        item = raw[index]
+        if item == "--json":
+            json_mode = True
+        elif item == "--force":
+            force = True
+        elif item == "--target":
+            index += 1
+            if index >= len(raw):
+                raise SystemExit(PROJECT_HANDOFF_USAGE)
+            target = raw[index]
+        elif item == "--out":
+            index += 1
+            if index >= len(raw):
+                raise SystemExit(PROJECT_HANDOFF_USAGE)
+            out_dir = raw[index]
+        elif item.startswith("-"):
+            raise SystemExit(PROJECT_HANDOFF_USAGE)
+        else:
+            positional.append(item)
+        index += 1
+
+    if positional:
+        if len(positional) == 1 and target is None:
+            target = positional[0]
+        else:
+            raise SystemExit(PROJECT_HANDOFF_USAGE)
+
+    return {"target": target, "out_dir": out_dir, "force": force, "json": json_mode}
+
+
+def project_handoff_resolve_out_dir(raw_out, expected_tag):
+    target = Path(raw_out).expanduser() if raw_out else project_handoff_default_dir(expected_tag)
+    target = target.resolve()
+    if release_pack_path_is_inside(target, ROOT):
+        raise SystemExit("Refusing to write project handoff inside the repository; use --out under /tmp or another external directory")
+    return target
+
+
+def project_handoff_payload(target=None):
+    release_payload = collect_release_check(target=target)
+    governance = collect_release_governance(target=target)
+    safe_workspace = collect_safe_workspace_status([])
+    spec = load_active_spec()
+    active_spec = None
+    if spec is not None:
+        try:
+            spec_path = str(spec["path"].relative_to(ROOT))
+        except ValueError:
+            spec_path = str(spec["path"])
+        active_spec = {
+            "path": spec_path,
+            "title": spec.get("title"),
+            "mode": spec.get("mode"),
+            "status": spec.get("status"),
+            "requirements": spec.get("requirements") or [],
+        }
+
+    return {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "target_version": release_payload["target_version"],
+        "expected_tag": release_payload["expected_tag"],
+        "repository": str(ROOT),
+        "public_repository": "fenatodev/lai-harness",
+        "local_checkout": str(ROOT),
+        "branch": release_payload.get("branch"),
+        "head": release_payload.get("head"),
+        "latest_tag": release_payload.get("latest_tag"),
+        "exact_tag": release_payload.get("exact_tag"),
+        "release_check_overall": release_payload.get("overall"),
+        "release_check_phase": release_payload.get("phase"),
+        "release_governance_overall": governance.get("overall"),
+        "release_pack": governance.get("release_pack"),
+        "manual_actions": governance.get("manual_actions"),
+        "safe_workspace_base": safe_workspace.get("base_dir"),
+        "safe_workspace_count": len(safe_workspace.get("workspaces") or []),
+        "active_spec": active_spec,
+        "current_model": DEFAULT_MODEL,
+        "server": {
+            "default_host": str(CONFIG.get("host")),
+            "default_port": int(CONFIG.get("port", 0) or 0),
+            "model": str(CONFIG.get("model") or DEFAULT_MODEL),
+        },
+        "critical_rules": [
+            "Do not run git tag, git merge, git push, upload, or publish unless Fernando explicitly asks.",
+            "Use feature branches for every implementation and keep main/release branches write-protected.",
+            "Use safe workspaces before dogfooding write-capable modes such as implement, fix, and ci-fix.",
+            "Use release-check, release-pack, release-governance, and project-handoff as deterministic commands; they must not call the model.",
+            "Treat GitHub branch protection and GitHub Release publication as manual public actions.",
+        ],
+        "next_recommended_steps": [
+            "Verify the current beta tag and CI before starting a new beta.",
+            "Enable GitHub branch protection for main in repository settings.",
+            "Publish the latest beta GitHub Release as a pre-release using the generated release pack.",
+            "Continue with small beta hardening cuts only; avoid large architecture changes until dogfooding data justifies them.",
+        ],
+        "safety": "read-only summary; no model call, tag, merge, push, upload, publication, or repository file mutation was executed",
+    }
+
+
+def render_project_handoff_markdown(payload):
+    active_spec = payload.get("active_spec")
+    manual_actions = payload.get("manual_actions") or []
+    release_pack = payload.get("release_pack") or {}
+    lines = [
+        "# lai harness project handoff",
+        "",
+        "Use this file to continue the project in a new ChatGPT chat without relying on the previous conversation window.",
+        "",
+        "## Current state",
+        "",
+        f"- Product: {payload['product']}",
+        f"- Version: {payload['version']}",
+        f"- Target version: {payload['target_version']}",
+        f"- Expected tag: {payload['expected_tag']}",
+        f"- Repository: {payload['public_repository']}",
+        f"- Local checkout: `{payload['local_checkout']}`",
+        f"- Current branch: `{payload['branch']}`",
+        f"- HEAD: `{payload['head']}`",
+        f"- Latest tag: `{payload['latest_tag']}`",
+        f"- Exact tag on HEAD: `{payload['exact_tag']}`",
+        f"- Release check: `{payload['release_check_overall']} / {payload['release_check_phase']}`",
+        f"- Release governance: `{payload['release_governance_overall']}`",
+        f"- Safe workspace base: `{payload['safe_workspace_base']}`",
+        f"- Safe workspace count: `{payload['safe_workspace_count']}`",
+        "",
+        "## Manual actions still outside the agent",
+        "",
+    ]
+    if manual_actions:
+        for action in manual_actions:
+            lines.append(f"- `{action.get('id')}`: {action.get('title')} — {action.get('detail')}")
+    else:
+        lines.append("- [none reported]")
+
+    lines.extend([
+        "",
+        "## Release pack",
+        "",
+        f"- Status: `{release_pack.get('status', '[unknown]')}`",
+        f"- Directory: `{release_pack.get('pack_dir', '[unknown]')}`",
+        f"- VSIX path: `{(release_pack.get('vsix') or {}).get('path', '[unknown]')}`",
+        f"- VSIX present: `{(release_pack.get('vsix') or {}).get('present', False)}`",
+        "",
+        "## Active spec",
+        "",
+    ])
+    if active_spec:
+        lines.extend([
+            f"- Path: `{active_spec['path']}`",
+            f"- Title: {active_spec['title']}",
+            f"- Mode: `{active_spec['mode']}`",
+            f"- Status: `{active_spec['status']}`",
+            f"- Requirements: {', '.join(active_spec.get('requirements') or [])}",
+        ])
+    else:
+        lines.append("- None")
+
+    lines.extend([
+        "",
+        "## Local model and server assumptions",
+        "",
+        f"- Default model: `{payload['current_model']}`",
+        f"- Configured host: `{payload['server']['default_host']}`",
+        f"- Configured port: `{payload['server']['default_port']}`",
+        f"- Configured model: `{payload['server']['model']}`",
+        "",
+        "## Critical operating rules",
+        "",
+    ])
+    for rule in payload.get("critical_rules") or []:
+        lines.append(f"- {rule}")
+
+    lines.extend([
+        "",
+        "## Next recommended steps",
+        "",
+    ])
+    for step in payload.get("next_recommended_steps") or []:
+        lines.append(f"- {step}")
+
+    lines.extend([
+        "",
+        "## Commands to re-establish context in the next chat",
+        "",
+        "```bash",
+        f"cd {shlex.quote(str(ROOT))}",
+        "git status --short",
+        "git branch --show-current",
+        "git describe --tags --exact-match HEAD || true",
+        f"lai release-check --target {payload['target_version']} --json",
+        f"lai release-governance --target {payload['target_version']} --json",
+        f"lai project-handoff --target {payload['target_version']} --json",
+        "```",
+        "",
+        "## Prompt to paste into the next ChatGPT chat",
+        "",
+        "```text",
+        "Continue o desenvolvimento do lai harness a partir deste handoff. Use o conector Remote Desktop Commander no repo local abaixo, confirme branch/status/tag/CI antes de qualquer alteração, não faça tag/merge/push/publicação sem meu comando explícito, e mantenha o ciclo em betas pequenos com validação completa.",
+        "",
+        f"Repo local: {payload['local_checkout']}",
+        f"GitHub: {payload['public_repository']}",
+        f"Versão atual/target: {payload['target_version']}",
+        f"Tag esperada: {payload['expected_tag']}",
+        f"HEAD registrado: {payload['head']}",
+        "Primeiro leia docs/PROJECT-HANDOFF.md se existir, depois rode os comandos de contexto indicados no handoff.",
+        "```",
+        "",
+        "Safety: " + payload["safety"],
+        "",
+    ])
+    return "\n".join(lines)
+
+
+def write_project_handoff(target=None, out_dir=None, force=False):
+    payload = project_handoff_payload(target=target)
+    output_dir = project_handoff_resolve_out_dir(out_dir, payload["expected_tag"])
+    if output_dir.exists() and any(output_dir.iterdir()) and not force:
+        raise SystemExit(f"Project handoff directory already exists and is not empty: {output_dir}. Use --force or --out DIR")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    markdown = render_project_handoff_markdown(payload)
+    files = {
+        "markdown": output_dir / "PROJECT-HANDOFF.md",
+        "next_chat_prompt": output_dir / "NEXT-CHAT-PROMPT.md",
+        "summary": output_dir / "summary.json",
+    }
+    files["markdown"].write_text(markdown, encoding="utf-8")
+    prompt = markdown.split("## Prompt to paste into the next ChatGPT chat", 1)[-1].strip()
+    files["next_chat_prompt"].write_text(prompt + "\n", encoding="utf-8")
+    result = dict(payload)
+    result["handoff_dir"] = str(output_dir)
+    result["files"] = {name: str(path) for name, path in files.items()}
+    files["summary"].write_text(
+        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return result
+
+
+def render_project_handoff(args=None):
+    options = parse_project_handoff_args(args or [])
+    if options["out_dir"]:
+        payload = write_project_handoff(
+            target=options["target"],
+            out_dir=options["out_dir"],
+            force=options["force"],
+        )
+        if options["json"]:
+            return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+        lines = [
+            "# lai project handoff",
+            "",
+            f"Product: {payload['product']}",
+            f"Version: {payload['version']}",
+            f"Target version: {payload['target_version']}",
+            f"Expected tag: {payload['expected_tag']}",
+            f"Repository: {payload['repository']}",
+            f"Branch: {payload['branch']}",
+            f"HEAD: {payload['head']}",
+            f"Release check: {payload['release_check_overall']} / {payload['release_check_phase']}",
+            f"Handoff directory: {payload['handoff_dir']}",
+            "",
+            "## Files",
+        ]
+        for name, path in payload["files"].items():
+            lines.append(f"- {name}: {path}")
+        lines.append("")
+        lines.append(payload["safety"])
+        return "\n".join(lines)
+
+    payload = project_handoff_payload(target=options["target"])
+    if options["json"]:
+        return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    return render_project_handoff_markdown(payload)
+
+
 
 def main():
     args = list(CLI_ARGS)
@@ -7348,6 +7648,10 @@ def main():
 
     if args and args[0] == "--release-governance":
         print(render_release_governance(args[1:]))
+        return
+
+    if args and args[0] == "--project-handoff":
+        print(render_project_handoff(args[1:]))
         return
 
     if args and args[0] == "--workspace":

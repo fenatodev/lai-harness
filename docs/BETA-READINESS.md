@@ -1,24 +1,25 @@
 # lai beta readiness
 
-This document records the release posture for `0.4.0-beta.6`. It is a stabilization cut, not a feature expansion.
+This document records the release posture for `0.4.0-beta.7`. It is a stabilization cut, not a feature expansion.
 
 ## Scope
 
-`0.4.0-beta.6` promotes the alpha line after the following capabilities became deterministic and test-covered:
+`0.4.0-beta.7` keeps the beta line stable and adds portable project handoff after the following capabilities became deterministic and test-covered:
 
 - `lai readiness` for environment and repository health.
 - `lai release-check` for model-free release posture checks.
 - `lai run export` for sanitized diagnostic bundles.
 - `diagnose`, `ci-fix`, and `release` mode skills.
 - Public CLI aliases for mode entrypoints such as `lai diagnose`, `lai ci-fix`, and `lai release`.
+- `lai project-handoff` and `lai next-chat` for long-chat migration.
 
 ## Required local gate
 
-Run these before tagging beta.6:
+Run these before tagging beta.7:
 
 ```bash
 lai readiness
-lai release-check --target 0.4.0-beta.6 --json
+lai release-check --target 0.4.0-beta.7 --json
 make check
 make test-dev
 make test
@@ -32,14 +33,14 @@ Expected release-check posture before tagging:
 
 - `overall`: `ready`
 - `phase`: `ready_to_tag`
-- `expected_tag`: `v0.4.0-beta.6`
+- `expected_tag`: `v0.4.0-beta.7`
 - `release_safety`: `true`
 
 Expected posture after tagging and fast-forwarding main:
 
 - `overall`: `ready`
 - `phase`: `released`
-- `exact_tag`: `v0.4.0-beta.6`
+- `exact_tag`: `v0.4.0-beta.7`
 
 ## Non-goals
 
@@ -54,4 +55,4 @@ The beta cut does not add autonomous Git release execution, package publication,
 
 ## Exit criteria
 
-Beta.6 is acceptable when local validation, install smoke, `lai readiness`, `lai release-check`, and GitHub CI all pass for both `main` and the `v0.4.0-beta.6` tag.
+Beta.7 is acceptable when local validation, install smoke, `lai readiness`, `lai release-check`, and GitHub CI all pass for both `main` and the `v0.4.0-beta.7` tag.

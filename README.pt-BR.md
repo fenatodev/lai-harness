@@ -59,9 +59,10 @@ lai runs
 lai run last
 lai run export --last
 lai readiness
-lai release-check --target 0.4.0-beta.6 --json
-lai release-pack --target 0.4.0-beta.6 --with-vsix --json
-lai release "verifique se beta.6 está pronto"
+lai release-check --target 0.4.0-beta.7 --json
+lai release-pack --target 0.4.0-beta.7 --with-vsix --json
+lai project-handoff --target 0.4.0-beta.7 --json
+lai release "verifique se beta.7 está pronto"
 ```
 
 ## Segurança
@@ -92,3 +93,5 @@ git diff
 ```
 
 Veja [Safe workspaces](docs/SAFE-WORKSPACES.md).
+
+Leia também [Project handoff](docs/PROJECT-HANDOFF.md) antes de migrar para outro chat.

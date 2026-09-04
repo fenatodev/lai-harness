@@ -17,7 +17,7 @@ case "$command_name" in
         shift
         exec "$bin_dir/local-agent" "$@" --config-status
         ;;
-    status|metrics|audit|handoff|clear-context|recovery|context|semantics|runs|readiness|ready|release-check|release-pack|release-governance|governance|workspace)
+    status|metrics|audit|handoff|clear-context|recovery|context|semantics|runs|readiness|ready|release-check|release-pack|release-governance|governance|project-handoff|next-chat|workspace)
         shift
         if [ "$command_name" = "ready" ]; then
             exec "$bin_dir/local-agent" --readiness "$@"
@@ -30,6 +30,9 @@ case "$command_name" in
         fi
         if [ "$command_name" = "release-governance" ] || [ "$command_name" = "governance" ]; then
             exec "$bin_dir/local-agent" --release-governance "$@"
+        fi
+        if [ "$command_name" = "project-handoff" ] || [ "$command_name" = "next-chat" ]; then
+            exec "$bin_dir/local-agent" --project-handoff "$@"
         fi
         if [ "$command_name" = "workspace" ]; then
             exec "$bin_dir/local-agent" --workspace "$@"

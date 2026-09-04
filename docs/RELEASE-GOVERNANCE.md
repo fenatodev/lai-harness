@@ -5,7 +5,7 @@
 ```bash
 lai release-governance
 lai release-governance --json
-lai release-governance --target 0.4.0-beta.6 --json
+lai release-governance --target 0.4.0-beta.7 --json
 lai governance --json
 ```
 
@@ -33,3 +33,8 @@ After `main`, tag, local validation and CI are green:
 2. Create a GitHub Release from the current tag and mark it as pre-release.
 3. Use `release-body.md` from `lai release-pack` as the release body.
 4. Attach the inspected VSIX from the release pack only when distributing a manual extension package.
+
+
+## Chat migration
+
+Use `lai project-handoff --target 0.4.0-beta.7 --out /tmp/lai-harness-project-handoff-v0.4.0-beta.7 --force --json` when a long chat needs to be moved to a fresh session. The generated files are local-only references and should not be published.

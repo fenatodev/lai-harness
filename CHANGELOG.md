@@ -1,3 +1,14 @@
+## [0.4.0-beta.7] - 2026-09-04
+
+### Added
+- Added deterministic `lai project-handoff` / `lai next-chat` to render or write a portable next-chat project handoff.
+- Added external handoff files: `PROJECT-HANDOFF.md`, `NEXT-CHAT-PROMPT.md`, and `summary.json`.
+- Added project handoff documentation and validation coverage for chat migration.
+
+### Changed
+- Updated beta publishing docs, release notes, checklist, README examples and VS Code package metadata for `0.4.0-beta.7`.
+
+
 ## [0.4.0-beta.6] - 2026-09-04
 
 ### Added
