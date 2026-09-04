@@ -4,6 +4,10 @@
 
 Beta.13 keeps the server loopback-only and exposes bounded asynchronous model execution for five read-only modes: `plan`, `review`, `security`, `diagnose`, and `release`. Every control child receives an explicit shell-free capability profile before the model sees tool schemas. It is still not a remote shell and it does not expose llama.cpp directly.
 
+![LAI private mobile access architecture](assets/private-mobile-access.png)
+
+The `lai-gateway` layer shown above is a separate companion project; it is not shipped by lai harness.
+
 ## Initialize authentication
 
 The control plane uses its own bearer token, separate from the llama.cpp API key:
@@ -105,7 +109,7 @@ This is capability reduction, not a claim that the local `bash` policy is a sand
 
 ## Explicitly not exposed
 
-Beta.12 has no HTTP endpoint for:
+Beta.13 has no HTTP endpoint for:
 
 - arbitrary shell or Git commands;
 - file create/patch/rewrite operations;

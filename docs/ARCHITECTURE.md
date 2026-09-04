@@ -2,6 +2,10 @@
 
 lai harness has four runtime layers: the VS Code chat participant, the Python harness, an authenticated OpenAI-compatible server, and a user-supplied model.
 
+![lai harness core architecture](assets/core-architecture.png)
+
+The diagram is a documentation overview; runtime code, policy, and the security model are authoritative.
+
 ## Request flow
 
 1. `@lai` receives a command and prompt.

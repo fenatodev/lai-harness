@@ -1,6 +1,6 @@
 # GitHub publishing metadata
 
-Public metadata for the repository and beta releases.
+Public repository metadata and release presentation for `fenatodev/lai-harness`.
 
 ## Repository
 
@@ -8,7 +8,23 @@ Public metadata for the repository and beta releases.
 
 **Clone URL:** `https://github.com/fenatodev/lai-harness.git`
 
-**Description:** Local, auditable coding agent for VS Code, optimized for small LLMs via llama.cpp with compact tools, batch patching, validation guards, metrics, handoff and forensic audit.
+**Description:** Local-first, auditable coding harness for small LLMs: compact tools, deterministic policy, validation, observability, control plane, and protected releases.
+
+**Topics:**
+
+`ai-agent`, `agentic-coding`, `ai-security`, `automation`, `code-review`, `coding-agent`, `developer-tools`, `devtools`, `llama-cpp`, `llm`, `local-ai`, `local-first`, `local-llm`, `observability`, `python`, `release-automation`, `tool-calling`, `vscode`, `vscode-extension`, `wsl`
+
+The repository README is the primary landing page. Keep Wiki/Projects disabled unless they gain an explicit maintained purpose; project documentation lives under `docs/` and roadmap/history live in version control.
+
+## Visual presentation
+
+The approved diagrams are versioned under `docs/assets/`:
+
+- `core-architecture.png` — product/core overview;
+- `private-mobile-access.png` — companion gateway and private mobile boundary;
+- `release-flow.png` — protected integration/release lifecycle.
+
+`docs/assets/visual-assets.json` must be reviewed on every version bump. Regenerate a diagram when the architecture it describes changes; otherwise explicitly confirm it remains current before updating the review marker.
 
 ## Release v0.4.0-beta.13
 
@@ -16,12 +32,14 @@ Use `lai release-pack --target 0.4.0-beta.13 --with-vsix --json` to generate loc
 
 **Title:** lai harness v0.4.0-beta.13 — remote capability profiles
 
-The GitHub Release body should come from generated `release-body.md` or [Release notes](RELEASE-NOTES.md). Mark the release as a pre-release while the project remains beta.
+The GitHub Release body should come from generated `release-body.md` or [Release notes](RELEASE-NOTES.md). Keep the release marked as a pre-release while the project remains beta.
 
-Before merge, ensure protected `main` requires `Python 3.11`, `Python 3.12`, `Publication gates`, and `Harness Score L4`.
+Before merge, protected `main` must require `Python 3.11`, `Python 3.12`, `Publication gates`, and `Harness Score L4`.
 
 After publication, run `lai release-governance --target 0.4.0-beta.13 --remote --json` to verify branch protection, pre-release metadata, and the VSIX digest when attached.
 
-## Non-goals
+## Publication hygiene
 
-Do not upload model weights, API keys, logs, audit state, metrics, local handoffs, recovery checkpoints, or generated safe workspaces.
+Do not upload model weights, API keys, control tokens, local logs, audit state, metrics, handoffs, recovery checkpoints, safe workspaces, or machine-specific operational state.
+
+Keep public claims consistent with [Security model](SECURITY-MODEL.md): local `bash` is not sandboxed; the current HTTP control profile is shell-free and write-free; `lai-gateway` is a separate companion project rather than part of the harness runtime.
