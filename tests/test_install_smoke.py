@@ -99,6 +99,16 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertIn("# lai run history", runs.stdout)
             self.assertIn("Recorded runs: 0", runs.stdout)
 
+            no_last = subprocess.run(
+                [str(bin_dir / "lai"), "run", "last"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(0, no_last.returncode)
+            self.assertIn("No runs recorded", no_last.stderr)
+
             with FakeLlamaServer() as server:
                 runtime_env = {
                     **install_env,

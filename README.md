@@ -83,6 +83,7 @@ lai config
 lai context "repair parser timeout"
 lai semantics
 lai runs
+lai run last
 lai recovery
 # if recovery reports a compatible interrupted run:
 lai resume

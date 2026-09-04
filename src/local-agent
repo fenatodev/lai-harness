@@ -12,7 +12,7 @@ import urllib.request
 import unicodedata
 from pathlib import Path
 
-VERSION = "0.4.0-alpha.17"
+VERSION = "0.4.0-alpha.18"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -82,7 +82,7 @@ SEMANTIC_CODE_CONTRACT = {
             "intent": "list and inspect recorded local runs without replaying actions or calling the model",
             "paths": ["src/local-agent", "docs/RUN-HISTORY.md", "docs/OBSERVABILITY.md"],
             "entrypoints": ["collect_run_history", "render_run_history_list", "render_run_history_show", "render_run_history_tail"],
-            "terms": ["run", "runs", "history", "session", "browser", "show", "tail", "audit", "metrics", "timeline"],
+            "terms": ["run", "runs", "history", "session", "browser", "show", "tail", "last", "failure", "validation", "audit", "metrics", "timeline"],
         },
         {
             "id": "extension-shell",
@@ -3420,12 +3420,20 @@ def empty_run_history_record(run_id):
         "tools": {},
         "policy": {},
         "validation_count": 0,
+        "validation_events": [],
         "modified_paths": [],
         "phases": [],
         "limits": [],
         "events": [],
         "checkpoint": None,
     }
+
+
+def compact_run_history_value(value, limit=180):
+    text = " ".join(str(value or "").replace("\n", " ").split())
+    if not text:
+        return "[none]"
+    return text[:limit]
 
 
 def update_run_history_time(run, ts):
@@ -3448,8 +3456,130 @@ def append_unique_run_history_path(run, path):
         run["modified_paths"].append(value)
 
 
+def run_history_validation_status(event):
+    result = compact_run_history_value(event.get("result"), limit=260).lower()
+
+    if result == "[none]":
+        return "unknown"
+
+    failure_markers = (
+        "traceback",
+        "failed",
+        "failure",
+        "error:",
+        "exit code 1",
+        "returned non-zero",
+        "syntaxerror",
+        "assertionerror",
+        "bug:",
+    )
+
+    if any(marker in result for marker in failure_markers):
+        return "fail"
+
+    pass_markers = (
+        "ok",
+        "passed",
+        "success",
+        "exit code 0",
+        "authentication: ok",
+        "all lai harness publication gates passed",
+    )
+
+    if result in {"ok", "pass", "success"}:
+        return "pass"
+
+    if any(marker in result for marker in pass_markers):
+        return "pass"
+
+    return "unknown"
+
+
+def run_history_validation_summary(event):
+    return {
+        "ts": event.get("ts"),
+        "command": compact_run_history_value(event.get("command"), limit=160),
+        "status": run_history_validation_status(event),
+        "result": compact_run_history_value(event.get("result"), limit=240),
+    }
+
+
+def run_history_sorted_events(run):
+    return sorted(
+        run.get("events") or [],
+        key=lambda event: (
+            str(event.get("ts") or ""),
+            int(event.get("_seq") or 0),
+            str(event.get("source") or ""),
+            str(event.get("type") or ""),
+        ),
+    )
+
+
+def run_history_last_failure(run):
+    successful_outcomes = {
+        "completed",
+        "complete",
+        "success",
+        "succeeded",
+        "final",
+    }
+
+    for event in reversed(run_history_sorted_events(run)):
+        kind = str(event.get("type") or "")
+
+        if kind == "validation" and run_history_validation_status(event) == "fail":
+            return {
+                "ts": event.get("ts"),
+                "type": "validation",
+                "status": "fail",
+                "command": compact_run_history_value(event.get("command"), limit=160),
+                "reason": compact_run_history_value(event.get("result"), limit=240),
+            }
+
+        if kind == "agent_limit":
+            return {
+                "ts": event.get("ts"),
+                "type": "agent_limit",
+                "reason": compact_run_history_value(event.get("reason"), limit=200),
+            }
+
+        if kind == "recovery_blocked":
+            reasons = event.get("reasons") or []
+            reason = "; ".join(str(item) for item in reasons) if reasons else event.get("reason")
+            return {
+                "ts": event.get("ts"),
+                "type": "recovery_blocked",
+                "reason": compact_run_history_value(reason, limit=240),
+            }
+
+        if kind == "run_outcome":
+            outcome = str(event.get("outcome") or "").strip()
+            if outcome and outcome not in successful_outcomes:
+                return {
+                    "ts": event.get("ts"),
+                    "type": "run_outcome",
+                    "outcome": outcome[:80],
+                    "reason": compact_run_history_value(event.get("reason"), limit=240),
+                }
+
+        if kind == "checkpoint":
+            phase = str(event.get("phase") or "").strip()
+            reason = event.get("reason")
+            if phase in {"failed", "blocked"} or reason:
+                return {
+                    "ts": event.get("ts"),
+                    "type": "checkpoint",
+                    "phase": phase[:80] or "[unknown]",
+                    "reason": compact_run_history_value(reason, limit=240),
+                }
+
+    return None
+
+
 def collect_run_history(max_lines=5000):
     runs = {}
+    sequence = 0
 
     def ensure_run(run_id):
         return runs.setdefault(
@@ -3472,6 +3602,8 @@ def collect_run_history(max_lines=5000):
 
             event_copy = dict(event)
             event_copy["source"] = source
+            event_copy["_seq"] = sequence
+            sequence += 1
 
             run = ensure_run(run_id)
             run["events"].append(event_copy)
@@ -3525,6 +3657,7 @@ def collect_run_history(max_lines=5000):
 
             elif source == "audit" and kind == "validation":
                 run["validation_count"] += 1
+                run["validation_events"].append(event_copy)
 
             elif source == "audit" and kind == "final":
                 if run["status"] not in {"completed", "failed"}:
@@ -3563,6 +3696,10 @@ def collect_run_history(max_lines=5000):
 
 
 def run_history_public_record(run):
+    validation_events = [
+        run_history_validation_summary(event)
+        for event in (run.get("validation_events") or [])[-20:]
+    ]
     return {
         "run_id": run["run_id"],
         "first_ts": run.get("first_ts"),
@@ -3574,6 +3711,9 @@ def run_history_public_record(run):
         "prompt_tokens": run.get("prompt_tokens", 0),
         "completion_tokens": run.get("completion_tokens", 0),
         "validation_count": run.get("validation_count", 0),
+        "validation_events": validation_events,
+        "last_validation": validation_events[-1] if validation_events else None,
+        "last_failure": run_history_last_failure(run),
         "modified_paths": run.get("modified_paths", []),
         "policy": run.get("policy", {}),
         "tools": run.get("tools", {}),
@@ -3622,11 +3762,14 @@ def render_run_history_list(limit=10, json_mode=False):
             f"{name}:{count}"
             for name, count in sorted(run["policy"].items())
         ) or "-"
+        failure = run_history_last_failure(run)
+        failure_text = "yes" if failure else "no"
         lines.append(
             f"- {run['run_id']} | "
             f"last={run.get('last_ts') or '[unknown]'} | "
             f"mode={run.get('mode') or 'unknown'} | "
             f"status={run.get('status') or 'unknown'} | "
+            f"failure={failure_text} | "
             f"api={run.get('api_calls', 0)} | "
             f"tools={run.get('tool_calls', 0)} [{tools}] | "
             f"validation={run.get('validation_count', 0)} | "
@@ -3635,24 +3778,72 @@ def render_run_history_list(limit=10, json_mode=False):
 
     lines.extend([
         "",
-        "Use `lai run show <run-id>` for a summary or `lai run tail <run-id>` for the event timeline.",
+        "Use `lai run last`, `lai run show <run-id|--last>`, or `lai run tail <run-id|--last>` for details.",
     ])
     return "\n".join(lines)
 
 
-def find_run_history_record(run_id):
+def find_run_history_record(run_id, runs=None):
     wanted = str(run_id or "").strip()
-    for run in collect_run_history():
+    for run in (runs if runs is not None else collect_run_history()):
         if run.get("run_id") == wanted:
             return run
     return None
 
 
-def render_run_history_show(run_id, json_mode=False):
-    run = find_run_history_record(run_id)
+def latest_run_history_record(runs=None):
+    records = runs if runs is not None else collect_run_history()
+    if not records:
+        return None
+    return records[-1]
 
+
+def resolve_run_history_record(selector):
+    records = collect_run_history()
+    wanted = str(selector or "").strip()
+
+    if wanted in {"--last", "last", "latest"}:
+        run = latest_run_history_record(records)
+        if run is None:
+            raise SystemExit("No runs recorded for this repository.")
+        return run
+
+    run = find_run_history_record(wanted, runs=records)
     if run is None:
-        raise SystemExit(f"Run not found for this repository: {run_id}")
+        raise SystemExit(f"Run not found for this repository: {selector}")
+    return run
+
+
+def render_run_history_failure(failure):
+    if not failure:
+        return "- [none]"
+
+    parts = [
+        "- " + str(failure.get("ts") or "[unknown]"),
+        "type=" + str(failure.get("type") or "unknown"),
+    ]
+    for key in ("status", "phase", "outcome", "command", "reason"):
+        if failure.get(key):
+            parts.append(key + "=" + compact_run_history_value(failure.get(key), limit=160))
+    return " | ".join(parts)
+
+
+def render_run_history_validation(event):
+    item = run_history_validation_summary(event)
+    return (
+        "- "
+        + str(item.get("ts") or "[unknown]")
+        + " | status="
+        + str(item.get("status") or "unknown")
+        + " | command="
+        + str(item.get("command") or "[none]")
+        + " | result="
+        + str(item.get("result") or "[none]")
+    )
+
+
+def render_run_history_show(run_id, json_mode=False):
+    run = resolve_run_history_record(run_id)
 
     if json_mode:
         return json.dumps(
@@ -3660,6 +3851,7 @@ def render_run_history_show(run_id, json_mode=False):
                 "product": PRODUCT_NAME,
                 "version": VERSION,
                 "repository": str(ROOT),
+                "selector": str(run_id),
                 "run": run_history_public_record(run),
             },
             ensure_ascii=False,
@@ -3677,6 +3869,9 @@ def render_run_history_show(run_id, json_mode=False):
         f"Last event: {run.get('last_ts') or '[unknown]'}",
         f"Mode: {run.get('mode') or 'unknown'}",
         f"Status: {run.get('status') or 'unknown'}",
+        "",
+        "## Last failure or stop reason",
+        render_run_history_failure(run_history_last_failure(run)),
         "",
         "## Counters",
         f"api_calls: {run.get('api_calls', 0)}",
@@ -3700,6 +3895,14 @@ def render_run_history_show(run_id, json_mode=False):
     if run["policy"]:
         for decision, count in sorted(run["policy"].items()):
             lines.append(f"- {decision}: {count}")
+    else:
+        lines.append("- [none]")
+
+    lines.append("")
+    lines.append("## Validation timeline")
+    if run.get("validation_events"):
+        for event in run["validation_events"][-12:]:
+            lines.append(render_run_history_validation(event))
     else:
         lines.append("- [none]")
 
@@ -3748,10 +3951,14 @@ def render_run_history_event(event):
         parts.append("tool=" + str(event.get("tool"))[:80])
     if event.get("decision"):
         parts.append("decision=" + str(event.get("decision"))[:40])
+    if event.get("command"):
+        parts.append("command=" + compact_run_history_value(event.get("command"), limit=120))
     if event.get("phase"):
         parts.append("phase=" + str(event.get("phase"))[:80])
     if event.get("outcome"):
         parts.append("outcome=" + str(event.get("outcome"))[:80])
+    if kind == "validation":
+        parts.append("status=" + run_history_validation_status(event))
     if event.get("reason"):
         parts.append("reason=" + str(event.get("reason"))[:140])
 
@@ -3759,19 +3966,8 @@ def render_run_history_event(event):
 
 
 def render_run_history_tail(run_id, limit=20, json_mode=False):
-    run = find_run_history_record(run_id)
-
-    if run is None:
-        raise SystemExit(f"Run not found for this repository: {run_id}")
-
-    events = sorted(
-        run.get("events") or [],
-        key=lambda event: (
-            str(event.get("ts") or ""),
-            str(event.get("source") or ""),
-            str(event.get("type") or ""),
-        ),
-    )[-limit:]
+    run = resolve_run_history_record(run_id)
+    events = run_history_sorted_events(run)[-limit:]
 
     if json_mode:
         return json.dumps(
@@ -3779,7 +3975,8 @@ def render_run_history_tail(run_id, limit=20, json_mode=False):
                 "product": PRODUCT_NAME,
                 "version": VERSION,
                 "repository": str(ROOT),
-                "run_id": run_id,
+                "selector": str(run_id),
+                "run_id": run["run_id"],
                 "events": events,
             },
             ensure_ascii=False,
@@ -3791,7 +3988,7 @@ def render_run_history_tail(run_id, limit=20, json_mode=False):
         "# lai run tail",
         "",
         f"Repository: {ROOT}",
-        f"Run ID: {run_id}",
+        f"Run ID: {run['run_id']}",
         f"Events shown: {len(events)}",
         "",
         "## Events",
@@ -3832,20 +4029,25 @@ def handle_run_history(args):
         print(render_run_history_list(limit=limit, json_mode=json_mode))
         return
 
+    if command == "last":
+        print(render_run_history_show("--last", json_mode=json_mode))
+        return
+
     if command == "show":
         if len(raw) < 2:
-            raise SystemExit("Usage: lai run show <run-id>")
+            raise SystemExit("Usage: lai run show <run-id|--last>")
         print(render_run_history_show(raw[1], json_mode=json_mode))
         return
 
     if command == "tail":
         if len(raw) < 2:
-            raise SystemExit("Usage: lai run tail <run-id> [--limit N]")
+            raise SystemExit("Usage: lai run tail <run-id|--last> [--limit N]")
         limit = parse_run_history_limit(raw, default=20)
         print(render_run_history_tail(raw[1], limit=limit, json_mode=json_mode))
         return
 
-    raise SystemExit("Usage: lai runs [--limit N] | lai run show <run-id> | lai run tail <run-id> [--limit N]")
+    raise SystemExit("Usage: lai runs [--limit N] | lai run last | lai run show <run-id|--last> | lai run tail <run-id|--last> [--limit N]")
+
 
 def run_tool(name, args):
     print(

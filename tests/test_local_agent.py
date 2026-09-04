@@ -469,6 +469,23 @@ class LocalAgentTest(unittest.TestCase):
                 "name": "bash",
                 "duration_ms": 300,
             },
+            {
+                "ts": "2026-09-04T08:01:00Z",
+                "run_id": "run-2",
+                "repo": repo,
+                "mode": "fix",
+                "type": "run_start",
+                "task_chars": 20,
+            },
+            {
+                "ts": "2026-09-04T08:01:01Z",
+                "run_id": "run-2",
+                "repo": repo,
+                "mode": "fix",
+                "type": "tool",
+                "name": "patch",
+                "duration_ms": 600,
+            },
         ]
         audit_events = [
             {
@@ -499,6 +516,34 @@ class LocalAgentTest(unittest.TestCase):
                 "phase": "completed",
                 "terminal": True,
             },
+            {
+                "ts": "2026-09-04T08:01:02Z",
+                "run_id": "run-2",
+                "repo": repo,
+                "mode": "fix",
+                "type": "patch",
+                "paths": ["src/app.py"],
+                "result": "OK: patched src/app.py",
+            },
+            {
+                "ts": "2026-09-04T08:01:03Z",
+                "run_id": "run-2",
+                "repo": repo,
+                "mode": "fix",
+                "type": "validation",
+                "command": "python3 -m pytest -q",
+                "result": "FAILED: assertion error in test_app",
+            },
+            {
+                "ts": "2026-09-04T08:01:04Z",
+                "run_id": "run-2",
+                "repo": repo,
+                "mode": "fix",
+                "type": "checkpoint",
+                "phase": "failed",
+                "reason": "SystemExit:1",
+                "terminal": True,
+            },
         ]
         (metrics_dir / "events.jsonl").write_text(
             "\n".join(json.dumps(item) for item in metric_events) + "\n"
@@ -518,8 +563,10 @@ class LocalAgentTest(unittest.TestCase):
         )
         self.assertIn("# lai run history", listed.stdout)
         self.assertIn("run-1", listed.stdout)
+        self.assertIn("run-2", listed.stdout)
         self.assertIn("mode=implement", listed.stdout)
         self.assertIn("tools=1", listed.stdout)
+        self.assertIn("failure=yes", listed.stdout)
         self.assertIn("policy=[ASK:1]", listed.stdout)
 
         shown = subprocess.run(
@@ -535,9 +582,38 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("api_calls: 1", shown.stdout)
         self.assertIn("- bash: 1", shown.stdout)
         self.assertIn("- ASK: 1", shown.stdout)
+        self.assertIn("## Validation timeline", shown.stdout)
+        self.assertIn("status=pass", shown.stdout)
+
+        latest = subprocess.run(
+            [str(SOURCE), "--run", "last"],
+            cwd=self.root,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        self.assertIn("Run ID: run-2", latest.stdout)
+        self.assertIn("## Last failure or stop reason", latest.stdout)
+        self.assertIn("type=checkpoint", latest.stdout)
+        self.assertIn("src/app.py", latest.stdout)
+        self.assertIn("status=fail", latest.stdout)
+
+        shown_last = subprocess.run(
+            [str(SOURCE), "--run", "show", "--last", "--json"],
+            cwd=self.root,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        last_payload = json.loads(shown_last.stdout)
+        self.assertEqual(last_payload["run"]["run_id"], "run-2")
+        self.assertEqual(last_payload["run"]["last_validation"]["status"], "fail")
+        self.assertEqual(last_payload["run"]["last_failure"]["type"], "checkpoint")
 
         tailed = subprocess.run(
-            [str(SOURCE), "--run", "tail", "run-1", "--limit", "2"],
+            [str(SOURCE), "--run", "tail", "--last", "--limit", "2"],
             cwd=self.root,
             env=env,
             text=True,
@@ -545,6 +621,7 @@ class LocalAgentTest(unittest.TestCase):
             check=True,
         )
         self.assertIn("# lai run tail", tailed.stdout)
+        self.assertIn("Run ID: run-2", tailed.stdout)
         self.assertIn("audit:validation", tailed.stdout)
         self.assertIn("audit:checkpoint", tailed.stdout)
 
@@ -557,8 +634,10 @@ class LocalAgentTest(unittest.TestCase):
             check=True,
         )
         payload = json.loads(raw.stdout)
-        self.assertEqual(payload["version"], "0.4.0-alpha.17")
+        self.assertEqual(payload["version"], "0.4.0-alpha.18")
         self.assertEqual(payload["runs"][0]["run_id"], "run-1")
+        self.assertEqual(payload["runs"][1]["run_id"], "run-2")
+        self.assertIsNotNone(payload["runs"][1]["last_failure"])
 
         missing = subprocess.run(
             [str(SOURCE), "--run", "show", "missing-run"],
@@ -569,6 +648,18 @@ class LocalAgentTest(unittest.TestCase):
         )
         self.assertNotEqual(missing.returncode, 0)
         self.assertIn("Run not found", missing.stderr)
+
+        empty_data = self.base / "empty-data"
+        empty_env = {**os.environ, "LAI_DATA_DIR": str(empty_data)}
+        empty_last = subprocess.run(
+            [str(SOURCE), "--run", "last"],
+            cwd=self.root,
+            env=empty_env,
+            text=True,
+            capture_output=True,
+        )
+        self.assertNotEqual(empty_last.returncode, 0)
+        self.assertIn("No runs recorded", empty_last.stderr)
 
     def test_tool_signature_is_canonical_and_includes_tool_name(self):
         first = agent.canonical_tool_signature(
@@ -1364,7 +1455,7 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "lai harness 0.4.0-alpha.17")
+        self.assertEqual(result.stdout.strip(), "lai harness 0.4.0-alpha.18")
 
     def test_deterministic_model_eval_plan_needs_no_server(self):
         result = subprocess.run(
@@ -1415,7 +1506,7 @@ class LocalAgentTest(unittest.TestCase):
         )
         payload = json.loads(result.stdout)
         self.assertEqual(payload["product"], "lai harness")
-        self.assertEqual(payload["version"], "0.4.0-alpha.17")
+        self.assertEqual(payload["version"], "0.4.0-alpha.18")
         scenario_ids = {item["id"] for item in payload["scenarios"]}
         self.assertIn("context-ranking", scenario_ids)
 

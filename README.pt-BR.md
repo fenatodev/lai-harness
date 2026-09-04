@@ -51,6 +51,7 @@ lai model sample > model-eval/results.jsonl
 lai model score model-eval/results.jsonl
 lai semantics
 lai runs
+lai run last
 ```
 
 ## Segurança

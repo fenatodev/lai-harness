@@ -3,7 +3,7 @@
 ## Near term
 
 - Extend semantic code contracts as subsystems split out of `src/local-agent`.
-- Add run-history browsing before broader tool-loop/session UX work.
+- Polish run-history detail views before broader tool-loop/session UX work.
 - Extend the model-evaluation harness with automated run capture and hardware profiles.
 - Harden the `ALLOW` / `ASK` / `DENY` policy with structured commands or a stronger execution boundary.
 - Add configuration validation and a non-WSL server workflow.
