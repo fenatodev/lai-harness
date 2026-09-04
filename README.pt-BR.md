@@ -63,11 +63,11 @@ lai run export --last
 lai readiness
 lai policy-check --tool bash --command "git status --short" --json
 make harness-score-gate
-lai release-check --target 0.4.0-beta.9 --json
-lai release-pack --target 0.4.0-beta.9 --with-vsix --json
-lai release-governance --target 0.4.0-beta.9 --remote --json
-lai project-handoff --target 0.4.0-beta.9 --json
-lai release "verifique se beta.9 está pronto"
+lai release-check --target 0.4.0-beta.10 --json
+lai release-pack --target 0.4.0-beta.10 --with-vsix --json
+lai release-governance --target 0.4.0-beta.10 --remote --json
+lai project-handoff --target 0.4.0-beta.10 --remote --json
+lai release "verifique se beta.10 está pronto"
 ```
 
 ## Segurança

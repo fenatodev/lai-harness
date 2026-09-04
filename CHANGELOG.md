@@ -1,3 +1,19 @@
+## [0.4.0-beta.10] - 2026-09-04
+
+### Added
+- Added opt-in remote project handoff with separate local/offline and remote governance evidence.
+- Added tag-target and `origin/main` integration evidence to deterministic release-check output.
+
+### Changed
+- Feature-branch release candidates now report `ready_for_integration`; `ready_to_tag` is reserved for synchronized `main`.
+- Expected release tags that point to another commit now block release-check.
+- Remote handoff uses verified GitHub governance as the effective status while retaining offline status for auditability.
+
+### Safety
+- Default handoff remains offline and model-free; remote handoff performs GitHub GET requests only.
+- Offline release-check does not claim to prove GitHub CI completion; protected CI remains a separate release gate.
+
+
 ## [0.4.0-beta.9] - 2026-09-04
 
 ### Added

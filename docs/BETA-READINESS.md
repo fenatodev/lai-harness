@@ -1,28 +1,28 @@
 # lai beta readiness
 
-This document records the release posture for `0.4.0-beta.9`. It is a development-harness hardening cut: model-assisted product behavior stays stable while deterministic repository feedback closes the Harness Score L4 loop.
+This document records the release posture for `0.4.0-beta.10`. It is a release-state convergence cut: model-assisted product behavior stays stable while local tag readiness and optional remote handoff evidence become consistent.
 
 ## Scope
 
-`0.4.0-beta.9` adds:
+`0.4.0-beta.10` adds:
 
-- deterministic, model-free `lai policy-check` with `executed: false` evidence;
-- a policy-backed `beforeShellExecution` gate that maps `ALLOW` / `ASK` / `DENY` and fails closed;
-- a repository-confined, best-effort `afterFileEdit` feedback hook;
-- stronger `DENY` coverage for force push, hard reset, npm publication, and recursive forced PowerShell deletion;
-- an explicit `verify-change` workflow;
-- a dedicated Harness Score workflow gated at L4;
-- remote release governance that also requires `Harness Score L4` on protected `main`.
+- `lai project-handoff --remote` / `lai next-chat --remote` for opt-in live GitHub verification inside the handoff;
+- separate local/offline and remote governance evidence in handoff JSON and Markdown;
+- remote branch-protection, GitHub Release and VSIX digest evidence in the handoff without exposing credentials;
+- `release-check` tag-target verification independent of the current HEAD tag description;
+- `ready_for_integration` for clean feature-branch candidates;
+- `ready_to_tag` only for clean synchronized `main` where `HEAD == origin/main` and the expected tag does not already point elsewhere;
+- blocking behavior for divergent `main`, unavailable `origin/main`, or an expected tag that peels to another commit.
 
-The measured repository maturity is L4 Self-correcting, 93/108 (86%), using Harness Score 1.6.3.
+Harness Score remains gated at **L4 Self-correcting, 93/108 (86%)** using Harness Score 1.6.3.
 
 ## Required feature-branch gate
 
 ```bash
 lai readiness
-lai policy-check --tool bash --command 'git status --short' --json
-lai release-check --target 0.4.0-beta.9 --json
-lai release-pack --target 0.4.0-beta.9 --with-vsix --json
+lai release-check --target 0.4.0-beta.10 --json
+lai release-pack --target 0.4.0-beta.10 --with-vsix --json
+lai project-handoff --target 0.4.0-beta.10 --json
 make lint
 make check
 make test-dev
@@ -33,30 +33,37 @@ make validate
 lai version
 ```
 
-Before merge, the beta.9 tag and GitHub Release are intentionally absent. The PR must run both product CI and `Harness Score L4` successfully.
+Expected before merge: a clean feature branch reports `release-check.phase=ready_for_integration`, never `ready_to_tag`.
 
 ## Protected-main integration
 
-After the first beta.9 PR exposes the new check, add `Harness Score L4` to the required status checks for `main`. Do not merge until all four required checks are green and the branch is up to date.
+1. Push `feature/v0.4.0-beta.10-release-state-convergence`.
+2. Open a PR into protected `main`.
+3. Require `Python 3.11`, `Python 3.12`, `Publication gates`, and `Harness Score L4`, with the PR up to date.
+4. Merge through GitHub without bypassing protection.
+5. Fast-forward local `main` to `origin/main`.
+6. Wait for merged-main CI and Harness Score L4 to succeed.
+7. Run `lai release-check --target 0.4.0-beta.10 --json`; only then may the phase be `ready_to_tag`.
 
-After merge, sync local `main`, verify main CI, tag the merged commit as `v0.4.0-beta.9`, push only the tag, verify tag CI, and then create the GitHub pre-release.
+After the tag is pushed, wait for tag CI before creating the GitHub pre-release.
 
 Final verification:
 
 ```bash
-lai release-check --target 0.4.0-beta.9 --json
-lai release-governance --target 0.4.0-beta.9 --remote --json
+lai release-check --target 0.4.0-beta.10 --json
+lai release-governance --target 0.4.0-beta.10 --remote --json
+lai project-handoff --target 0.4.0-beta.10 --remote --json
 ```
 
-Expected final posture: `release-check.phase=released`, remote branch protection `ok`, GitHub Release `ok`, VSIX digest matching when attached, and no remaining `manual_actions`.
+Expected final posture: `release-check.phase=released`, remote governance `ready`, branch protection `ok`, GitHub Release `ok`, VSIX digest matching when attached, and no remaining `manual_actions` in the remote handoff.
 
 ## Non-goals
 
-This cut does not add autonomous GitHub administration, a fake subagent, MCP merely for scoring, a type checker without a typing plan, automatic dependency installation, model downloading, or a stronger OS sandbox.
+This cut does not add autonomous GitHub administration, network-dependent default commands, subagents, MCP, type checking, dependency locking, model downloading, or a stronger OS sandbox.
 
 ## Remaining beta risks
 
+- Offline `release-check` proves local Git integration state, not GitHub Actions completion; CI remains a separate protected gate.
 - Allowed `bash` still executes with the user's OS permissions; hooks and policy are guards, not containment.
 - Model-assisted modes remain constrained by the configured local model.
-- VS Code/Cursor integration behavior can vary by host version; CI remains authoritative.
 - Signed releases and provenance attestations are not yet implemented.

@@ -30,7 +30,7 @@ local-agent (Python standard library)
                   user-supplied GGUF
 ```
 
-See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow, [Development harness](docs/DEVELOPMENT-HARNESS.md) for the repository feedback loop, [Branding](docs/BRANDING.md) for naming rules, [Semantic code contracts](docs/SEMANTIC-CODE-CONTRACTS.md) for subsystem navigation metadata, and [Beta readiness](docs/BETA-READINESS.md) for the beta.9 release posture.
+See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow, [Development harness](docs/DEVELOPMENT-HARNESS.md) for the repository feedback loop, [Branding](docs/BRANDING.md) for naming rules, [Semantic code contracts](docs/SEMANTIC-CODE-CONTRACTS.md) for subsystem navigation metadata, and [Beta readiness](docs/BETA-READINESS.md) for the beta.10 release posture.
 
 ## Features
 
@@ -82,7 +82,7 @@ Configure `~/.config/lai/config.toml`, `LAI_*` environment variables, or leading
 @lai /debug reproduce why the timeout becomes NaN
 @lai /diagnose explain why the CI is failing
 @lai /ci-fix repair the failing publication gate
-@lai /release verify whether beta.9 is ready
+@lai /release verify whether beta.10 is ready
 @lai /implement add the requested test and minimal fix
 @lai /review review my current Git changes
 @lai /audit
@@ -95,10 +95,10 @@ lai run last
 lai readiness
 lai policy-check --tool bash --command "git status --short" --json
 make harness-score-gate
-lai release-check --target 0.4.0-beta.9 --json
-lai release-pack --target 0.4.0-beta.9 --with-vsix --json
-lai release-governance --target 0.4.0-beta.9 --remote --json
-lai project-handoff --target 0.4.0-beta.9 --json
+lai release-check --target 0.4.0-beta.10 --json
+lai release-pack --target 0.4.0-beta.10 --with-vsix --json
+lai release-governance --target 0.4.0-beta.10 --remote --json
+lai project-handoff --target 0.4.0-beta.10 --remote --json
 lai recovery
 # if recovery reports a compatible interrupted run:
 lai resume
