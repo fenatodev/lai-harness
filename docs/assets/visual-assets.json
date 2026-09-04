@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "reviewed_for_version": "0.4.0-beta.13",
+  "assets": [
+    {
+      "path": "core-architecture.png",
+      "purpose": "README and core architecture overview"
+    },
+    {
+      "path": "private-mobile-access.png",
+      "purpose": "local control plane and private mobile access"
+    },
+    {
+      "path": "release-flow.png",
+      "purpose": "protected release governance flow"
+    }
+  ]
+}

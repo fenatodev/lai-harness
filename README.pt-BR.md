@@ -1,106 +1,163 @@
 # lai harness
 
-**Um harness de programação compacto e auditável para LLMs locais.**
+<p align="center">
+  <strong>Harness de programação local-first para LLMs pequenos.</strong><br>
+  Ferramentas compactas, policy determinística, gates de evidência, auditoria e governança de release ao redor da inferência local.
+</p>
 
-Modelos locais pequenos se tornam muito mais úteis quando a arquitetura do agente é otimizada ao redor deles. O lai harness é um harness experimental para VS Code, construído para reduzir contexto desnecessário, schemas de ferramentas e rodadas repetidas de inferência.
+<p align="center">
+  <a href="https://github.com/fenatodev/lai-harness/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/fenatodev/lai-harness/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/fenatodev/lai-harness/releases"><img alt="Release" src="https://img.shields.io/github/v/release/fenatodev/lai-harness?include_prereleases&label=release"></a>
+  <img alt="Harness Score" src="https://img.shields.io/badge/Harness%20Score-L4%20%C2%B7%2093%2F108-2563eb">
+  <a href="LICENSE"><img alt="Licença" src="https://img.shields.io/badge/license-MIT-0f766e"></a>
+</p>
 
-Ele complementa agentes cloud de alto contexto: o lai harness atende ciclos locais rápidos e delimitados; outro agente pode assumir trabalhos amplos usando o handoff persistente.
+> **Release atual:** `v0.4.0-beta.13` · beta experimental · fluxo Linux/WSL-first · inferência local por endpoint OpenAI-compatible, desenvolvido com llama.cpp.
 
-## Destaques
+O lai harness foi criado para um problema específico: modelos locais pequenos perdem muita capacidade quando precisam carregar prompts gigantes, schemas genéricos e muitas rodadas de ferramentas. O projeto reduz esse overhead e coloca ao redor do modelo regras que não dependem da própria resposta do modelo: policy, specs, validação, auditoria, checkpoints e release protegido.
+
+Ele complementa agentes cloud de alto contexto. O trabalho local fica rápido e delimitado; quando necessário, `project-handoff` entrega contexto compacto e verificável para outra sessão ou outro agente.
+
+## Estado do projeto
+
+| Área | Estado atual |
+| --- | --- |
+| Versão | `0.4.0-beta.13` |
+| Maturidade do harness | L4 · Self-correcting · 93/108 (86%) |
+| Runtime | Python stdlib; sem dependências Python no harness |
+| Interfaces | CLI (`lai`) + extensão VS Code |
+| Modelo local | HTTP OpenAI-compatible; desenvolvido com llama.cpp + GGUF do usuário |
+| Controle remoto | Control plane autenticado em loopback, sem shell/escrita remotos |
+| Release | `main` protegida, CI obrigatório, tag anotada, tag CI e verificação de digest |
+
+Harness Score é usado como ratchet externo de maturidade do repositório, não como certificação de segurança.
+
+## Arquitetura
+
+![Arquitetura central do lai harness](docs/assets/core-architecture.png)
+
+Princípios centrais:
+
+- **menos overhead para o modelo:** ferramentas específicas por modo, contexto limitado, inspeção em lote e mapa semântico;
+- **segurança determinística quando possível:** `ALLOW` / `ASK` / `DENY`, hooks, guards de branch e perfis remotos explícitos;
+- **falhas viram evidência:** validação, acceptance/sanity gates, readiness, métricas, histórico de runs e auditoria;
+- **release faz parte do harness:** feature branch, PR, CI, `ready_to_tag`, tag CI, artefato congelado, digest e handoff remoto.
+
+Leia [Architecture](docs/ARCHITECTURE.md), [Development harness](docs/DEVELOPMENT-HARNESS.md) e [Security model](docs/SECURITY-MODEL.md).
+
+## Principais capacidades
 
 - ferramentas compactas e específicas por modo;
-- inspeção e patch em lote;
-- guards de validação e aceitação;
-- debug, review e security baseados em evidência;
-- sanity check após patches;
-- métricas, auditoria forense e contexto por workspace;
-- cliente Python sem dependências externas;
-- identidade pública padronizada como lai harness, mantendo o comando `lai`;
-- avaliação determinística de modelos locais com `lai model` antes de trocar o default;
-- mapa semântico determinístico com `lai semantics` para orientar modelos pequenos pelos subsistemas;
-- histórico determinístico de execuções com `lai runs`, `lai run show` e exportação sanitizada com `lai run export`;
-- verificação operacional com `lai readiness`;
-- control plane local autenticado com `lai serve`, limitado a loopback, com runs assíncronos serializados de `plan`/`review`/`security`/`diagnose`/`release` sob perfis remotos explícitos sem shell e sem execução HTTP de shell/escrita;
-- `lai policy-check` determinístico para classificar ações sem executá-las e reutilizar a mesma policy nos hooks do repositório;
-- hooks de desenvolvimento com gate L4 do Harness Score separado do CI do produto;
-- skills focadas `diagnose`, `ci-fix` e `release`, além de gates de preflight, para operar o beta com menos risco.
+- `inspect` multi-arquivo e `patch` transacional;
+- confinement de paths e checks explícitos de symlink para mutações;
+- policy centralizada e `lai policy-check` determinístico;
+- `.specs/` com requisitos `REQ-NNN` e inspeção por `lai spec`;
+- contexto semântico, handoff persistente, checkpoints e resume com detecção de drift;
+- métricas JSONL, auditoria forense, histórico/export de runs e `lai readiness`;
+- avaliação determinística de modelos locais com `lai model`;
+- control plane `lai serve` autenticado e limitado a loopback;
+- runs assíncronos remotos `plan` / `review` / `security` / `diagnose` / `release` sob perfil sem shell e sem escrita;
+- `release-check`, `release-pack`, `release-governance` e `project-handoff` determinísticos;
+- CI protegido e ratchet L4 do Harness Score separado do runtime do produto.
 
 ## Início rápido
 
-Você precisa de Python 3.11+, Git, ripgrep, VS Code compatível e um servidor `llama.cpp` autenticado com API OpenAI-compatible.
+Requisitos: Python 3.11+, Git, ripgrep, VS Code compatível e um endpoint local OpenAI-compatible autenticado.
 
 ```bash
 git clone https://github.com/fenatodev/lai-harness.git
 cd lai-harness
 ./scripts/install-local.sh
+
 mkdir -p ~/.config/lai
 umask 077
-printf '%s' 'substitua-por-uma-chave-local-aleatoria' > ~/.config/lai/llama-api-key
+python3 -c 'import secrets; print(secrets.token_urlsafe(32), end="")' \
+  > ~/.config/lai/llama-api-key
+
+lai doctor
+lai readiness
+lai config
 ```
 
-Configure `LAI_HOST`, `LAI_PORT` e `LAI_MODEL`, instale a extensão a partir do código e use, por exemplo:
+No VS Code, alguns exemplos:
 
 ```text
 @lai /plan planeje um teste de regressão focado
-@lai /debug reproduza e rastreie o valor incorreto
-@lai /diagnose diagnostique por que o CI falhou
-@lai /ci-fix corrija a falha de validação
-@lai /release verifique se a versão está pronta
-@lai /implement implemente a mudança e valide
+@lai /diagnose explique por que o CI está falhando
+@lai /implement implemente a mudança mínima e valide
 @lai /review revise minhas alterações Git atuais
-@lai /handoff contexto para continuar no Codex
 ```
 
-Para comparar modelos locais sem trocar o default no escuro:
+Leia [Installation](docs/INSTALLATION.md) e [Quick start](docs/QUICKSTART.md) antes de usar modos que escrevem arquivos.
+
+## Controle local e acesso móvel privado
+
+O `lai serve` cria uma fronteira HTTP autenticada somente em loopback para runs assíncronos sem shell/escrita. Ele não expõe shell genérico, mutação Git, publicação de release ou a porta do llama.cpp diretamente.
 
 ```bash
-lai model plan
-lai model sample > model-eval/results.jsonl
-lai model score model-eval/results.jsonl
-lai semantics
-lai runs
-lai run last
-lai run export --last
-lai readiness
-lai policy-check --tool bash --command "git status --short" --json
-lai control-token status --json
-# após `lai control-token init` uma vez:
+lai control-token init
 lai serve --bind 127.0.0.1 --port 8765
-make harness-score-gate
+```
+
+![Arquitetura de acesso móvel privado](docs/assets/private-mobile-access.png)
+
+O `lai-gateway` mostrado acima é um **projeto companion separado**. Ele não faz parte da distribuição deste repositório. A função dele é oferecer PWA/Telegram privados mantendo o bearer token no PC e o control plane do harness em loopback.
+
+## Release protegido e verificável
+
+![Fluxo protegido de release do LAI](docs/assets/release-flow.png)
+
+O fluxo exige:
+
+1. feature branch + validação local;
+2. PR com checks obrigatórios;
+3. `main` limpa/sincronizada e `release-check=ready_to_tag`;
+4. tag anotada apontando exatamente para a `main` validada;
+5. tag CI + publication gates;
+6. publicação do VSIX/release pack congelado;
+7. verificação remota de branch protection, Release e digest;
+8. handoff convergente sem ações manuais pendentes.
+
+```bash
 lai release-check --target 0.4.0-beta.13 --json
 lai release-pack --target 0.4.0-beta.13 --with-vsix --json
 lai release-governance --target 0.4.0-beta.13 --remote --json
 lai project-handoff --target 0.4.0-beta.13 --remote --json
-lai release "verifique se beta.13 está pronto"
 ```
 
 ## Segurança
 
-O lai harness **não é uma sandbox**. As ferramentas de arquivo ficam confinadas à raiz do repositório e a ferramenta Git dedicada é somente leitura. `bash` cruza a policy determinística `ALLOW` / `ASK` / `DENY`, mas comandos permitidos ainda executam com as permissões do usuário e nenhuma inspeção de comando substitui isolamento do SO. Use uma conta de menor privilégio, mantenha backups e revise os diffs.
+O lai harness **não é uma sandbox**. As ferramentas de arquivo ficam confinadas à raiz do repositório e a inspeção Git dedicada é somente leitura, mas `bash` local permitido ainda executa com as permissões do usuário. A policy governa ações; ela não substitui isolamento do sistema operacional.
 
-Chaves, modelos, logs, estados, métricas, auditoria e handoffs reais não devem ser publicados. Leia [SECURITY-MODEL.md](docs/SECURITY-MODEL.md).
+O controle remoto é mais estreito por design: os filhos do control plane recebem perfis sem shell/escrita antes que os schemas cheguem ao modelo.
 
-## Resultados experimentais
+Use modos de escrita somente em workspaces confiáveis, com backup ou descartáveis, sob conta de menor privilégio. Nunca publique chaves, tokens de controle, estados, métricas, auditoria, modelos ou handoffs reais.
 
-As medições documentadas vieram de uma máquina e fixtures específicas. Elas mostram a evolução do experimento, não prometem desempenho universal. Consulte [BENCHMARKS.md](docs/BENCHMARKS.md).
+## Limitações atuais
 
-O código original do LAI usa MIT. VS Code, llama.cpp, modelos, GGUF e templates permanecem sob termos próprios e não são redistribuídos. Consulte [THIRD_PARTY.md](THIRD_PARTY.md).
+- fluxo Linux/WSL-first;
+- comportamento depende fortemente do modelo/prompt;
+- modelos locais podem produzir afirmações incorretas e precisam de grounding/validação;
+- policy de `bash` não é containment;
+- ainda não há instalador automático de modelo nem extensão no Marketplace;
+- escrita/aprovação remota continua deliberadamente fora do control plane atual.
 
-A documentação técnica principal está em inglês no diretório [`docs/`](docs/), incluindo [Development harness](docs/DEVELOPMENT-HARNESS.md), [Local control plane](docs/CONTROL-PLANE.md) e [Beta readiness](docs/BETA-READINESS.md).
+## Documentação visual
 
-Use `lai release-pack` and see [Release pack](docs/RELEASE-PACK.md) before manual publication. See [Protected branch write guard](docs/PROTECTED-BRANCH-WRITES.md) before running write-capable modes on release-sensitive branches.
+Os diagramas são apoio de documentação; código, testes, policy e security model são a fonte autoritativa. `docs/assets/visual-assets.json` registra a versão do LAI em que os visuais foram revisados, e o CI exige que esse marker acompanhe a versão do produto. Assim, toda nova versão força revisão explícita das arquiteturas.
 
-### Workspace seguro para dogfood
+## Documentação e histórico
 
-Use uma cópia descartável ao testar modos que escrevem arquivos sem tocar na `main`:
+- [Roadmap](ROADMAP.md)
+- [Changelog](CHANGELOG.md)
+- [Beta readiness](docs/BETA-READINESS.md)
+- [Release governance](docs/RELEASE-GOVERNANCE.md)
+- [Development journey](docs/DEVELOPMENT-JOURNEY.md)
+- [Safe workspaces](docs/SAFE-WORKSPACES.md)
+- [Project handoff](docs/PROJECT-HANDOFF.md)
 
-```bash
-lai workspace create --name smoke
-cd /tmp/lai-harness-workspaces/smoke
-lai implement "faça uma alteração pequena e valide"
-git diff
-```
+O código original do LAI usa [MIT](LICENSE). VS Code, llama.cpp, modelos, GGUF e templates permanecem sob termos próprios e não são redistribuídos. Veja [Third-party software](THIRD_PARTY.md).
 
-Veja [Safe workspaces](docs/SAFE-WORKSPACES.md).
+---
 
-Leia também [Project handoff](docs/PROJECT-HANDOFF.md) antes de migrar para outro chat.
+<p align="center"><strong>IA local. Governada. Reprodutível. Auditável.</strong></p>

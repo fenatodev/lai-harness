@@ -2,6 +2,8 @@
 
 `lai release-governance` summarizes local release posture. `--remote` additionally verifies the GitHub state with read-only API requests.
 
+![LAI protected release flow](assets/release-flow.png)
+
 ```bash
 lai release-governance
 lai release-governance --json

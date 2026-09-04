@@ -20,6 +20,14 @@ make validate
 
 Expected: version/target aligned, validation and VSIX inspection green, Harness Score L4 satisfied, and a clean tree after the release commit.
 
+## Visual documentation review
+
+Every product version bump must review `docs/assets/visual-assets.json`. Its `reviewed_for_version` must equal the runtime version or CI fails.
+
+- If core architecture, mobile/control boundaries, or release flow changed, regenerate the affected diagrams and review their labels against current code/docs.
+- If architecture did not change, update the marker only after explicitly confirming the existing diagrams remain accurate.
+- Treat diagrams as explanatory artifacts; security claims must still be supported by tests and `docs/SECURITY-MODEL.md`.
+
 ## Protected-main integration
 
 1. Push `feature/v0.4.0-beta.13-remote-capability-profiles`.
