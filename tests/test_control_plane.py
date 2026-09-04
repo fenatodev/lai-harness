@@ -263,6 +263,20 @@ class ControlPlaneTest(unittest.TestCase):
             self.assertEqual(status, 400)
             self.assertEqual(payload["error"]["code"], "invalid_run_request")
 
+    def test_source_tree_control_child_uses_checked_in_skills_without_overriding_explicit_config(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            env = agent.control_run_child_env()
+        self.assertEqual(
+            env.get("LAI_SKILLS_DIR"),
+            str(SOURCE.resolve().parent.parent / "skills"),
+        )
+        self.assertEqual(env.get(agent.CONTROL_RUN_CHILD_ENV), "1")
+
+        explicit = str(self.base / "explicit-skills")
+        with mock.patch.dict(os.environ, {"LAI_SKILLS_DIR": explicit}, clear=True):
+            env = agent.control_run_child_env()
+        self.assertEqual(env.get("LAI_SKILLS_DIR"), explicit)
+
     def test_async_run_uses_fixed_subprocess_and_reports_bounded_result(self):
         calls = []
 

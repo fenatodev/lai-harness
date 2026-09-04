@@ -3213,6 +3213,20 @@ def control_run_command(mode, task):
     return [sys.executable, str(Path(__file__).resolve()), f"--{mode}", task]
 
 
+def control_run_child_env():
+    child_env = os.environ.copy()
+    child_env[CONTROL_RUN_CHILD_ENV] = "1"
+    executable = Path(__file__).resolve()
+    source_skills = executable.parent.parent / "skills"
+    if (
+        "LAI_SKILLS_DIR" not in child_env
+        and executable.parent.name == "src"
+        and source_skills.is_dir()
+    ):
+        child_env["LAI_SKILLS_DIR"] = str(source_skills)
+    return child_env
+
+
 def _control_run_public_record_locked(server, record):
     queue_position = None
     if record.get("status") == "queued":
@@ -3396,8 +3410,7 @@ def _control_run_worker(server):
         process = None
         exit_code = None
         try:
-            child_env = os.environ.copy()
-            child_env[CONTROL_RUN_CHILD_ENV] = "1"
+            child_env = control_run_child_env()
             process = subprocess.Popen(
                 control_run_command(mode, task),
                 cwd=str(ROOT),
