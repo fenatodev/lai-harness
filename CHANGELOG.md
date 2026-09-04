@@ -1,3 +1,14 @@
+## [0.4.0-beta.6] - 2026-09-04
+
+### Added
+- Added deterministic `lai release-governance` / `lai governance` for local release posture and manual GitHub publication actions.
+- Added JSON release-governance output covering release-check phase, release-pack presence, branch-protection action and GitHub Release action.
+- Added release governance documentation and validation coverage.
+
+### Changed
+- Updated beta publishing docs, release notes, checklist, README examples and VS Code package metadata for `0.4.0-beta.6`.
+
+
 # Changelog
 ## [0.4.0-beta.5] - 2026-09-04
 

@@ -13,7 +13,7 @@ import urllib.request
 import unicodedata
 from pathlib import Path
 
-VERSION = "0.4.0-beta.5"
+VERSION = "0.4.0-beta.6"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -105,6 +105,13 @@ SEMANTIC_CODE_CONTRACT = {
             "paths": ["src/local-agent", "src/lai", "docs/RELEASE-PACK.md", "docs/RELEASE-NOTES.md", "docs/RELEASE-CHECKLIST.md"],
             "entrypoints": ["render_release_pack", "write_release_pack", "release_pack_payload", "release_pack_files"],
             "terms": ["release", "pack", "package", "github", "body", "notes", "checklist", "vsix", "artifact", "publish"],
+        },
+        {
+            "id": "release-governance",
+            "intent": "summarize local release readiness, release pack status, and manual GitHub publication actions",
+            "paths": ["src/local-agent", "src/lai", "docs/RELEASE-GOVERNANCE.md", "docs/RELEASE-CHECKLIST.md"],
+            "entrypoints": ["render_release_governance", "collect_release_governance", "release_governance_pack_status"],
+            "terms": ["release", "governance", "publication", "branch", "protection", "github", "manual", "pre-release", "status"],
         },
         {
             "id": "operational-readiness",
@@ -5171,6 +5178,229 @@ def render_release_pack(args=None):
     return "\n".join(lines)
 
 
+RELEASE_GOVERNANCE_USAGE = "Usage: lai release-governance [--target VERSION] [--json]"
+
+
+def parse_release_governance_args(args):
+    raw = list(args)
+    json_mode = False
+    target = None
+    positional = []
+    index = 0
+    while index < len(raw):
+        item = raw[index]
+        if item == "--json":
+            json_mode = True
+        elif item == "--target":
+            index += 1
+            if index >= len(raw):
+                raise SystemExit(RELEASE_GOVERNANCE_USAGE)
+            target = raw[index]
+        elif item.startswith("-"):
+            raise SystemExit(RELEASE_GOVERNANCE_USAGE)
+        else:
+            positional.append(item)
+        index += 1
+
+    if positional:
+        if len(positional) == 1 and target is None:
+            target = positional[0]
+        else:
+            raise SystemExit(RELEASE_GOVERNANCE_USAGE)
+
+    return {"target": target, "json": json_mode}
+
+
+def release_governance_pack_status(target_version, expected_tag):
+    pack_dir = release_pack_default_dir(expected_tag)
+    base_files = release_pack_files(
+        pack_dir,
+        {"target_version": target_version, "expected_tag": expected_tag},
+        include_vsix=False,
+    )
+    required = {
+        "release_body": base_files["release_body"],
+        "checklist": base_files["checklist"],
+        "publishing": base_files["publishing"],
+        "commands": base_files["commands"],
+        "summary": base_files["summary"],
+    }
+    missing = [name for name, path in required.items() if not path.is_file()]
+    present = [name for name, path in required.items() if path.is_file()]
+    vsix_path = pack_dir / f"lai-harness-{target_version}.vsix"
+    status = "ok" if pack_dir.is_dir() and not missing else "warn"
+    if not pack_dir.exists():
+        detail = f"pack directory missing; run lai release-pack --target {target_version} --with-vsix"
+    elif missing:
+        detail = "missing: " + ", ".join(missing)
+    else:
+        detail = "required release pack files are present"
+
+    return {
+        "status": status,
+        "detail": detail,
+        "pack_dir": str(pack_dir),
+        "present": present,
+        "missing": missing,
+        "required_files": {name: str(path) for name, path in required.items()},
+        "vsix": {
+            "path": str(vsix_path),
+            "present": vsix_path.is_file(),
+            "optional": True,
+        },
+    }
+
+
+def release_governance_manual_actions(release_payload, pack_status):
+    target_version = release_payload["target_version"]
+    expected_tag = release_payload["expected_tag"]
+    actions = [
+        {
+            "id": "github_branch_protection",
+            "status": "manual",
+            "title": "Enable GitHub branch protection for main",
+            "detail": (
+                "In GitHub Settings > Branches, protect main with pull requests, "
+                "required status checks, up-to-date branches, linear history, "
+                "and disabled force pushes/deletions."
+            ),
+        },
+        {
+            "id": "github_release",
+            "status": "manual",
+            "title": f"Create GitHub pre-release for {expected_tag}",
+            "detail": (
+                "Use release-body.md from the release pack and mark the GitHub "
+                "Release as a pre-release while the project remains beta."
+            ),
+        },
+    ]
+    if pack_status["status"] != "ok":
+        actions.insert(0, {
+            "id": "release_pack",
+            "status": "manual",
+            "title": "Generate the local release pack",
+            "detail": f"Run lai release-pack --target {target_version} --with-vsix --json.",
+        })
+    return actions
+
+
+def collect_release_governance(target=None):
+    release_payload = collect_release_check(target=target)
+    pack_status = release_governance_pack_status(
+        release_payload["target_version"],
+        release_payload["expected_tag"],
+    )
+    checks = []
+
+    def add_check(name, status, detail=""):
+        checks.append({
+            "name": name,
+            "status": status,
+            "detail": str(detail or "")[:500],
+        })
+
+    release_overall = release_payload.get("overall")
+    release_phase = release_payload.get("phase")
+    add_check(
+        "release_check",
+        "ok" if release_overall == "ready" else "fail",
+        f"{release_overall} / {release_phase}",
+    )
+    add_check(
+        "local_release_phase",
+        "ok" if release_phase == "released" else "warn",
+        release_phase,
+    )
+    add_check("release_pack", pack_status["status"], pack_status["detail"])
+    add_check(
+        "github_branch_protection",
+        "manual",
+        "must be enabled in GitHub repository settings; this command is read-only",
+    )
+    add_check(
+        "github_release",
+        "manual",
+        "must be created manually from the tag using the release pack body",
+    )
+
+    has_failure = any(check["status"] == "fail" for check in checks)
+    has_warning = any(check["status"] == "warn" for check in checks)
+    has_manual = any(check["status"] == "manual" for check in checks)
+    if has_failure:
+        overall = "blocked"
+    elif has_warning or has_manual:
+        overall = "action_required"
+    else:
+        overall = "ready"
+
+    return {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "target_version": release_payload["target_version"],
+        "expected_tag": release_payload["expected_tag"],
+        "repository": str(ROOT),
+        "branch": release_payload.get("branch"),
+        "head": release_payload.get("head"),
+        "latest_tag": release_payload.get("latest_tag"),
+        "exact_tag": release_payload.get("exact_tag"),
+        "release_check_overall": release_overall,
+        "release_check_phase": release_phase,
+        "release_pack": pack_status,
+        "manual_actions": release_governance_manual_actions(release_payload, pack_status),
+        "checks": checks,
+        "overall": overall,
+        "safety": "read-only; no tag, merge, push, upload, publication, model call, or repository file mutation was executed",
+    }
+
+
+def render_release_governance(args=None):
+    options = parse_release_governance_args(args or [])
+    payload = collect_release_governance(target=options["target"])
+    if options["json"]:
+        return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+
+    lines = [
+        "# lai release governance",
+        "",
+        f"Product: {payload['product']}",
+        f"Version: {payload['version']}",
+        f"Target version: {payload['target_version']}",
+        f"Expected tag: {payload['expected_tag']}",
+        f"Repository: {payload['repository']}",
+        f"Branch: {payload['branch']}",
+        f"HEAD: {payload['head']}",
+        f"Exact tag on HEAD: {payload['exact_tag']}",
+        f"Latest reachable tag: {payload['latest_tag']}",
+        f"Release check: {payload['release_check_overall']} / {payload['release_check_phase']}",
+        f"Overall: {payload['overall']}",
+        "",
+        "## Checks",
+    ]
+    for check in payload["checks"]:
+        lines.append(f"- [{check['status']}] {check['name']}: {check['detail']}")
+
+    pack = payload["release_pack"]
+    lines.extend([
+        "",
+        "## Release pack",
+        f"Status: {pack['status']}",
+        f"Detail: {pack['detail']}",
+        f"Directory: {pack['pack_dir']}",
+        f"VSIX: {pack['vsix']['path']} ({'present' if pack['vsix']['present'] else 'optional/missing'})",
+        "",
+        "## Manual actions",
+    ])
+    for index, action in enumerate(payload["manual_actions"], start=1):
+        lines.append(f"{index}. {action['title']} — {action['detail']}")
+
+    lines.extend([
+        "",
+        "Release governance is read-only. It does not tag, merge, push, upload, publish, call the model, or mutate repository files.",
+    ])
+    return "\n".join(lines)
+
+
 def run_tool(name, args):
     print(
         f"\n[{name}] "
@@ -7114,6 +7344,10 @@ def main():
 
     if args and args[0] == "--release-pack":
         print(render_release_pack(args[1:]))
+        return
+
+    if args and args[0] == "--release-governance":
+        print(render_release_governance(args[1:]))
         return
 
     if args and args[0] == "--workspace":
