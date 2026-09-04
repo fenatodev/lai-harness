@@ -61,7 +61,7 @@ See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow, [Branding](
 Requirements: Python 3.11+, Git, ripgrep, VS Code with Chat Participant API support, and an authenticated OpenAI-compatible `llama.cpp` server.
 
 ```bash
-git clone https://github.com/fenatodev/lai-local-agent.git
+git clone https://github.com/fenatodev/lai-harness.git
 cd lai-local-agent
 ./scripts/install-local.sh
 mkdir -p ~/.config/lai

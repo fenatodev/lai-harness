@@ -1225,7 +1225,7 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "lai harness 0.4.0-alpha.15")
+        self.assertEqual(result.stdout.strip(), "lai harness 0.4.0-alpha.16")
 
     def test_deterministic_model_eval_plan_needs_no_server(self):
         result = subprocess.run(
@@ -1276,7 +1276,7 @@ class LocalAgentTest(unittest.TestCase):
         )
         payload = json.loads(result.stdout)
         self.assertEqual(payload["product"], "lai harness")
-        self.assertEqual(payload["version"], "0.4.0-alpha.15")
+        self.assertEqual(payload["version"], "0.4.0-alpha.16")
         scenario_ids = {item["id"] for item in payload["scenarios"]}
         self.assertIn("context-ranking", scenario_ids)
 
@@ -1375,6 +1375,14 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("local-agent", branding)
         self.assertIn("lai-local-agent", branding)
         self.assertIn("lai-chat", branding)
+
+    def test_public_repository_urls_use_lai_harness_slug(self):
+        repo = Path(__file__).parents[1]
+        expected = "https://github.com/fenatodev/lai-harness.git"
+        for rel in ("README.md", "README.pt-BR.md", "vscode-extension/package.json"):
+            text = (repo / rel).read_text(encoding="utf-8")
+            self.assertIn(expected, text)
+            self.assertNotIn("https://github.com/fenatodev/lai-local-agent.git", text)
 
     def test_public_docs_do_not_use_old_product_title(self):
         repo = Path(__file__).parents[1]

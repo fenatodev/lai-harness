@@ -1,34 +1,33 @@
 # repository migration
 
-The intended public repository slug is `lai-harness`.
+The public GitHub repository slug is now `fenatodev/lai-harness`.
 
-The current repository may still be `fenatodev/lai-local-agent` until the GitHub repository is renamed. GitHub usually redirects clone, fetch, push, and web traffic from the old repository name after a rename, but local remotes and documentation should still be updated deliberately.
+The previous slug was `fenatodev/lai-local-agent`. GitHub redirects common web and Git traffic from the old slug after a repository rename, but project documentation and local remotes should use the new slug deliberately.
 
-## target identity
+## current identity
 
 - Product name: `lai harness`
 - CLI command: `lai`
-- Intended GitHub repository: `fenatodev/lai-harness`
-- Current compatibility identifiers kept for now: `local-agent`, `lai-chat`, `lai-local-agent.lai`, `~/.config/lai`, `~/.local/share/lai`, and `LAI_*`
+- GitHub repository: `fenatodev/lai-harness`
+- Compatibility identifiers kept for now: `local-agent`, `lai-chat`, `lai-local-agent.lai`, `~/.config/lai`, `~/.local/share/lai`, and `LAI_*`
 
-## manual migration sequence
+## completed migration
 
-After a release that prepares the lowercase identity:
-
-1. Rename the GitHub repository from `lai-local-agent` to `lai-harness` in GitHub repository settings.
-2. Update the local remote:
+The GitHub repository has been renamed from `lai-local-agent` to `lai-harness`, and the local `origin` remote should point to:
 
 ```bash
-git remote set-url origin git@github.com:fenatodev/lai-harness.git
+git@github.com:fenatodev/lai-harness.git
 ```
 
-or, for HTTPS:
+For HTTPS remotes, use:
 
 ```bash
-git remote set-url origin https://github.com/fenatodev/lai-harness.git
+https://github.com/fenatodev/lai-harness.git
 ```
 
-3. Optionally rename the local folder:
+## optional local folder rename
+
+The local folder may still be named `lai-local-agent`. That does not affect Git behavior. Rename it only when no terminal, editor, or running process is using it:
 
 ```bash
 cd ~/dev/projects
@@ -38,14 +37,18 @@ git status --short
 git remote -v
 ```
 
-4. Run the validation gate:
-
-```bash
-make validate
-```
-
-5. Update repository links in documentation only after the remote rename is complete.
+After renaming the folder, reopen VS Code from the new path.
 
 ## compatibility policy
 
 Do not rename the `lai` command. Do not rename user configuration or data directories without a separate migration spec. Do not change the VS Code participant ID until extension migration is planned.
+
+## validation
+
+Run:
+
+```bash
+lai version
+lai semantics
+make validate
+```

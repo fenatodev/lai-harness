@@ -24,7 +24,7 @@ Ele complementa agentes cloud de alto contexto: o lai harness atende ciclos loca
 Você precisa de Python 3.11+, Git, ripgrep, VS Code compatível e um servidor `llama.cpp` autenticado com API OpenAI-compatible.
 
 ```bash
-git clone https://github.com/fenatodev/lai-local-agent.git
+git clone https://github.com/fenatodev/lai-harness.git
 cd lai-local-agent
 ./scripts/install-local.sh
 mkdir -p ~/.config/lai

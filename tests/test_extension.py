@@ -20,6 +20,10 @@ class ExtensionTest(unittest.TestCase):
         self.assertEqual(participant["fullName"], "lai harness")
         self.assertEqual(participant["id"], "lai-local-agent.lai")
         self.assertEqual(package["contributes"]["configuration"]["title"], "lai harness")
+        self.assertEqual(
+            package["repository"]["url"],
+            "https://github.com/fenatodev/lai-harness.git",
+        )
 
     def test_agent_path_configuration_is_declared(self):
         package = json.loads((EXTENSION / "package.json").read_text())
