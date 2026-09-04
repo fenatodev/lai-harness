@@ -19,6 +19,30 @@ agent = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(agent)
 
 
+def make_spec_text(mode="full", status="active", requirement="REQ-001"):
+    text = (
+        "# Spec: Synthetic\n\n"
+        "## Metadata\n\n"
+        f"- Mode: `{mode}`\n"
+        f"- Status: `{status}`\n\n"
+        "## Goal\n\nSynthetic goal.\n\n"
+        "## Requirements\n\n"
+        f"### {requirement}\n\nSynthetic requirement.\n\n"
+        "## Acceptance Criteria\n\n- Observable result.\n\n"
+        "## Validation\n\n"
+        f"- `{requirement}`: synthetic check.\n"
+    )
+    if mode == "full":
+        text += (
+            "\n## Context and Constraints\n\nSynthetic context.\n"
+            "\n## Non-Goals\n\n- Synthetic non-goal.\n"
+            "\n## Implementation Notes\n\nSynthetic notes.\n"
+            "\n## Traceability\n\n"
+            f"- `{requirement}` -> synthetic check\n"
+        )
+    return text
+
+
 class LocalAgentTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -733,6 +757,143 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("Python syntax check failed", result)
         self.assertIn("sample.py", result)
 
+    def test_parse_spec_accepts_valid_full_spec(self):
+        path = self.root / "001-feature.md"
+        path.write_text(make_spec_text())
+
+        spec = agent.parse_spec(path)
+
+        self.assertEqual(spec["mode"], "full")
+        self.assertEqual(spec["status"], "active")
+        self.assertEqual(spec["requirements"], ["REQ-001"])
+
+    def test_parse_spec_rejects_invalid_workflow_mode(self):
+        path = self.root / "001-feature.md"
+        path.write_text(make_spec_text(mode="fast"))
+
+        with self.assertRaisesRegex(ValueError, "quick or full"):
+            agent.parse_spec(path)
+
+    def test_parse_spec_requires_full_only_sections(self):
+        path = self.root / "001-feature.md"
+        text = make_spec_text().replace(
+            "\n## Non-Goals\n\n- Synthetic non-goal.\n",
+            "",
+        )
+        path.write_text(text)
+
+        with self.assertRaisesRegex(ValueError, "full spec missing"):
+            agent.parse_spec(path)
+
+    def test_parse_spec_rejects_invalid_requirement_id(self):
+        path = self.root / "001-feature.md"
+        path.write_text(make_spec_text(requirement="REQ-1"))
+
+        with self.assertRaisesRegex(ValueError, "REQ-NNN"):
+            agent.parse_spec(path)
+
+    def test_parse_spec_requires_full_traceability_coverage(self):
+        path = self.root / "001-feature.md"
+        text = make_spec_text().replace(
+            "- `REQ-001` -> synthetic check",
+            "- synthetic mapping",
+        )
+        path.write_text(text)
+
+        with self.assertRaisesRegex(ValueError, "traceability missing: REQ-001"):
+            agent.parse_spec(path)
+
+    def test_parse_spec_requires_validation_traceability(self):
+        path = self.root / "001-feature.md"
+        text = make_spec_text().replace(
+            "- `REQ-001`: synthetic check.",
+            "- synthetic check.",
+        )
+        path.write_text(text)
+
+        with self.assertRaisesRegex(ValueError, "validation missing: REQ-001"):
+            agent.parse_spec(path)
+
+    def test_load_active_spec_ignores_drafts(self):
+        specs = self.root / ".specs"
+        specs.mkdir()
+        (specs / "001-draft.md").write_text(
+            make_spec_text(status="draft")
+        )
+
+        self.assertIsNone(agent.load_active_spec(self.root))
+
+    def test_load_active_spec_rejects_symlinked_spec_file(self):
+        specs = self.root / ".specs"
+        specs.mkdir()
+        outside = self.root / "outside-spec.md"
+        outside.write_text(make_spec_text())
+        (specs / "001-link.md").symlink_to(outside)
+
+        with self.assertRaisesRegex(SystemExit, "must not be a symlink"):
+            agent.load_active_spec(self.root)
+
+    def test_load_active_spec_rejects_multiple_active_specs(self):
+        specs = self.root / ".specs"
+        specs.mkdir()
+        (specs / "001-first.md").write_text(make_spec_text())
+        (specs / "002-second.md").write_text(make_spec_text())
+
+        with self.assertRaisesRegex(SystemExit, "Multiple active specs"):
+            agent.load_active_spec(self.root)
+
+    def test_render_active_spec_context_uses_workflow_mode(self):
+        path = self.root / "001-feature.md"
+        path.write_text(make_spec_text(mode="quick"))
+
+        rendered = agent.render_active_spec_context(agent.parse_spec(path))
+
+        self.assertIn("Workflow: quick", rendered)
+        self.assertIn("narrow exploration", rendered)
+        self.assertIn("cannot override AGENTS.md", rendered)
+        self.assertIn("REQ-001", rendered)
+
+    def test_main_injects_active_spec_into_system_prompt(self):
+        specs = self.root / ".specs"
+        specs.mkdir()
+        (specs / "001-feature.md").write_text(make_spec_text())
+        captured = {}
+
+        def stop_at_model(host, messages, **kwargs):
+            captured["messages"] = messages
+            raise RuntimeError("STOP_AT_MODEL")
+
+        with mock.patch.object(agent, "CLI_ARGS", ["synthetic task"]), \
+             mock.patch.object(agent, "server_ready", return_value=True), \
+             mock.patch.object(agent, "api_call", side_effect=stop_at_model), \
+             mock.patch.object(agent, "record_metric_event"), \
+             mock.patch.object(agent, "record_audit_event"):
+            with self.assertRaisesRegex(RuntimeError, "STOP_AT_MODEL"):
+                agent.main()
+
+        system = captured["messages"][0]["content"]
+        self.assertIn("ACTIVE SPEC (normative for this change)", system)
+        self.assertIn("Workflow: full", system)
+        self.assertIn("REQ-001", system)
+
+    def test_deterministic_spec_status_needs_no_server(self):
+        specs = self.root / ".specs"
+        specs.mkdir()
+        (specs / "001-feature.md").write_text(make_spec_text())
+
+        result = subprocess.run(
+            [str(SOURCE), "--spec-status"],
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+
+        self.assertIn("# LAI Active Spec", result.stdout)
+        self.assertIn("Path: .specs/001-feature.md", result.stdout)
+        self.assertIn("Mode: full", result.stdout)
+        self.assertIn("Requirements: REQ-001", result.stdout)
+
     def test_deterministic_version_command_needs_no_server(self):
         result = subprocess.run(
             [str(SOURCE), "--version"],
@@ -741,7 +902,7 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "lai-local-agent 0.4.0-alpha.6.2")
+        self.assertEqual(result.stdout.strip(), "lai-local-agent 0.4.0-alpha.7")
 
     def test_deterministic_show_config_obeys_cli_without_server(self):
         result = subprocess.run(

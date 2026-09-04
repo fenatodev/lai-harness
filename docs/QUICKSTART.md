@@ -17,6 +17,7 @@ Examples:
 @lai /status
 @lai /metrics
 @lai /audit
+lai spec
 @lai /handoff Ready for a high-context architecture review
 ```
 

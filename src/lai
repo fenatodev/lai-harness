@@ -17,6 +17,10 @@ case "$command_name" in
         shift
         exec "$bin_dir/local-agent" "--$command_name" "$@"
         ;;
+    spec)
+        shift
+        exec "$bin_dir/local-agent" --spec-status "$@"
+        ;;
     version)
         exec "$bin_dir/local-agent" --version
         ;;

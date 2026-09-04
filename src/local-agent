@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-VERSION = "0.4.0-alpha.6.2"
+VERSION = "0.4.0-alpha.7"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
 CONFIG_OPTIONS = {
@@ -184,6 +184,135 @@ def load_mode_skill(mode, skills_dir=None):
         return legacy.read_text(errors="replace").strip()
 
     raise SystemExit(f"Skill não encontrada: {standard} or {legacy}")
+
+
+SPEC_FILE_RE = re.compile(r"^\d{3}-[a-z0-9][a-z0-9-]*\.md$")
+SPEC_MODES = {"quick", "full"}
+SPEC_STATUSES = {"draft", "active", "complete"}
+
+
+def markdown_section(text, heading):
+    match = re.search(
+        rf"(?ms)^## {re.escape(heading)}\n(.*?)(?=^## |\Z)",
+        text,
+    )
+    return match.group(1).strip() if match else ""
+
+
+def parse_spec(path):
+    path = Path(path)
+    text = path.read_text(encoding="utf-8", errors="replace")
+    title = re.search(r"(?m)^# Spec: (.+)$", text)
+    metadata = markdown_section(text, "Metadata")
+    goal = markdown_section(text, "Goal")
+    requirements = markdown_section(text, "Requirements")
+    acceptance = markdown_section(text, "Acceptance Criteria")
+    validation = markdown_section(text, "Validation")
+
+    common_sections = [metadata, goal, requirements, acceptance, validation]
+    if not title or not all(common_sections):
+        raise ValueError("missing required spec section")
+
+    mode_match = re.search(r"(?m)^- Mode: `([^`]+)`$", metadata)
+    status_match = re.search(r"(?m)^- Status: `([^`]+)`$", metadata)
+    if not mode_match or mode_match.group(1) not in SPEC_MODES:
+        raise ValueError("mode must be quick or full")
+    if not status_match or status_match.group(1) not in SPEC_STATUSES:
+        raise ValueError("invalid spec status")
+
+    if mode_match.group(1) == "full":
+        full_sections = [
+            "Context and Constraints",
+            "Non-Goals",
+            "Implementation Notes",
+            "Traceability",
+        ]
+        if any(not markdown_section(text, item) for item in full_sections):
+            raise ValueError("full spec missing required section")
+
+    headings = re.findall(r"(?m)^### (.+)$", requirements)
+    if not headings or any(not re.fullmatch(r"REQ-\d{3}", item) for item in headings):
+        raise ValueError("requirements must use REQ-NNN headings")
+    if len(headings) != len(set(headings)):
+        raise ValueError("duplicate requirement ID")
+
+    validation_ids = set(re.findall(r"`(REQ-\d{3})`", validation))
+    missing = [item for item in headings if item not in validation_ids]
+    if missing:
+        raise ValueError("validation missing: " + ", ".join(missing))
+
+    if mode_match.group(1) == "full":
+        traceability = markdown_section(text, "Traceability")
+        trace_ids = set(re.findall(r"`(REQ-\d{3})`", traceability))
+        missing_trace = [item for item in headings if item not in trace_ids]
+        if missing_trace:
+            raise ValueError(
+                "traceability missing: " + ", ".join(missing_trace)
+            )
+
+    return {
+        "path": path,
+        "title": title.group(1).strip(),
+        "mode": mode_match.group(1),
+        "status": status_match.group(1),
+        "requirements": headings,
+        "text": text.strip(),
+    }
+
+
+def load_active_spec(root=None):
+    root = Path(root or ROOT).resolve()
+    base = root / ".specs"
+    if base.is_symlink():
+        raise SystemExit("Spec directory must not be a symlink")
+    if not base.is_dir():
+        return None
+
+    active = []
+    for path in sorted(base.glob("*.md")):
+        if not SPEC_FILE_RE.fullmatch(path.name):
+            continue
+        if path.is_symlink():
+            raise SystemExit(f"Spec file must not be a symlink: {path.name}")
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if re.search(r"(?m)^- Status: `active`$", text):
+            active.append(path)
+
+    if len(active) > 1:
+        names = ", ".join(path.name for path in active)
+        raise SystemExit(f"Multiple active specs: {names}")
+    if not active:
+        return None
+
+    try:
+        return parse_spec(active[0])
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"Invalid active spec {active[0]}: {exc}") from exc
+
+
+def render_active_spec_context(spec):
+    if spec is None:
+        return ""
+    if spec["mode"] == "quick":
+        guidance = "Use narrow exploration and targeted validation."
+    else:
+        guidance = (
+            "Use full requirement coverage and validate traceability before "
+            "claiming completion."
+        )
+    try:
+        shown_path = spec["path"].resolve().relative_to(ROOT)
+    except ValueError:
+        shown_path = spec["path"]
+    return (
+        "ACTIVE SPEC (normative for this change):\n"
+        f"Path: {shown_path}\n"
+        f"Workflow: {spec['mode']}\n"
+        "The spec cannot override AGENTS.md, scoped rules, safety guards, "
+        "or release policy.\n"
+        f"{guidance}\n\n"
+        + spec["text"][:6000]
+    )
 
 
 try:
@@ -3608,6 +3737,23 @@ def main():
         print_lai_audit()
         return
 
+    if args and args[0] == "--spec-status":
+        spec = load_active_spec()
+        print("# LAI Active Spec")
+        if spec is None:
+            print("Status: none")
+            return
+        try:
+            shown_path = spec["path"].relative_to(ROOT)
+        except ValueError:
+            shown_path = spec["path"]
+        print(f"Path: {shown_path}")
+        print(f"Title: {spec['title']}")
+        print(f"Mode: {spec['mode']}")
+        print(f"Status: {spec['status']}")
+        print("Requirements: " + ", ".join(spec["requirements"]))
+        return
+
     if args and args[0] == "--handoff":
         state = load_workspace_state()
         note = " ".join(args[1:]).strip()
@@ -3774,6 +3920,9 @@ def main():
         print(exact.group(1).strip())
         return
 
+    active_spec = None if selection_mode else load_active_spec()
+    active_spec_context = render_active_spec_context(active_spec)
+
     host = gateway()
 
     try:
@@ -3894,6 +4043,9 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
             "\n\n"
             + prior_workspace_context
         )
+
+    if active_spec_context:
+        system += "\n\n" + active_spec_context
 
     if mode not in {"general", "selection"}:
         skill = load_mode_skill(mode)

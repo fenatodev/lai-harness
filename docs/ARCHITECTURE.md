@@ -7,7 +7,7 @@ LAI has four runtime layers: the VS Code chat participant, the Python harness, a
 1. `@lai` receives a command and prompt.
 2. The extension adds bounded context: active filename, at most eight diagnostics for write/debug modes, and up to 800 characters of selected text.
 3. It starts `local-agent` in the selected workspace.
-4. The harness resolves the Git root, loads workspace state and the mode skill, selects only that mode's tool schemas, and calls the local endpoint.
+4. The harness resolves the Git root, loads workspace state, the active repository spec, and the mode skill, selects only that mode's tool schemas, and calls the local endpoint.
 5. Tool results return to the model until it answers or reaches the mode's round limit.
 6. State, metrics, and applicable audit events are persisted outside the repository.
 
@@ -24,6 +24,10 @@ LAI has four runtime layers: the VS Code chat participant, the Python harness, a
 ### Skills and tool schemas
 
 Skills are compact mode contracts stored in `skills/`. Tools are selected by mode, so a review model does not receive write-tool schemas and a plan model receives only `inspect` and `search`. `inspect` batches up to eight files. `patch` validates up to six exact replacements in memory before writing any target.
+
+### Repository specs
+
+Numbered specs under `.specs/` define the requested change. At most one may be `active`; multiple active specs, invalid requirement IDs, missing validation references, and symlinked spec paths fail closed. Draft and complete specs do not affect runtime. The active spec is injected as normative context beneath repository safety rules.
 
 ### llama.cpp and model
 

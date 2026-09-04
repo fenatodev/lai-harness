@@ -50,6 +50,14 @@ Use the narrowest relevant check while developing.
 7. Do not install changed harness code until validation is green.
 8. Keep release mutations human-controlled.
 
+## Spec-Driven Workflow
+
+Repository specs live under `.specs/` using numbered Markdown files.
+Exactly one spec may have `Status: active`; draft and complete specs are inactive.
+The active spec defines the requested change and its `REQ-NNN` traceability.
+Use `lai spec` to inspect the active spec without calling the model.
+Specs never override this file, scoped rules, safety guards, or release policy.
+
 ## Non-Negotiable Safety Rules
 
 - Preserve repository path confinement.
@@ -69,7 +77,7 @@ Use the narrowest relevant check while developing.
 
 Avoid unrelated cleanup, speculative abstractions, and roadmap-driven scope creep.
 
-Planned features such as structured policy, runtime isolation, MCP, plugins, ACP, browser execution, delegation, learning, and spec-driven workflows are not implemented merely because they appear in the roadmap.
+Planned features such as structured policy, runtime isolation, MCP, plugins, ACP, browser execution, delegation, and learning are not implemented merely because they appear in the roadmap.
 
 Do not introduce them unless the current task explicitly targets them.
 

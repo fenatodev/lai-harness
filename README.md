@@ -44,6 +44,8 @@ See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow.
 - deterministic plus model-assisted post-patch sanity checking;
 - local JSONL metrics and forensic audit records;
 - persistent, Git-aware workspace handoff;
+- repository-local `.specs/` with stable `REQ-NNN` traceability;
+- deterministic `lai spec` inspection with quick/full workflow guidance;
 - no Python package dependencies in the current harness.
 
 ## Quick start
@@ -67,6 +69,7 @@ Configure `~/.config/lai/config.toml`, `LAI_*` environment variables, or leading
 @lai /implement add the requested test and minimal fix
 @lai /review review my current Git changes
 @lai /audit
+lai spec
 ```
 
 Read the complete [Installation](docs/INSTALLATION.md) and [Quick start](docs/QUICKSTART.md) guides before using write-capable modes.
