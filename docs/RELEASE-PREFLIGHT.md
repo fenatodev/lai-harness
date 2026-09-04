@@ -19,7 +19,7 @@ The `lai` wrapper dispatches mode aliases directly:
 ```bash
 lai diagnose "explain this failure before fixing"
 lai ci-fix "repair the failing CI gate"
-lai release "check whether beta.7 is ready"
+lai release "check whether beta.8 is ready"
 ```
 
 These aliases are equivalent to calling `local-agent --diagnose`, `local-agent --ci-fix`, or `local-agent --release` directly.
@@ -45,17 +45,21 @@ For beta gates and scripted checks, prefer the model-free command:
 ```bash
 lai release-check
 lai release-check --json
-lai release-check --target 0.4.0-beta.7 --json
+lai release-check --target 0.4.0-beta.8 --json
 ```
 
 It reports the expected tag, current branch, HEAD, exact tag on HEAD, latest reachable tag, readiness status, preferred validation commands, and a release-safety check. It does not run validations; use `make validate` separately when validation evidence is needed.
 
+## Read-only remote governance
+
+After GitHub integration/publication steps, use `lai release-governance --target 0.4.0-beta.8 --remote --json` to verify protected-main policy and the pre-release. The remote path performs GitHub API GET requests only and never publishes or changes repository settings.
+
 
 ## Deterministic release pack
 
-`lai release-pack --target 0.4.0-beta.7 --json` writes local publication files outside the repository. Add `--with-vsix` when you want the inspected VSIX in the same pack. It does not tag, merge, push, upload, publish, call the model, or mutate repository files.
+`lai release-pack --target 0.4.0-beta.8 --json` writes local publication files outside the repository. Add `--with-vsix` when you want the inspected VSIX in the same pack. It does not tag, merge, push, upload, publish, call the model, or mutate repository files.
 
 
 ## Deterministic project handoff
 
-`lai project-handoff --target 0.4.0-beta.7 --json` renders a next-chat handoff. Add `--out /tmp/lai-harness-project-handoff-v0.4.0-beta.7 --force` to write `PROJECT-HANDOFF.md`, `NEXT-CHAT-PROMPT.md`, and `summary.json` outside the repository.
+`lai project-handoff --target 0.4.0-beta.8 --json` renders a next-chat handoff. Add `--out /tmp/lai-harness-project-handoff-v0.4.0-beta.8 --force` to write `PROJECT-HANDOFF.md`, `NEXT-CHAT-PROMPT.md`, and `summary.json` outside the repository.

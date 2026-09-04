@@ -1,58 +1,59 @@
 # lai beta readiness
 
-This document records the release posture for `0.4.0-beta.7`. It is a stabilization cut, not a feature expansion.
+This document records the release posture for `0.4.0-beta.8`. It is a small governance-hardening cut, not an agent architecture expansion.
 
 ## Scope
 
-`0.4.0-beta.7` keeps the beta line stable and adds portable project handoff after the following capabilities became deterministic and test-covered:
+`0.4.0-beta.8` keeps model-assisted behavior stable and adds opt-in remote release verification:
 
-- `lai readiness` for environment and repository health.
-- `lai release-check` for model-free release posture checks.
-- `lai run export` for sanitized diagnostic bundles.
-- `diagnose`, `ci-fix`, and `release` mode skills.
-- Public CLI aliases for mode entrypoints such as `lai diagnose`, `lai ci-fix`, and `lai release`.
-- `lai project-handoff` and `lai next-chat` for long-chat migration.
+- `lai release-governance --remote` checks GitHub state using GET-only API calls.
+- Protected `main` policy is verified for PRs, strict required checks, linear history, administrator enforcement, and disabled force pushes/deletions.
+- The expected GitHub pre-release is verified without publication privileges.
+- An attached VSIX digest is compared with the local inspected artifact when both digests exist.
+- Default governance stays offline/local and model-free.
+- Release documentation now follows feature branch -> PR -> CI -> merge -> main CI -> tag -> tag CI -> pre-release.
 
-## Required local gate
-
-Run these before tagging beta.7:
+## Required feature-branch gate
 
 ```bash
 lai readiness
-lai release-check --target 0.4.0-beta.7 --json
+lai release-check --target 0.4.0-beta.8 --json
+lai release-pack --target 0.4.0-beta.8 --with-vsix --json
+make lint
 make check
 make test-dev
 make test
 make validate
 ./scripts/install-local.sh
 lai version
-lai doctor
 ```
 
-Expected release-check posture before tagging:
+Before merge, `release-check` should report the current version correctly; the tag is intentionally absent. Integration into protected `main` must happen through a PR with all required checks green.
 
-- `overall`: `ready`
-- `phase`: `ready_to_tag`
-- `expected_tag`: `v0.4.0-beta.7`
-- `release_safety`: `true`
+## Post-merge and publication gate
 
-Expected posture after tagging and fast-forwarding main:
+After the PR is merged, update local `main` from `origin/main` and verify main CI. Tag that merged commit as `v0.4.0-beta.8`, push only the tag, verify tag CI, and then create the GitHub pre-release.
 
-- `overall`: `ready`
-- `phase`: `released`
-- `exact_tag`: `v0.4.0-beta.7`
+Final verification:
+
+```bash
+lai release-check --target 0.4.0-beta.8 --json
+lai release-governance --target 0.4.0-beta.8 --remote --json
+```
+
+Expected final posture: `release-check.phase=released`, remote branch protection `ok`, remote GitHub Release `ok`, and no GitHub governance items left in `manual_actions`.
 
 ## Non-goals
 
-The beta cut does not add autonomous Git release execution, package publication, model downloading, web search, cron execution, plugin loading, or a stronger shell sandbox. Those remain explicit future decisions.
+The beta cut does not add autonomous GitHub administration, PR creation, merge, tag/push execution, package upload, release publication, model downloading, cron execution, plugin loading, or a stronger shell sandbox.
 
 ## Remaining beta risks
 
-- `bash` still runs with the user's OS permissions. The policy gateway reduces risk but is not a sandbox.
-- Model-assisted modes remain constrained by the quality and context behavior of the configured local model.
+- `bash` still runs with the user's OS permissions; the policy gateway is not a sandbox.
+- Model-assisted modes remain constrained by the configured local model.
 - VS Code Chat Participant API compatibility can vary by VS Code build.
 - Signed releases and provenance attestations are not yet implemented.
 
 ## Exit criteria
 
-Beta.7 is acceptable when local validation, install smoke, `lai readiness`, `lai release-check`, and GitHub CI all pass for both `main` and the `v0.4.0-beta.7` tag.
+Beta.8 is acceptable when local validation and install smoke pass, protected-main PR/main/tag CI is green, and read-only remote governance verifies the published GitHub state.

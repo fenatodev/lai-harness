@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import hashlib
 import json
 import os
 import re
@@ -10,10 +11,11 @@ import sys
 import tomllib
 import urllib.error
 import urllib.request
+import urllib.parse
 import unicodedata
 from pathlib import Path
 
-VERSION = "0.4.0-beta.7"
+VERSION = "0.4.0-beta.8"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -108,9 +110,9 @@ SEMANTIC_CODE_CONTRACT = {
         },
         {
             "id": "release-governance",
-            "intent": "summarize local release readiness, release pack status, and manual GitHub publication actions",
+            "intent": "summarize local release readiness and optionally verify GitHub release governance read-only",
             "paths": ["src/local-agent", "src/lai", "docs/RELEASE-GOVERNANCE.md", "docs/RELEASE-CHECKLIST.md"],
-            "entrypoints": ["render_release_governance", "collect_release_governance", "release_governance_pack_status"],
+            "entrypoints": ["render_release_governance", "collect_release_governance", "collect_github_release_governance", "release_governance_pack_status"],
             "terms": ["release", "governance", "publication", "branch", "protection", "github", "manual", "pre-release", "status"],
         },
         {
@@ -5029,24 +5031,38 @@ def release_pack_publish_commands(release_payload):
     expected_tag = str(release_payload.get("expected_tag") or "v" + VERSION)
     target_version = str(release_payload.get("target_version") or VERSION)
     title = release_pack_title(target_version)
-    return "\n".join([
+    lines = [
         "# human-run release commands; this file is documentation only",
         f"cd {shlex.quote(str(ROOT))}",
         "",
+    ]
+    if branch and not is_protected_write_branch(branch):
+        lines.extend([
+            "# Push this feature branch, then open and merge a PR into protected main after CI passes.",
+            f"git push -u origin {shlex.quote(branch)}",
+            "",
+        ])
+    else:
+        lines.extend([
+            "# Start from a feature branch and merge it into protected main through a green PR.",
+            "",
+        ])
+    lines.extend([
+        "# After the PR is merged and main CI is green, sync main before tagging.",
+        "git switch main",
+        "git pull --ff-only origin main",
+        "",
         f"git tag -a {shlex.quote(expected_tag)} \\",
         f"  -m {shlex.quote(title)}",
-        "",
-        "git switch main",
-        f"git merge --ff-only {shlex.quote(branch)}",
-        "",
-        f"git push --atomic origin main {shlex.quote(expected_tag)}",
+        f"git push origin {shlex.quote(expected_tag)}",
         "",
     ])
+    return "\n".join(lines)
 
 
 def release_pack_title(target_version):
     if target_version == VERSION:
-        return f"v{target_version} — project handoff"
+        return f"v{target_version} — remote release governance"
     return f"v{target_version} — lai harness release"
 
 
@@ -5185,12 +5201,14 @@ def render_release_pack(args=None):
     return "\n".join(lines)
 
 
-RELEASE_GOVERNANCE_USAGE = "Usage: lai release-governance [--target VERSION] [--json]"
+RELEASE_GOVERNANCE_USAGE = "Usage: lai release-governance [--target VERSION] [--remote] [--json]"
+GITHUB_REQUIRED_STATUS_CHECKS = ("Python 3.11", "Python 3.12", "Publication gates")
 
 
 def parse_release_governance_args(args):
     raw = list(args)
     json_mode = False
+    remote = False
     target = None
     positional = []
     index = 0
@@ -5198,6 +5216,8 @@ def parse_release_governance_args(args):
         item = raw[index]
         if item == "--json":
             json_mode = True
+        elif item == "--remote":
+            remote = True
         elif item == "--target":
             index += 1
             if index >= len(raw):
@@ -5215,7 +5235,7 @@ def parse_release_governance_args(args):
         else:
             raise SystemExit(RELEASE_GOVERNANCE_USAGE)
 
-    return {"target": target, "json": json_mode}
+    return {"target": target, "remote": remote, "json": json_mode}
 
 
 def release_governance_pack_status(target_version, expected_tag):
@@ -5258,46 +5278,332 @@ def release_governance_pack_status(target_version, expected_tag):
     }
 
 
-def release_governance_manual_actions(release_payload, pack_status):
+def github_repository_slug(origin=None):
+    value = str(origin if origin is not None else git_origin()).strip()
+    path = None
+    if value.startswith("git@github.com:"):
+        path = value.split(":", 1)[1]
+    else:
+        match = re.match(r"^(?:https?://github\.com/|ssh://git@github\.com/)(.+)$", value)
+        if match:
+            path = match.group(1)
+    if not path:
+        return None
+    path = path.rstrip("/")
+    if path.endswith(".git"):
+        path = path[:-4]
+    parts = path.split("/")
+    if len(parts) != 2 or not all(parts):
+        return None
+    return f"{parts[0]}/{parts[1]}"
+
+
+def github_api_token():
+    for env_name in ("GH_TOKEN", "GITHUB_TOKEN"):
+        token = os.environ.get(env_name, "").strip()
+        if token:
+            return token, env_name.lower()
+
+    try:
+        proc = subprocess.run(
+            ["git", "credential", "fill"],
+            cwd=ROOT,
+            input="protocol=https\nhost=github.com\n\n",
+            text=True,
+            capture_output=True,
+            timeout=5,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        )
+    except Exception:
+        return None, "none"
+    if proc.returncode != 0:
+        return None, "none"
+
+    credentials = {}
+    for line in proc.stdout.splitlines():
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        credentials[key.strip()] = value.strip()
+    token = credentials.get("password", "")
+    if not token:
+        return None, "none"
+    return token, "git-credential"
+
+
+def github_api_get(api_path, token=None):
+    base_url = os.environ.get("LAI_GITHUB_API_URL", "https://api.github.com").rstrip("/")
+    url = f"{base_url}/{api_path.lstrip('/')}"
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": f"lai-harness/{VERSION}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            raw = response.read().decode("utf-8")
+            payload = json.loads(raw) if raw else {}
+            return {"ok": True, "status": response.status, "data": payload, "error": ""}
+    except urllib.error.HTTPError as exc:
+        message = ""
+        try:
+            body = exc.read().decode("utf-8")
+            parsed = json.loads(body) if body else {}
+            message = str(parsed.get("message") or "")
+        except Exception:
+            message = ""
+        return {
+            "ok": False,
+            "status": exc.code,
+            "data": None,
+            "error": (message or f"GitHub API HTTP {exc.code}")[:300],
+        }
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return {"ok": False, "status": 0, "data": None, "error": str(exc)[:300]}
+
+
+def github_branch_protection_status(repository, token=None, branch="main"):
+    encoded_branch = urllib.parse.quote(branch, safe="")
+    result = github_api_get(
+        f"repos/{repository}/branches/{encoded_branch}/protection",
+        token=token,
+    )
+    if not result["ok"]:
+        status = "warn" if result["status"] == 404 else "unverified"
+        detail = (
+            "branch protection is not enabled"
+            if result["status"] == 404
+            else f"could not verify branch protection: {result['error']}"
+        )
+        return {
+            "status": status,
+            "detail": detail,
+            "api_status": result["status"],
+            "branch": branch,
+            "required_checks": list(GITHUB_REQUIRED_STATUS_CHECKS),
+            "observed_checks": [],
+            "requirements": {},
+        }
+
+    data = result["data"] or {}
+    required_status = data.get("required_status_checks") or {}
+    observed = set(required_status.get("contexts") or [])
+    for check in required_status.get("checks") or []:
+        context = check.get("context") if isinstance(check, dict) else None
+        if context:
+            observed.add(context)
+    missing_checks = [name for name in GITHUB_REQUIRED_STATUS_CHECKS if name not in observed]
+    requirements = {
+        "pull_requests": data.get("required_pull_request_reviews") is not None,
+        "strict_status_checks": required_status.get("strict") is True,
+        "required_status_checks": not missing_checks,
+        "linear_history": bool((data.get("required_linear_history") or {}).get("enabled")),
+        "enforce_admins": bool((data.get("enforce_admins") or {}).get("enabled")),
+        "force_pushes_disabled": not bool((data.get("allow_force_pushes") or {}).get("enabled")),
+        "deletions_disabled": not bool((data.get("allow_deletions") or {}).get("enabled")),
+    }
+    missing = [name for name, enabled in requirements.items() if not enabled]
+    if missing_checks:
+        missing.append("checks:" + ",".join(missing_checks))
+    status = "ok" if not missing else "warn"
+    detail = (
+        "branch protection satisfies the beta policy"
+        if status == "ok"
+        else "branch protection needs attention: " + ", ".join(missing)
+    )
+    return {
+        "status": status,
+        "detail": detail,
+        "api_status": result["status"],
+        "branch": branch,
+        "required_checks": list(GITHUB_REQUIRED_STATUS_CHECKS),
+        "observed_checks": sorted(observed),
+        "requirements": requirements,
+    }
+
+
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def github_release_status(repository, expected_tag, pack_status, token=None):
+    encoded_tag = urllib.parse.quote(expected_tag, safe="")
+    result = github_api_get(f"repos/{repository}/releases/tags/{encoded_tag}", token=token)
+    if not result["ok"]:
+        status = "warn" if result["status"] == 404 else "unverified"
+        detail = (
+            f"GitHub Release {expected_tag} does not exist"
+            if result["status"] == 404
+            else f"could not verify GitHub Release: {result['error']}"
+        )
+        return {
+            "status": status,
+            "detail": detail,
+            "api_status": result["status"],
+            "tag": expected_tag,
+            "draft": None,
+            "prerelease": None,
+            "html_url": None,
+            "asset": {"status": "unverified", "optional": True},
+        }
+
+    data = result["data"] or {}
+    core_ok = (
+        data.get("tag_name") == expected_tag
+        and data.get("draft") is False
+        and data.get("prerelease") is True
+    )
+    vsix = pack_status.get("vsix") or {}
+    local_path = Path(vsix.get("path", "")) if vsix.get("path") else None
+    expected_name = local_path.name if local_path else None
+    remote_asset = None
+    if expected_name:
+        remote_asset = next(
+            (item for item in data.get("assets") or [] if item.get("name") == expected_name),
+            None,
+        )
+
+    asset = {
+        "status": "not_checked",
+        "optional": True,
+        "expected_name": expected_name,
+        "local_present": bool(local_path and local_path.is_file()),
+        "remote_present": bool(remote_asset),
+        "digest_match": None,
+    }
+    digest_failure = False
+    if asset["local_present"] and remote_asset:
+        local_digest = file_sha256(local_path)
+        remote_digest = str(remote_asset.get("digest") or "")
+        asset["local_sha256"] = local_digest
+        asset["remote_digest"] = remote_digest or None
+        if remote_digest.startswith("sha256:"):
+            asset["digest_match"] = remote_digest == f"sha256:{local_digest}"
+            asset["status"] = "ok" if asset["digest_match"] else "fail"
+            digest_failure = asset["digest_match"] is False
+        else:
+            asset["status"] = "digest_unavailable"
+    elif asset["local_present"] and not remote_asset:
+        asset["status"] = "optional_missing"
+    elif remote_asset:
+        asset["status"] = "remote_only"
+
+    if not core_ok:
+        status = "warn"
+        detail = "release exists but is not a published pre-release for the expected tag"
+    elif digest_failure:
+        status = "fail"
+        detail = "release VSIX digest does not match the local inspected artifact"
+    else:
+        status = "ok"
+        detail = f"published pre-release {expected_tag} verified"
+        if asset["status"] == "ok":
+            detail += "; VSIX digest matches"
+        elif asset["status"] == "optional_missing":
+            detail += "; optional VSIX is not attached"
+
+    return {
+        "status": status,
+        "detail": detail,
+        "api_status": result["status"],
+        "tag": data.get("tag_name"),
+        "draft": data.get("draft"),
+        "prerelease": data.get("prerelease"),
+        "html_url": data.get("html_url"),
+        "asset": asset,
+    }
+
+
+def collect_github_release_governance(release_payload, pack_status):
+    repository = github_repository_slug(release_payload.get("origin"))
+    token, credential_source = github_api_token()
+    if not repository:
+        unavailable = {
+            "status": "unverified",
+            "detail": "origin is not a supported github.com repository",
+            "api_status": 0,
+        }
+        return {
+            "enabled": True,
+            "repository": None,
+            "authenticated": bool(token),
+            "credential_source": credential_source,
+            "branch_protection": {**unavailable, "branch": "main"},
+            "release": {**unavailable, "tag": release_payload["expected_tag"]},
+        }
+
+    return {
+        "enabled": True,
+        "repository": repository,
+        "authenticated": bool(token),
+        "credential_source": credential_source,
+        "branch_protection": github_branch_protection_status(repository, token=token),
+        "release": github_release_status(
+            repository,
+            release_payload["expected_tag"],
+            pack_status,
+            token=token,
+        ),
+    }
+
+
+def release_governance_manual_actions(release_payload, pack_status, remote_state=None):
     target_version = release_payload["target_version"]
     expected_tag = release_payload["expected_tag"]
-    actions = [
-        {
-            "id": "github_branch_protection",
-            "status": "manual",
-            "title": "Enable GitHub branch protection for main",
-            "detail": (
-                "In GitHub Settings > Branches, protect main with pull requests, "
-                "required status checks, up-to-date branches, linear history, "
-                "and disabled force pushes/deletions."
-            ),
-        },
-        {
-            "id": "github_release",
-            "status": "manual",
-            "title": f"Create GitHub pre-release for {expected_tag}",
-            "detail": (
-                "Use release-body.md from the release pack and mark the GitHub "
-                "Release as a pre-release while the project remains beta."
-            ),
-        },
-    ]
+    actions = []
     if pack_status["status"] != "ok":
-        actions.insert(0, {
+        actions.append({
             "id": "release_pack",
             "status": "manual",
             "title": "Generate the local release pack",
             "detail": f"Run lai release-pack --target {target_version} --with-vsix --json.",
         })
+
+    branch_status = None if remote_state is None else remote_state["branch_protection"]["status"]
+    if branch_status != "ok":
+        detail = (
+            "In GitHub Settings > Branches, protect main with pull requests, required status checks, "
+            "up-to-date branches, linear history, admin enforcement, and disabled force pushes/deletions."
+            if remote_state is None
+            else remote_state["branch_protection"]["detail"]
+        )
+        actions.append({
+            "id": "github_branch_protection",
+            "status": "manual",
+            "title": "Verify GitHub branch protection for main",
+            "detail": detail,
+        })
+
+    release_status = None if remote_state is None else remote_state["release"]["status"]
+    if release_status != "ok":
+        detail = (
+            "Use release-body.md from the release pack and mark the GitHub Release as a pre-release while the project remains beta."
+            if remote_state is None
+            else remote_state["release"]["detail"]
+        )
+        actions.append({
+            "id": "github_release",
+            "status": "manual",
+            "title": f"Verify GitHub pre-release for {expected_tag}",
+            "detail": detail,
+        })
     return actions
 
 
-def collect_release_governance(target=None):
+def collect_release_governance(target=None, remote=False):
     release_payload = collect_release_check(target=target)
     pack_status = release_governance_pack_status(
         release_payload["target_version"],
         release_payload["expected_tag"],
     )
+    remote_state = collect_github_release_governance(release_payload, pack_status) if remote else None
     checks = []
 
     def add_check(name, status, detail=""):
@@ -5320,27 +5626,37 @@ def collect_release_governance(target=None):
         release_phase,
     )
     add_check("release_pack", pack_status["status"], pack_status["detail"])
-    add_check(
-        "github_branch_protection",
-        "manual",
-        "must be enabled in GitHub repository settings; this command is read-only",
-    )
-    add_check(
-        "github_release",
-        "manual",
-        "must be created manually from the tag using the release pack body",
-    )
+    if remote_state is None:
+        add_check(
+            "github_branch_protection",
+            "manual",
+            "use --remote to verify GitHub branch protection read-only",
+        )
+        add_check(
+            "github_release",
+            "manual",
+            "use --remote to verify the GitHub pre-release read-only",
+        )
+    else:
+        branch = remote_state["branch_protection"]
+        release = remote_state["release"]
+        add_check("github_branch_protection", branch["status"], branch["detail"])
+        add_check("github_release", release["status"], release["detail"])
 
     has_failure = any(check["status"] == "fail" for check in checks)
-    has_warning = any(check["status"] == "warn" for check in checks)
-    has_manual = any(check["status"] == "manual" for check in checks)
+    needs_action = any(check["status"] in {"warn", "manual", "unverified"} for check in checks)
     if has_failure:
         overall = "blocked"
-    elif has_warning or has_manual:
+    elif needs_action:
         overall = "action_required"
     else:
         overall = "ready"
 
+    manual_actions = release_governance_manual_actions(
+        release_payload,
+        pack_status,
+        remote_state=remote_state,
+    )
     return {
         "product": PRODUCT_NAME,
         "version": VERSION,
@@ -5354,16 +5670,20 @@ def collect_release_governance(target=None):
         "release_check_overall": release_overall,
         "release_check_phase": release_phase,
         "release_pack": pack_status,
-        "manual_actions": release_governance_manual_actions(release_payload, pack_status),
+        "remote": remote_state or {"enabled": False},
+        "manual_actions": manual_actions,
         "checks": checks,
         "overall": overall,
-        "safety": "read-only; no tag, merge, push, upload, publication, model call, or repository file mutation was executed",
+        "safety": (
+            "read-only; --remote performs GitHub API GET requests only; no tag, merge, push, "
+            "upload, publication, model call, or repository file mutation was executed"
+        ),
     }
 
 
 def render_release_governance(args=None):
     options = parse_release_governance_args(args or [])
-    payload = collect_release_governance(target=options["target"])
+    payload = collect_release_governance(target=options["target"], remote=options["remote"])
     if options["json"]:
         return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
 
@@ -5380,6 +5700,7 @@ def render_release_governance(args=None):
         f"Exact tag on HEAD: {payload['exact_tag']}",
         f"Latest reachable tag: {payload['latest_tag']}",
         f"Release check: {payload['release_check_overall']} / {payload['release_check_phase']}",
+        f"Remote GitHub verification: {'enabled' if payload['remote']['enabled'] else 'disabled'}",
         f"Overall: {payload['overall']}",
         "",
         "## Checks",
@@ -5395,15 +5716,29 @@ def render_release_governance(args=None):
         f"Detail: {pack['detail']}",
         f"Directory: {pack['pack_dir']}",
         f"VSIX: {pack['vsix']['path']} ({'present' if pack['vsix']['present'] else 'optional/missing'})",
-        "",
-        "## Manual actions",
     ])
-    for index, action in enumerate(payload["manual_actions"], start=1):
-        lines.append(f"{index}. {action['title']} — {action['detail']}")
+    remote_state = payload["remote"]
+    if remote_state["enabled"]:
+        lines.extend([
+            "",
+            "## Remote GitHub state",
+            f"Repository: {remote_state.get('repository')}",
+            f"Authenticated: {remote_state.get('authenticated')}",
+            f"Credential source: {remote_state.get('credential_source')}",
+            f"Branch protection: {remote_state['branch_protection']['status']} — {remote_state['branch_protection']['detail']}",
+            f"GitHub Release: {remote_state['release']['status']} — {remote_state['release']['detail']}",
+        ])
+
+    lines.extend(["", "## Manual actions"])
+    if payload["manual_actions"]:
+        for index, action in enumerate(payload["manual_actions"], start=1):
+            lines.append(f"{index}. {action['title']} — {action['detail']}")
+    else:
+        lines.append("- none; verified release governance requirements are satisfied")
 
     lines.extend([
         "",
-        "Release governance is read-only. It does not tag, merge, push, upload, publish, call the model, or mutate repository files.",
+        "Release governance is read-only. With --remote it performs GitHub API GET requests only; it does not tag, merge, push, upload, publish, call the model, or mutate repository files.",
     ])
     return "\n".join(lines)
 

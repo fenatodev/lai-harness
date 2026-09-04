@@ -5,8 +5,8 @@
 ```bash
 lai project-handoff
 lai project-handoff --json
-lai project-handoff --target 0.4.0-beta.7
-lai project-handoff --target 0.4.0-beta.7 --out /tmp/lai-harness-project-handoff-v0.4.0-beta.7 --json
+lai project-handoff --target 0.4.0-beta.8
+lai project-handoff --target 0.4.0-beta.8 --out /tmp/lai-harness-project-handoff-v0.4.0-beta.8 --json
 lai next-chat --json
 ```
 
@@ -39,9 +39,10 @@ The output directory must be outside the source repository. Existing non-empty d
 Before leaving a long chat:
 
 ```bash
-lai release-check --target 0.4.0-beta.7 --json
-lai release-governance --target 0.4.0-beta.7 --json
-lai project-handoff --target 0.4.0-beta.7 --out /tmp/lai-harness-project-handoff-v0.4.0-beta.7 --force --json
+lai release-check --target 0.4.0-beta.8 --json
+lai release-governance --target 0.4.0-beta.8 --json
+lai release-governance --target 0.4.0-beta.8 --remote --json  # optional live GitHub verification
+lai project-handoff --target 0.4.0-beta.8 --out /tmp/lai-harness-project-handoff-v0.4.0-beta.8 --force --json
 ```
 
-In the new chat, paste `NEXT-CHAT-PROMPT.md` or tell the assistant to read the generated `PROJECT-HANDOFF.md` path using Remote Desktop Commander.
+The handoff itself stays local/offline; `--remote` governance is a separate live verification step. In the new chat, paste `NEXT-CHAT-PROMPT.md` or tell the assistant to read the generated `PROJECT-HANDOFF.md` path using Remote Desktop Commander.

@@ -30,7 +30,7 @@ local-agent (Python standard library)
                   user-supplied GGUF
 ```
 
-See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow, [Branding](docs/BRANDING.md) for naming rules, [Semantic code contracts](docs/SEMANTIC-CODE-CONTRACTS.md) for subsystem navigation metadata, and [Beta readiness](docs/BETA-READINESS.md) for the beta.7 release posture.
+See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow, [Branding](docs/BRANDING.md) for naming rules, [Semantic code contracts](docs/SEMANTIC-CODE-CONTRACTS.md) for subsystem navigation metadata, and [Beta readiness](docs/BETA-READINESS.md) for the beta.8 release posture.
 
 ## Features
 
@@ -80,7 +80,7 @@ Configure `~/.config/lai/config.toml`, `LAI_*` environment variables, or leading
 @lai /debug reproduce why the timeout becomes NaN
 @lai /diagnose explain why the CI is failing
 @lai /ci-fix repair the failing publication gate
-@lai /release verify whether beta.7 is ready
+@lai /release verify whether beta.8 is ready
 @lai /implement add the requested test and minimal fix
 @lai /review review my current Git changes
 @lai /audit
@@ -91,9 +91,10 @@ lai semantics
 lai runs
 lai run last
 lai readiness
-lai release-check --target 0.4.0-beta.7 --json
-lai release-pack --target 0.4.0-beta.7 --with-vsix --json
-lai project-handoff --target 0.4.0-beta.7 --json
+lai release-check --target 0.4.0-beta.8 --json
+lai release-pack --target 0.4.0-beta.8 --with-vsix --json
+lai release-governance --target 0.4.0-beta.8 --remote --json
+lai project-handoff --target 0.4.0-beta.8 --json
 lai recovery
 # if recovery reports a compatible interrupted run:
 lai resume
