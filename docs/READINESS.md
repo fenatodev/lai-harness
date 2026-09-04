@@ -19,3 +19,6 @@ The human output includes an overall status:
 - `blocked`: an operational prerequisite is missing, such as unavailable Git evidence, missing mode skills, failed server authentication, invalid active spec, or recovery inspection failure.
 
 JSON output exposes the same checks for scripts and future VS Code integration. API key contents are never printed.
+
+
+After readiness is healthy, use `lai run export --last` when a recorded run needs to be shared or inspected outside the live workspace.

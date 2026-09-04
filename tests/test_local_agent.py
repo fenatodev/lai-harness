@@ -433,7 +433,7 @@ class LocalAgentTest(unittest.TestCase):
         self.assertEqual(json.loads(agent.AUDIT_FILE.read_text())["type"], "smoke")
 
 
-    def test_run_history_lists_shows_and_tails_recorded_runs(self):
+    def test_run_history_lists_shows_tails_and_exports_recorded_runs(self):
         data_dir = self.base / "data"
         metrics_dir = data_dir / "metrics"
         audit_dir = data_dir / "audit"
@@ -634,10 +634,48 @@ class LocalAgentTest(unittest.TestCase):
             check=True,
         )
         payload = json.loads(raw.stdout)
-        self.assertEqual(payload["version"], "0.4.0-alpha.19")
+        self.assertEqual(payload["version"], "0.4.0-alpha.20")
         self.assertEqual(payload["runs"][0]["run_id"], "run-1")
         self.assertEqual(payload["runs"][1]["run_id"], "run-2")
         self.assertIsNotNone(payload["runs"][1]["last_failure"])
+
+        export_dir = self.base / "exports"
+        exported = subprocess.run(
+            [str(SOURCE), "--run", "export", "--last", "--out", str(export_dir)],
+            cwd=self.root,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        self.assertIn("# lai run export", exported.stdout)
+        self.assertIn("Run ID: run-2", exported.stdout)
+        bundle = export_dir / "lai-run-run-2"
+        self.assertTrue((bundle / "summary.json").is_file())
+        self.assertTrue((bundle / "timeline.jsonl").is_file())
+        self.assertTrue((bundle / "report.md").is_file())
+        summary = json.loads((bundle / "summary.json").read_text())
+        self.assertTrue(summary["sanitized"])
+        self.assertEqual(summary["run_id"], "run-2")
+        self.assertEqual(summary["run"]["last_failure"]["type"], "checkpoint")
+        timeline = (bundle / "timeline.jsonl").read_text()
+        self.assertIn('"type": "validation"', timeline)
+        self.assertIn('"validation_status": "fail"', timeline)
+        self.assertNotIn('"args"', timeline)
+        self.assertNotIn('"answer"', timeline)
+        self.assertNotIn("FAILED: assertion error in test_app" * 3, timeline)
+
+        export_json = subprocess.run(
+            [str(SOURCE), "--run", "export", "run-1", "--out", str(export_dir), "--json"],
+            cwd=self.root,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        export_payload = json.loads(export_json.stdout)
+        self.assertEqual(export_payload["run_id"], "run-1")
+        self.assertEqual(export_payload["files"], ["report.md", "summary.json", "timeline.jsonl"])
 
         missing = subprocess.run(
             [str(SOURCE), "--run", "show", "missing-run"],
@@ -688,7 +726,7 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("Authentication: OK", rendered)
         self.assertIn("mode_skills", rendered)
         payload = json.loads(raw)
-        self.assertEqual(payload["version"], "0.4.0-alpha.19")
+        self.assertEqual(payload["version"], "0.4.0-alpha.20")
         self.assertTrue(payload["server"]["authentication_ok"])
         self.assertIn(payload["overall"], {"ready", "attention"})
         self.assertTrue(
@@ -715,7 +753,7 @@ class LocalAgentTest(unittest.TestCase):
         )
         payload = json.loads(result.stdout)
         self.assertEqual(payload["product"], "lai harness")
-        self.assertEqual(payload["version"], "0.4.0-alpha.19")
+        self.assertEqual(payload["version"], "0.4.0-alpha.20")
         self.assertEqual(payload["repository"], str(self.root.resolve()))
         self.assertIn("checks", payload)
 
@@ -1534,7 +1572,7 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "lai harness 0.4.0-alpha.19")
+        self.assertEqual(result.stdout.strip(), "lai harness 0.4.0-alpha.20")
 
     def test_deterministic_model_eval_plan_needs_no_server(self):
         result = subprocess.run(
@@ -1585,7 +1623,7 @@ class LocalAgentTest(unittest.TestCase):
         )
         payload = json.loads(result.stdout)
         self.assertEqual(payload["product"], "lai harness")
-        self.assertEqual(payload["version"], "0.4.0-alpha.19")
+        self.assertEqual(payload["version"], "0.4.0-alpha.20")
         scenario_ids = {item["id"] for item in payload["scenarios"]}
         self.assertIn("context-ranking", scenario_ids)
 

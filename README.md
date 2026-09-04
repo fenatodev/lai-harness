@@ -54,7 +54,7 @@ See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow, [Branding](
 - validated configuration diagnostics with secret-safe `lai config`;
 - deterministic `lai model` benchmark planning, JSONL samples, and local scoring;
 - deterministic `lai semantics` subsystem map for model-friendly code navigation;
-- deterministic `lai runs` / `lai run show` browser for local run history;
+- deterministic `lai runs` / `lai run show` browser and sanitized `lai run export` bundle for local run history;
 - deterministic `lai readiness` environment and repository health check;
 - focused `diagnose`, `ci-fix`, and `release` skills for safer pre-beta operations;
 - no Python package dependencies in the current harness.

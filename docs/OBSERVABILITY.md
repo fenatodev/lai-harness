@@ -53,3 +53,8 @@ Runtime records can expose repository names, absolute paths, task descriptions, 
 ## Readiness
 
 `lai readiness` combines configuration path checks, Git state, server authentication, installed skill status, recovery status, and the latest run summary. It is diagnostic only: it does not call the model, start the server, replay tools, or mutate files.
+
+
+## Sanitized run exports
+
+`lai run export <run-id|--last>` writes a local diagnostic bundle derived from metrics, audit events, and checkpoints. The bundle contains `summary.json`, `timeline.jsonl`, and `report.md`. Export records are allowlisted and compacted so raw prompts, full tool outputs, secrets, and unbounded logs are not copied into the bundle.

@@ -12,7 +12,7 @@ import urllib.request
 import unicodedata
 from pathlib import Path
 
-VERSION = "0.4.0-alpha.19"
+VERSION = "0.4.0-alpha.20"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -83,6 +83,13 @@ SEMANTIC_CODE_CONTRACT = {
             "paths": ["src/local-agent", "docs/RUN-HISTORY.md", "docs/OBSERVABILITY.md"],
             "entrypoints": ["collect_run_history", "render_run_history_list", "render_run_history_show", "render_run_history_tail"],
             "terms": ["run", "runs", "history", "session", "browser", "show", "tail", "last", "failure", "validation", "audit", "metrics", "timeline"],
+        },
+        {
+            "id": "run-export",
+            "intent": "write a sanitized local diagnostic bundle for one recorded run without replaying actions or exposing raw logs",
+            "paths": ["src/local-agent", "docs/RUN-HISTORY.md", "docs/OBSERVABILITY.md"],
+            "entrypoints": ["render_run_history_export", "write_run_history_export", "sanitize_run_history_export_event"],
+            "terms": ["run", "export", "bundle", "diagnostic", "summary", "timeline", "report", "sanitized", "evidence"],
         },
         {
             "id": "operational-readiness",
@@ -4010,6 +4017,246 @@ def render_run_history_tail(run_id, limit=20, json_mode=False):
     return "\n".join(lines)
 
 
+def sanitize_export_filename(value):
+    text = str(value or "").strip()
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "-", text).strip(".-")
+    return cleaned[:120] or "run"
+
+
+def run_history_export_text(value, limit=500):
+    return compact_run_history_value(value, limit=limit)
+
+
+def sanitize_run_history_export_event(event):
+    kind = str(event.get("type") or "unknown")
+    record = {
+        "ts": event.get("ts"),
+        "source": event.get("source"),
+        "type": kind,
+    }
+
+    for key in (
+        "run_id",
+        "repo",
+        "mode",
+        "name",
+        "tool",
+        "decision",
+        "phase",
+        "outcome",
+        "status",
+    ):
+        if event.get(key) is not None:
+            record[key] = event.get(key)
+
+    if event.get("reason") is not None:
+        record["reason"] = run_history_export_text(event.get("reason"), limit=300)
+
+    if event.get("command") is not None:
+        record["command"] = run_history_export_text(event.get("command"), limit=240)
+
+    if kind == "validation":
+        record["validation_status"] = run_history_validation_status(event)
+        if event.get("result") is not None:
+            record["result"] = run_history_export_text(event.get("result"), limit=400)
+
+    for key in (
+        "paths",
+        "modified_paths",
+        "reasons",
+        "phases",
+        "limits",
+    ):
+        value = event.get(key)
+        if isinstance(value, list):
+            record[key] = [run_history_export_text(item, limit=160) for item in value[:50]]
+
+    for key in (
+        "before_hashes",
+        "after_hashes",
+        "current_hashes",
+        "hashes",
+        "expected_hashes",
+    ):
+        value = event.get(key)
+        if isinstance(value, dict):
+            record[key] = {
+                str(item_key)[:200]: str(item_value)[:80]
+                for item_key, item_value in sorted(value.items())[:50]
+            }
+
+    return {key: value for key, value in record.items() if value is not None}
+
+
+def render_run_history_export_report(run, public_record, events):
+    lines = [
+        "# lai run export",
+        "",
+        f"Product: {PRODUCT_NAME}",
+        f"Version: {VERSION}",
+        f"Repository: {ROOT}",
+        f"Run ID: {run['run_id']}",
+        f"Mode: {run.get('mode') or 'unknown'}",
+        f"Status: {run.get('status') or 'unknown'}",
+        f"First event: {run.get('first_ts') or '[unknown]'}",
+        f"Last event: {run.get('last_ts') or '[unknown]'}",
+        "Sanitized: yes",
+        "",
+        "## Last failure or stop reason",
+        render_run_history_failure(run_history_last_failure(run)),
+        "",
+        "## Counters",
+        f"api_calls: {run.get('api_calls', 0)}",
+        f"tool_calls: {run.get('tool_calls', 0)}",
+        f"prompt_tokens: {run.get('prompt_tokens', 0)}",
+        f"completion_tokens: {run.get('completion_tokens', 0)}",
+        f"validation_events: {run.get('validation_count', 0)}",
+        "",
+        "## Validation timeline",
+    ]
+
+    validations = public_record.get("validation_events") or []
+    if validations:
+        for item in validations[-12:]:
+            lines.append(
+                "- "
+                + str(item.get("ts") or "[unknown]")
+                + " | status="
+                + str(item.get("status") or "unknown")
+                + " | command="
+                + str(item.get("command") or "[none]")
+            )
+    else:
+        lines.append("- [none]")
+
+    lines.append("")
+    lines.append("## Modified paths")
+    if public_record.get("modified_paths"):
+        for path in public_record["modified_paths"][-30:]:
+            lines.append(f"- {path}")
+    else:
+        lines.append("- [none]")
+
+    lines.extend([
+        "",
+        "## Export files",
+        "- summary.json: public run summary and export metadata",
+        "- timeline.jsonl: sanitized event timeline",
+        "- report.md: this human-readable report",
+        "",
+        "Raw prompts, full tool arguments, full tool outputs, API keys, and unbounded logs are not exported.",
+        f"Sanitized events exported: {len(events)}",
+    ])
+    return "\n".join(lines) + "\n"
+
+
+def write_text_file(path, content):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(path)
+
+
+def write_run_history_export(selector, out_dir=None):
+    run = resolve_run_history_record(selector)
+    safe_run_id = sanitize_export_filename(run["run_id"])
+    base = Path(out_dir).expanduser() if out_dir else (DATA_BASE / "exports")
+    if not base.is_absolute():
+        base = (ROOT / base).resolve()
+    else:
+        base = base.resolve()
+    export_dir = base / ("lai-run-" + safe_run_id)
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    public_record = run_history_public_record(run)
+    events = [
+        sanitize_run_history_export_event(event)
+        for event in run_history_sorted_events(run)
+    ]
+
+    files = {
+        "summary.json": json.dumps(
+            {
+                "product": PRODUCT_NAME,
+                "version": VERSION,
+                "repository": str(ROOT),
+                "selector": str(selector),
+                "run_id": run["run_id"],
+                "sanitized": True,
+                "event_count": len(events),
+                "run": public_record,
+                "files": ["summary.json", "timeline.jsonl", "report.md"],
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        ) + "\n",
+        "timeline.jsonl": "".join(
+            json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n"
+            for event in events
+        ),
+        "report.md": render_run_history_export_report(run, public_record, events),
+    }
+
+    for name, content in files.items():
+        write_text_file(export_dir / name, content)
+
+    return {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "repository": str(ROOT),
+        "selector": str(selector),
+        "run_id": run["run_id"],
+        "export_dir": str(export_dir),
+        "sanitized": True,
+        "event_count": len(events),
+        "files": sorted(files),
+    }
+
+
+def parse_run_history_out_dir(args):
+    if "--out" not in args:
+        return None
+    index = args.index("--out")
+    try:
+        value = args[index + 1]
+    except Exception:
+        raise SystemExit("Missing value for --out")
+    del args[index:index + 2]
+    return value
+
+
+def render_run_history_export(selector, out_dir=None, json_mode=False):
+    payload = write_run_history_export(selector, out_dir=out_dir)
+
+    if json_mode:
+        return json.dumps(
+            payload,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+
+    lines = [
+        "# lai run export",
+        "",
+        f"Repository: {payload['repository']}",
+        f"Run ID: {payload['run_id']}",
+        f"Export directory: {payload['export_dir']}",
+        f"Sanitized: {str(payload['sanitized']).lower()}",
+        f"Events exported: {payload['event_count']}",
+        "",
+        "## Files",
+    ]
+    for name in payload["files"]:
+        lines.append(f"- {name}")
+    lines.extend([
+        "",
+        "Raw prompts, full tool arguments, full tool outputs, API keys, and unbounded logs are not exported.",
+    ])
+    return "\n".join(lines)
+
+
 def parse_run_history_limit(args, default=20):
     if "--limit" not in args:
         return default
@@ -4053,7 +4300,14 @@ def handle_run_history(args):
         print(render_run_history_tail(raw[1], limit=limit, json_mode=json_mode))
         return
 
-    raise SystemExit("Usage: lai runs [--limit N] | lai run last | lai run show <run-id|--last> | lai run tail <run-id|--last> [--limit N]")
+    if command == "export":
+        if len(raw) < 2:
+            raise SystemExit("Usage: lai run export <run-id|--last> [--out DIR] [--json]")
+        out_dir = parse_run_history_out_dir(raw)
+        print(render_run_history_export(raw[1], out_dir=out_dir, json_mode=json_mode))
+        return
+
+    raise SystemExit("Usage: lai runs [--limit N] | lai run last | lai run show <run-id|--last> | lai run tail <run-id|--last> [--limit N] | lai run export <run-id|--last> [--out DIR]")
 
 
 def git_origin_url():

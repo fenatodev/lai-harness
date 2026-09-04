@@ -21,3 +21,5 @@
 - Explore signed releases and provenance attestations.
 
 Roadmap items are intentions, not commitments. Model redistribution and automatic downloading are deliberately out of scope.
+
+- v0.4.0-alpha.20: sanitized run export bundle with `lai run export`.

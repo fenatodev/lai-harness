@@ -18,7 +18,7 @@ Ele complementa agentes cloud de alto contexto: o lai harness atende ciclos loca
 - identidade pública padronizada como lai harness, mantendo o comando `lai`;
 - avaliação determinística de modelos locais com `lai model` antes de trocar o default;
 - mapa semântico determinístico com `lai semantics` para orientar modelos pequenos pelos subsistemas;
-- histórico determinístico de execuções com `lai runs` e `lai run show`;
+- histórico determinístico de execuções com `lai runs`, `lai run show` e exportação sanitizada com `lai run export`;
 - verificação operacional com `lai readiness`;
 - skills focadas `diagnose`, `ci-fix` e `release` para preparar o beta com menos risco.
 
@@ -57,6 +57,7 @@ lai model score model-eval/results.jsonl
 lai semantics
 lai runs
 lai run last
+lai run export --last
 lai readiness
 ```
 

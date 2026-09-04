@@ -38,3 +38,16 @@ The browser is intentionally summary-first. It shows run IDs, mode, status, API/
 ## failure signal
 
 `lai run show` highlights the latest validation failure, agent limit, recovery block, non-success outcome, or failed checkpoint. This is an operational hint for triage, not proof that the current workspace is still broken.
+
+
+## Exporting a diagnostic bundle
+
+Use `lai run export <run-id>` or `lai run export --last` to write a local diagnostic bundle for one recorded run. By default, bundles are created under `$LAI_DATA_DIR/exports/lai-run-<run-id>/`. Use `--out DIR` to choose another destination.
+
+Each bundle contains:
+
+- `summary.json` with the public run summary and export metadata;
+- `timeline.jsonl` with a sanitized event timeline;
+- `report.md` with a human-readable summary.
+
+The export is intentionally sanitized. It does not include raw prompts, full tool arguments, full tool outputs, API keys, or unbounded logs. It is meant for debugging and handoff, not for replaying actions.
