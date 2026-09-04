@@ -17,13 +17,16 @@ case "$command_name" in
         shift
         exec "$bin_dir/local-agent" "$@" --config-status
         ;;
-    status|metrics|audit|handoff|clear-context|recovery|context|semantics|runs|readiness|ready|release-check)
+    status|metrics|audit|handoff|clear-context|recovery|context|semantics|runs|readiness|ready|release-check|workspace)
         shift
         if [ "$command_name" = "ready" ]; then
             exec "$bin_dir/local-agent" --readiness "$@"
         fi
         if [ "$command_name" = "release-check" ]; then
             exec "$bin_dir/local-agent" --release-check "$@"
+        fi
+        if [ "$command_name" = "workspace" ]; then
+            exec "$bin_dir/local-agent" --workspace "$@"
         fi
         exec "$bin_dir/local-agent" "--$command_name" "$@"
         ;;

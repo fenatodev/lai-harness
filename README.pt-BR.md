@@ -59,7 +59,7 @@ lai runs
 lai run last
 lai run export --last
 lai readiness
-lai release-check --target 0.4.0-beta.3 --json
+lai release-check --target 0.4.0-beta.4 --json
 lai release "verifique se beta.3 está pronto"
 ```
 
@@ -78,3 +78,16 @@ O código original do LAI usa MIT. VS Code, llama.cpp, modelos, GGUF e templates
 A documentação técnica principal está em inglês no diretório [`docs/`](docs/), incluindo [Beta readiness](docs/BETA-READINESS.md).
 
 See [Protected branch write guard](docs/PROTECTED-BRANCH-WRITES.md) before running write-capable modes on release-sensitive branches.
+
+### Workspace seguro para dogfood
+
+Use uma cópia descartável ao testar modos que escrevem arquivos sem tocar na `main`:
+
+```bash
+lai workspace create --name smoke
+cd /tmp/lai-harness-workspaces/smoke
+lai implement "faça uma alteração pequena e valide"
+git diff
+```
+
+Veja [Safe workspaces](docs/SAFE-WORKSPACES.md).

@@ -70,6 +70,19 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertIn(str(sample_repo), status.stdout)
             self.assertIn("## Git status", status.stdout)
 
+            workspace_status = subprocess.run(
+                [str(bin_dir / "lai"), "workspace", "status", "--json"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            workspace_payload = json.loads(workspace_status.stdout)
+            self.assertEqual(workspace_payload["version"], "0.4.0-beta.4")
+            self.assertEqual(workspace_payload["repository"], str(sample_repo.resolve()))
+            self.assertIn("base_dir", workspace_payload)
+
             model_plan = subprocess.run(
                 [str(bin_dir / "lai"), "model", "plan"],
                 cwd=sample_repo,
@@ -112,7 +125,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             readiness_payload = json.loads(readiness.stdout)
-            self.assertEqual(readiness_payload["version"], "0.4.0-beta.3")
+            self.assertEqual(readiness_payload["version"], "0.4.0-beta.4")
             modes = {item["mode"] for item in readiness_payload["skills"]}
             self.assertTrue({"diagnose", "ci-fix", "release"}.issubset(modes))
 
@@ -125,7 +138,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             release_payload = json.loads(release_check.stdout)
-            self.assertEqual(release_payload["version"], "0.4.0-beta.3")
+            self.assertEqual(release_payload["version"], "0.4.0-beta.4")
             self.assertIn("release_safety", {item["name"] for item in release_payload["checks"]})
 
             no_last = subprocess.run(

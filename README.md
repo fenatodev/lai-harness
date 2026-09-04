@@ -90,7 +90,7 @@ lai semantics
 lai runs
 lai run last
 lai readiness
-lai release-check --target 0.4.0-beta.3 --json
+lai release-check --target 0.4.0-beta.4 --json
 lai recovery
 # if recovery reports a compatible interrupted run:
 lai resume
@@ -163,3 +163,16 @@ Original LAI code is released under the [MIT License](LICENSE). This does not li
 ## Contributing
 
 Focused issues, reproducible fixtures, security reports, and measured improvements are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
+
+### Safe dogfood workspace
+
+Use a disposable workspace when testing write-capable modes without touching `main`:
+
+```bash
+lai workspace create --name smoke
+cd /tmp/lai-harness-workspaces/smoke
+lai implement "faça uma alteração pequena e valide"
+git diff
+```
+
+See [Safe workspaces](docs/SAFE-WORKSPACES.md).

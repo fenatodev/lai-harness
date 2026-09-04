@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shutil
 import shlex
 import subprocess
 import sys
@@ -12,7 +13,7 @@ import urllib.request
 import unicodedata
 from pathlib import Path
 
-VERSION = "0.4.0-beta.3"
+VERSION = "0.4.0-beta.4"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -104,6 +105,13 @@ SEMANTIC_CODE_CONTRACT = {
             "paths": ["src/local-agent", "docs/READINESS.md", "docs/MODES.md", ".agents/skills/diagnose/SKILL.md", ".agents/skills/ci-fix/SKILL.md", ".agents/skills/release/SKILL.md"],
             "entrypoints": ["collect_readiness_status", "render_readiness_status", "load_mode_skill"],
             "terms": ["readiness", "ready", "diagnose", "ci", "release", "skill", "mode", "environment", "server", "git", "health"],
+        },
+        {
+            "id": "safe-workspace",
+            "intent": "create and clean disposable dogfood copies so write modes can be tested away from protected branches",
+            "paths": ["src/local-agent", "src/lai", "docs/SAFE-WORKSPACES.md", "docs/PROTECTED-BRANCH-WRITES.md"],
+            "entrypoints": ["handle_safe_workspace", "create_safe_workspace", "render_safe_workspace_status", "clean_safe_workspace"],
+            "terms": ["workspace", "safe", "dogfood", "smoke", "clone", "copy", "branch", "main", "protected", "clean"],
         },
         {
             "id": "extension-shell",
@@ -6445,6 +6453,368 @@ def record_workspace_tool(
 
 
 
+SAFE_WORKSPACE_BASE_ENV = "LAI_SAFE_WORKSPACE_DIR"
+SAFE_WORKSPACE_BRANCH = "test/lai-smoke"
+SAFE_WORKSPACE_METADATA = ".lai-safe-workspace.json"
+
+
+def safe_workspace_base(raw_base=None):
+    configured = raw_base or os.environ.get(SAFE_WORKSPACE_BASE_ENV)
+    base = Path(configured).expanduser() if configured else Path("/tmp/lai-harness-workspaces")
+    base = base.resolve()
+    if base == ROOT or ROOT in base.parents:
+        raise SystemExit("Safe workspace base must be outside the source repository")
+    return base
+
+
+def slugify_safe_workspace_name(value):
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", ascii_text).strip("-._").lower()
+    return (slug or "smoke")[:80]
+
+
+def current_git_sha(short=False):
+    args = ["rev-parse"]
+    if short:
+        args.append("--short=12")
+    args.append("HEAD")
+    return git_command_text(args, default="unknown")
+
+
+def default_safe_workspace_name():
+    return "lai-harness-" + slugify_safe_workspace_name(current_git_sha(short=True))
+
+
+def ensure_safe_workspace_child(base, target):
+    base = base.resolve()
+    target = target.resolve(strict=False)
+    if target == base or base not in target.parents:
+        raise SystemExit("Target must be inside safe workspace base")
+    return target
+
+
+def parse_safe_workspace_options(raw):
+    options = {"name": "", "base": None, "force": False, "all": False}
+    index = 0
+    positional = []
+    while index < len(raw):
+        token = raw[index]
+        if token == "--force":
+            options["force"] = True
+        elif token == "--all":
+            options["all"] = True
+        elif token == "--name":
+            index += 1
+            if index >= len(raw):
+                raise SystemExit("--name requires a value")
+            options["name"] = raw[index]
+        elif token.startswith("--name="):
+            options["name"] = token.split("=", 1)[1]
+        elif token == "--base":
+            index += 1
+            if index >= len(raw):
+                raise SystemExit("--base requires a value")
+            options["base"] = raw[index]
+        elif token.startswith("--base="):
+            options["base"] = token.split("=", 1)[1]
+        elif token.startswith("-"):
+            raise SystemExit(f"Unknown workspace option: {token}")
+        else:
+            positional.append(token)
+        index += 1
+    if positional and not options["name"]:
+        options["name"] = positional[0]
+    if len(positional) > 1:
+        raise SystemExit("Workspace command accepts at most one positional name/path")
+    return options
+
+
+def copy_tracked_repository_files(target):
+    proc = subprocess.run(
+        ["git", "ls-files", "-z"],
+        cwd=ROOT,
+        text=False,
+        capture_output=True,
+        timeout=20,
+        check=True,
+    )
+    copied = 0
+    for raw_path in proc.stdout.split(b"\0"):
+        if not raw_path:
+            continue
+        rel_text = raw_path.decode("utf-8", errors="surrogateescape")
+        rel = Path(rel_text)
+        if rel.is_absolute() or ".." in rel.parts or ".git" in rel.parts:
+            raise SystemExit(f"Unsafe tracked path refused: {rel_text}")
+        source = (ROOT / rel).resolve()
+        destination = target / rel
+        if not str(source).startswith(str(ROOT)):
+            raise SystemExit(f"Tracked path escapes repository: {rel_text}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if source.is_symlink():
+            destination.symlink_to(os.readlink(source))
+        elif source.is_file():
+            shutil.copy2(source, destination)
+        else:
+            continue
+        copied += 1
+    return copied
+
+
+def create_safe_workspace(raw, json_mode=False):
+    options = parse_safe_workspace_options(raw)
+    base = safe_workspace_base(options["base"])
+    name = slugify_safe_workspace_name(options["name"] or default_safe_workspace_name())
+    target = ensure_safe_workspace_child(base, base / name)
+    source_sha = current_git_sha(short=False)
+    source_short_sha = current_git_sha(short=True)
+    source_branch = workspace_git_branch()
+
+    if target.exists():
+        if not options["force"]:
+            raise SystemExit(
+                f"Safe workspace already exists: {target}. Use --force to replace it."
+            )
+        shutil.rmtree(target)
+
+    base.mkdir(parents=True, exist_ok=True)
+    target.mkdir(parents=True)
+    copied = copy_tracked_repository_files(target)
+    metadata = {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "source_repository": str(ROOT),
+        "source_branch": source_branch,
+        "source_sha": source_sha,
+        "safe_branch": SAFE_WORKSPACE_BRANCH,
+        "copied_files": copied,
+    }
+    (target / SAFE_WORKSPACE_METADATA).write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "init", "-q"], cwd=target, check=True, timeout=20)
+    subprocess.run(["git", "checkout", "-q", "-b", SAFE_WORKSPACE_BRANCH], cwd=target, check=True, timeout=20)
+    subprocess.run(["git", "add", "."], cwd=target, check=True, timeout=20)
+    subprocess.run(
+        [
+            "git",
+            "-c", "user.name=lai harness",
+            "-c", "user.email=lai@example.invalid",
+            "commit", "-q", "-m",
+            f"seed safe workspace from {source_short_sha}",
+        ],
+        cwd=target,
+        check=True,
+        timeout=20,
+    )
+    return {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "status": "created",
+        "path": str(target),
+        "name": name,
+        "base_dir": str(base),
+        "branch": SAFE_WORKSPACE_BRANCH,
+        "source_repository": str(ROOT),
+        "source_branch": source_branch,
+        "source_sha": source_sha,
+        "copied_files": copied,
+        "next_commands": [
+            f"cd {target}",
+            "lai readiness",
+            "lai implement \"faça uma alteração pequena e valide\"",
+            "git diff",
+        ],
+    }
+
+
+def workspace_git_text(path, args, default="[unavailable]"):
+    try:
+        proc = subprocess.run(
+            ["git", *args],
+            cwd=path,
+            text=True,
+            capture_output=True,
+            timeout=5,
+        )
+    except Exception:
+        return default
+    if proc.returncode != 0:
+        return default
+    return proc.stdout.strip() or default
+
+
+def safe_workspace_entries(base):
+    if not base.is_dir():
+        return []
+    entries = []
+    for child in sorted(base.iterdir(), key=lambda item: item.name):
+        if not child.is_dir():
+            continue
+        metadata_path = child / SAFE_WORKSPACE_METADATA
+        metadata = {}
+        if metadata_path.is_file():
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except Exception:
+                metadata = {}
+        entries.append({
+            "name": child.name,
+            "path": str(child),
+            "branch": workspace_git_text(child, ["branch", "--show-current"]),
+            "git_status": workspace_git_text(child, ["status", "--short"], default="[not a git repository]") or "[clean]",
+            "source_sha": metadata.get("source_sha", "[unknown]"),
+            "version": metadata.get("version", "[unknown]"),
+        })
+    return entries
+
+
+def collect_safe_workspace_status(raw=None):
+    options = parse_safe_workspace_options(raw or [])
+    base = safe_workspace_base(options["base"])
+    return {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "repository": str(ROOT),
+        "current_branch": workspace_git_branch(),
+        "git_status": workspace_git_status(),
+        "base_dir": str(base),
+        "workspaces": safe_workspace_entries(base),
+    }
+
+
+def render_safe_workspace_status(raw=None, json_mode=False):
+    payload = collect_safe_workspace_status(raw or [])
+    if json_mode:
+        return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    lines = [
+        "# lai safe workspaces",
+        "",
+        f"Product: {payload['product']}",
+        f"Version: {payload['version']}",
+        f"Repository: {payload['repository']}",
+        f"Current branch: {payload['current_branch']}",
+        f"Source git status: {payload['git_status']}",
+        f"Base dir: {payload['base_dir']}",
+        "",
+        "## Workspaces",
+    ]
+    if payload["workspaces"]:
+        for item in payload["workspaces"]:
+            lines.append(
+                f"- {item['name']} — {item['branch']} — {item['git_status']} — {item['path']}"
+            )
+    else:
+        lines.append("- [none]")
+    lines.extend([
+        "",
+        "Create one with: lai workspace create --name smoke",
+        "Clean one with:  lai workspace clean smoke",
+        "This command does not call the model or mutate the source repository.",
+    ])
+    return "\n".join(lines)
+
+
+def clean_safe_workspace(raw, json_mode=False):
+    options = parse_safe_workspace_options(raw)
+    base = safe_workspace_base(options["base"])
+    targets = []
+    if options["all"]:
+        targets = [item for item in base.iterdir() if item.is_dir()] if base.is_dir() else []
+    else:
+        name = options["name"]
+        if not name:
+            raise SystemExit("Usage: lai workspace clean <name|path> [--base DIR] [--json]")
+        candidate = Path(name).expanduser()
+        target = candidate if candidate.is_absolute() else base / slugify_safe_workspace_name(name)
+        targets = [ensure_safe_workspace_child(base, target)]
+    removed = []
+    for target in targets:
+        target = ensure_safe_workspace_child(base, target)
+        if not target.exists():
+            raise SystemExit(f"Safe workspace not found: {target}")
+        shutil.rmtree(target)
+        removed.append(str(target))
+    payload = {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "status": "cleaned",
+        "base_dir": str(base),
+        "removed": removed,
+    }
+    if json_mode:
+        return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    lines = ["# lai safe workspace clean", "", f"Base dir: {base}"]
+    if removed:
+        lines.append("Removed:")
+        lines.extend(f"- {item}" for item in removed)
+    else:
+        lines.append("Removed: [none]")
+    return "\n".join(lines)
+
+
+def render_safe_workspace_create(raw, json_mode=False):
+    payload = create_safe_workspace(raw, json_mode=json_mode)
+    if json_mode:
+        return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    lines = [
+        "# lai safe workspace",
+        "",
+        "Status: created",
+        f"Path: {payload['path']}",
+        f"Branch: {payload['branch']}",
+        f"Source: {payload['source_repository']}@{payload['source_sha']}",
+        f"Copied files: {payload['copied_files']}",
+        "",
+        "## Next commands",
+    ]
+    lines.extend(f"- `{command}`" for command in payload["next_commands"])
+    lines.append("")
+    lines.append("The source repository was not modified.")
+    return "\n".join(lines)
+
+
+def safe_workspace_help():
+    return "\n".join([
+        "# lai safe workspaces",
+        "",
+        "Usage:",
+        "- lai workspace status [--json] [--base DIR]",
+        "- lai workspace create [--name NAME] [--base DIR] [--force] [--json]",
+        "- lai workspace clone-smoke [NAME] [--base DIR] [--force] [--json]",
+        "- lai workspace clean <name|path> [--base DIR] [--json]",
+        "- lai workspace clean --all [--base DIR] [--json]",
+        "",
+        f"Default base: {safe_workspace_base()}",
+        f"Default branch: {SAFE_WORKSPACE_BRANCH}",
+        "",
+        "Safe workspaces are disposable copies for dogfooding write modes away from main.",
+    ])
+
+
+def handle_safe_workspace(raw):
+    raw = list(raw)
+    json_mode = "--json" in raw
+    raw = [item for item in raw if item != "--json"]
+    command = raw[0] if raw else "status"
+    rest = raw[1:] if raw else []
+    if command in {"help", "--help", "-h"}:
+        return safe_workspace_help()
+    if command in {"status", "list"}:
+        return render_safe_workspace_status(rest, json_mode=json_mode)
+    if command in {"create", "clone-smoke", "smoke"}:
+        return render_safe_workspace_create(rest, json_mode=json_mode)
+    if command == "clean":
+        return clean_safe_workspace(rest, json_mode=json_mode)
+    raise SystemExit(
+        "Usage: lai workspace status|create|clone-smoke|clean [options]"
+    )
+
+
+
+
 def main():
     args = list(CLI_ARGS)
 
@@ -6470,6 +6840,10 @@ def main():
 
     if args and args[0] == "--release-check":
         print(render_release_check(args[1:]))
+        return
+
+    if args and args[0] == "--workspace":
+        print(handle_safe_workspace(args[1:]))
         return
 
     if args and args[0] == "--context":

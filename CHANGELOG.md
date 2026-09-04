@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.0-beta.4] - 2026-09-04
+
+### Added
+
+- Added `lai workspace status`, `lai workspace create`, `lai workspace clone-smoke`, and `lai workspace clean` for disposable dogfood workspaces.
+- Added safe workspace documentation and tests so write modes can be exercised away from `main` and release branches.
+
+### Changed
+
+- Updated beta release notes, checklist, publishing metadata, README examples, and VS Code package version for `0.4.0-beta.4`.
+
+### Safety
+
+- Safe workspace creation copies only tracked files into a standalone Git repository on `test/lai-smoke`.
+- Cleanup refuses targets outside the configured safe workspace base.
+
 All notable changes to this project are documented here.
 
 ## [0.4.0-beta.3] - 2026-09-04

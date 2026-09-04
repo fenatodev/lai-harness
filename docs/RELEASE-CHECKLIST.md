@@ -7,16 +7,18 @@ Use this checklist for beta releases. It is intentionally manual: lai harness sh
 ```bash
 cd ~/dev/projects/lai-local-agent
 lai readiness
-lai release-check --target 0.4.0-beta.3 --json
+lai workspace status --json
+lai release-check --target 0.4.0-beta.4 --json
 make check
 make validate
-./scripts/package-vsix.sh /tmp/lai-harness-0.4.0-beta.3.vsix
+./scripts/package-vsix.sh /tmp/lai-harness-0.4.0-beta.4.vsix
 ```
 
 Expected posture before tagging:
 
 - `lai readiness` reports `Overall: ready`.
-- `lai release-check --target 0.4.0-beta.3 --json` reports `phase=ready_to_tag`.
+- `lai workspace status --json` runs without calling the model.
+- `lai release-check --target 0.4.0-beta.4 --json` reports `phase=ready_to_tag`.
 - `make validate` passes.
 - VSIX inspection passes.
 - Git tree is clean.
@@ -24,12 +26,12 @@ Expected posture before tagging:
 ## Human release commands
 
 ```bash
-git tag -a v0.4.0-beta.3   -m "v0.4.0-beta.3 — release polish"
+git tag -a v0.4.0-beta.4   -m "v0.4.0-beta.4 — safe workspace dogfood"
 
 git switch main
-git merge --ff-only feature/v0.4.0-beta.3-release-polish
+git merge --ff-only feature/v0.4.0-beta.4-safe-workspace-dogfood
 
-git push --atomic origin main v0.4.0-beta.3
+git push --atomic origin main v0.4.0-beta.4
 ```
 
 ## GitHub verification
@@ -37,16 +39,16 @@ git push --atomic origin main v0.4.0-beta.3
 Verify both refs:
 
 - `main` points to the release commit.
-- `v0.4.0-beta.3` is an annotated tag pointing to the same commit.
+- `v0.4.0-beta.4` is an annotated tag pointing to the same commit.
 - GitHub Actions passes for `main`.
-- GitHub Actions passes for `v0.4.0-beta.3`.
+- GitHub Actions passes for `v0.4.0-beta.4`.
 
 ## Optional GitHub Release
 
 After CI is green:
 
-1. Create a GitHub Release from tag `v0.4.0-beta.3`.
+1. Create a GitHub Release from tag `v0.4.0-beta.4`.
 2. Use the title from [GitHub publishing metadata](GITHUB-PUBLISHING.md).
 3. Paste the body from [Release notes](RELEASE-NOTES.md).
-4. Attach the inspected `/tmp/lai-harness-0.4.0-beta.3.vsix` only if you want to distribute a manual VSIX artifact.
+4. Attach the inspected `/tmp/lai-harness-0.4.0-beta.4.vsix` only if you want to distribute a manual VSIX artifact.
 5. Do not mark the release as stable; keep it as beta/pre-release.

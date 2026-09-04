@@ -45,7 +45,7 @@ For beta gates and scripted checks, prefer the model-free command:
 ```bash
 lai release-check
 lai release-check --json
-lai release-check --target 0.4.0-beta.3 --json
+lai release-check --target 0.4.0-beta.4 --json
 ```
 
 It reports the expected tag, current branch, HEAD, exact tag on HEAD, latest reachable tag, readiness status, preferred validation commands, and a release-safety check. It does not run validations; use `make validate` separately when validation evidence is needed.
