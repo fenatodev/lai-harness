@@ -1,3 +1,16 @@
+## [0.4.0-beta.8] - 2026-09-04
+
+### Added
+- Added opt-in `lai release-governance --remote` for read-only GitHub branch-protection and pre-release verification.
+- Added SHA-256 comparison for an attached VSIX when GitHub exposes the asset digest.
+- Added remote-governance unit coverage and `.specs/023-remote-release-governance.md`.
+
+### Changed
+- Verified GitHub actions now clear from `manual_actions`; missing or unverified state remains actionable.
+- Updated the beta release workflow for protected `main`: feature branch, PR, CI, merge, then tag and pre-release.
+- Updated current beta metadata and examples to `0.4.0-beta.8`.
+
+
 ## [0.4.0-beta.7] - 2026-09-04
 
 ### Added
