@@ -30,7 +30,7 @@ local-agent (Python standard library)
                   user-supplied GGUF
 ```
 
-See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow, [Branding](docs/BRANDING.md) for naming rules, [Semantic code contracts](docs/SEMANTIC-CODE-CONTRACTS.md) for subsystem navigation metadata, and [Beta readiness](docs/BETA-READINESS.md) for the beta.3 release posture.
+See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow, [Branding](docs/BRANDING.md) for naming rules, [Semantic code contracts](docs/SEMANTIC-CODE-CONTRACTS.md) for subsystem navigation metadata, and [Beta readiness](docs/BETA-READINESS.md) for the beta.5 release posture.
 
 ## Features
 
@@ -79,7 +79,7 @@ Configure `~/.config/lai/config.toml`, `LAI_*` environment variables, or leading
 @lai /debug reproduce why the timeout becomes NaN
 @lai /diagnose explain why the CI is failing
 @lai /ci-fix repair the failing publication gate
-@lai /release verify whether beta.3 is ready
+@lai /release verify whether beta.5 is ready
 @lai /implement add the requested test and minimal fix
 @lai /review review my current Git changes
 @lai /audit
@@ -90,7 +90,8 @@ lai semantics
 lai runs
 lai run last
 lai readiness
-lai release-check --target 0.4.0-beta.4 --json
+lai release-check --target 0.4.0-beta.5 --json
+lai release-pack --target 0.4.0-beta.5 --with-vsix --json
 lai recovery
 # if recovery reports a compatible interrupted run:
 lai resume
@@ -98,7 +99,7 @@ lai resume
 
 Read the complete [Installation](docs/INSTALLATION.md) and [Quick start](docs/QUICKSTART.md) guides before using write-capable modes.
 
-Release operators should use [Release notes](docs/RELEASE-NOTES.md), [Release checklist](docs/RELEASE-CHECKLIST.md), and [GitHub publishing metadata](docs/GITHUB-PUBLISHING.md) before creating a GitHub Release. Write-capable local testing should follow [Protected branch write guard](docs/PROTECTED-BRANCH-WRITES.md).
+Release operators should use `lai release-pack`, [Release pack](docs/RELEASE-PACK.md), [Release notes](docs/RELEASE-NOTES.md), [Release checklist](docs/RELEASE-CHECKLIST.md), and [GitHub publishing metadata](docs/GITHUB-PUBLISHING.md) before creating a GitHub Release. Write-capable local testing should follow [Protected branch write guard](docs/PROTECTED-BRANCH-WRITES.md).
 
 ## Modes
 

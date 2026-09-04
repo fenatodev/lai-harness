@@ -1,6 +1,6 @@
 # Release checklist
 
-Use this checklist for beta releases. It is intentionally manual: lai harness should verify release posture, not tag, merge, push, upload, or publish by itself.
+Use this checklist for beta releases. It is intentionally manual: lai harness should verify and prepare release posture, not tag, merge, push, upload, or publish by itself.
 
 ## Local preflight
 
@@ -8,17 +8,18 @@ Use this checklist for beta releases. It is intentionally manual: lai harness sh
 cd ~/dev/projects/lai-local-agent
 lai readiness
 lai workspace status --json
-lai release-check --target 0.4.0-beta.4 --json
+lai release-check --target 0.4.0-beta.5 --json
+lai release-pack --target 0.4.0-beta.5 --with-vsix --json
 make check
 make validate
-./scripts/package-vsix.sh /tmp/lai-harness-0.4.0-beta.4.vsix
 ```
 
 Expected posture before tagging:
 
 - `lai readiness` reports `Overall: ready`.
 - `lai workspace status --json` runs without calling the model.
-- `lai release-check --target 0.4.0-beta.4 --json` reports `phase=ready_to_tag`.
+- `lai release-check --target 0.4.0-beta.5 --json` reports `phase=ready_to_tag`.
+- `lai release-pack --target 0.4.0-beta.5 --with-vsix --json` writes files outside the repository.
 - `make validate` passes.
 - VSIX inspection passes.
 - Git tree is clean.
@@ -26,12 +27,13 @@ Expected posture before tagging:
 ## Human release commands
 
 ```bash
-git tag -a v0.4.0-beta.4   -m "v0.4.0-beta.4 — safe workspace dogfood"
+git tag -a v0.4.0-beta.5 \
+  -m "v0.4.0-beta.5 — release publication pack"
 
 git switch main
-git merge --ff-only feature/v0.4.0-beta.4-safe-workspace-dogfood
+git merge --ff-only feature/v0.4.0-beta.5-release-pack
 
-git push --atomic origin main v0.4.0-beta.4
+git push --atomic origin main v0.4.0-beta.5
 ```
 
 ## GitHub verification
@@ -39,16 +41,16 @@ git push --atomic origin main v0.4.0-beta.4
 Verify both refs:
 
 - `main` points to the release commit.
-- `v0.4.0-beta.4` is an annotated tag pointing to the same commit.
+- `v0.4.0-beta.5` is an annotated tag pointing to the same commit.
 - GitHub Actions passes for `main`.
-- GitHub Actions passes for `v0.4.0-beta.4`.
+- GitHub Actions passes for `v0.4.0-beta.5`.
 
 ## Optional GitHub Release
 
 After CI is green:
 
-1. Create a GitHub Release from tag `v0.4.0-beta.4`.
+1. Create a GitHub Release from tag `v0.4.0-beta.5`.
 2. Use the title from [GitHub publishing metadata](GITHUB-PUBLISHING.md).
-3. Paste the body from [Release notes](RELEASE-NOTES.md).
-4. Attach the inspected `/tmp/lai-harness-0.4.0-beta.4.vsix` only if you want to distribute a manual VSIX artifact.
+3. Paste `release-body.md` from the release pack, or copy the body from [Release notes](RELEASE-NOTES.md).
+4. Attach the inspected `lai-harness-0.4.0-beta.5.vsix` from the release pack only if you want to distribute a manual VSIX artifact.
 5. Do not mark the release as stable; keep it as beta/pre-release.

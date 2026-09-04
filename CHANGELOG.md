@@ -1,4 +1,14 @@
 # Changelog
+## [0.4.0-beta.5] - 2026-09-04
+
+### Added
+- Added deterministic `lai release-pack` / `lai release-pack --json` to generate local GitHub Release publication files without tagging, pushing, uploading, publishing, calling the model, or mutating repository files.
+- Added optional `lai release-pack --with-vsix` packaging into the external release pack directory.
+- Added release pack documentation and validation coverage for ready-to-paste release body, checklist, human-run commands and summary metadata.
+
+### Changed
+- Updated beta publishing docs, release notes, checklist, README examples and VS Code package metadata for `0.4.0-beta.5`.
+
 
 ## [0.4.0-beta.4] - 2026-09-04
 

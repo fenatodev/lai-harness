@@ -13,7 +13,7 @@ import urllib.request
 import unicodedata
 from pathlib import Path
 
-VERSION = "0.4.0-beta.4"
+VERSION = "0.4.0-beta.5"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -98,6 +98,13 @@ SEMANTIC_CODE_CONTRACT = {
             "paths": ["src/local-agent", "src/lai", ".agents/skills/release/SKILL.md", "docs/READINESS.md"],
             "entrypoints": ["render_release_preflight_context", "render_release_check", "release_validation_commands", "collect_readiness_status"],
             "terms": ["release", "preflight", "check", "readiness", "validate", "make", "version", "tag", "branch", "beta"],
+        },
+        {
+            "id": "release-pack",
+            "intent": "write a local release publication pack without tagging, pushing, uploading, or publishing",
+            "paths": ["src/local-agent", "src/lai", "docs/RELEASE-PACK.md", "docs/RELEASE-NOTES.md", "docs/RELEASE-CHECKLIST.md"],
+            "entrypoints": ["render_release_pack", "write_release_pack", "release_pack_payload", "release_pack_files"],
+            "terms": ["release", "pack", "package", "github", "body", "notes", "checklist", "vsix", "artifact", "publish"],
         },
         {
             "id": "operational-readiness",
@@ -4901,6 +4908,269 @@ def render_release_check(args=None):
     return "\n".join(lines)
 
 
+RELEASE_PACK_DEFAULT_BASE = Path("/tmp")
+RELEASE_PACK_DOCS = (
+    "docs/RELEASE-NOTES.md",
+    "docs/RELEASE-CHECKLIST.md",
+    "docs/GITHUB-PUBLISHING.md",
+)
+
+
+def release_pack_slug(value):
+    text = str(value or "release").strip().lower()
+    text = re.sub(r"[^a-z0-9_.-]+", "-", text)
+    text = text.strip(".-")
+    return text or "release"
+
+
+def release_pack_path_is_inside(path, base):
+    try:
+        path.resolve().relative_to(base.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def release_pack_default_dir(expected_tag):
+    return RELEASE_PACK_DEFAULT_BASE / f"lai-harness-release-pack-{release_pack_slug(expected_tag)}"
+
+
+def parse_release_pack_args(args):
+    raw = list(args)
+    json_mode = False
+    include_vsix = False
+    force = False
+    out_dir = None
+    target = None
+
+    index = 0
+    positional = []
+    while index < len(raw):
+        item = raw[index]
+        if item == "--json":
+            json_mode = True
+        elif item == "--with-vsix":
+            include_vsix = True
+        elif item == "--force":
+            force = True
+        elif item == "--target":
+            index += 1
+            if index >= len(raw):
+                raise SystemExit("Usage: lai release-pack [--target VERSION] [--out DIR] [--with-vsix] [--force] [--json]")
+            target = raw[index]
+        elif item == "--out":
+            index += 1
+            if index >= len(raw):
+                raise SystemExit("Usage: lai release-pack [--target VERSION] [--out DIR] [--with-vsix] [--force] [--json]")
+            out_dir = raw[index]
+        elif item.startswith("-"):
+            raise SystemExit("Usage: lai release-pack [--target VERSION] [--out DIR] [--with-vsix] [--force] [--json]")
+        else:
+            positional.append(item)
+        index += 1
+
+    if positional:
+        if len(positional) == 1 and target is None:
+            target = positional[0]
+        else:
+            raise SystemExit("Usage: lai release-pack [--target VERSION] [--out DIR] [--with-vsix] [--force] [--json]")
+
+    return {
+        "target": target,
+        "out_dir": out_dir,
+        "with_vsix": include_vsix,
+        "force": force,
+        "json": json_mode,
+    }
+
+
+def release_pack_read(path):
+    full = ROOT / path
+    if not full.is_file():
+        return ""
+    return full.read_text(encoding="utf-8", errors="replace")
+
+
+def release_pack_body(target_version, expected_tag):
+    notes = release_pack_read("docs/RELEASE-NOTES.md")
+    marker = "### Release body for GitHub"
+    if marker in notes:
+        body = notes.split(marker, 1)[1].strip()
+        next_section = body.find("\n### ")
+        if next_section >= 0:
+            body = body[:next_section].strip()
+        if body:
+            return body + "\n"
+
+    return "\n".join([
+        f"{PRODUCT_NAME} {expected_tag} is a beta release of the local coding harness.",
+        "",
+        "This release remains local-first and experimental. It does not include model weights, llama.cpp, VS Code, or third-party assets.",
+        "",
+    ])
+
+
+def release_pack_publish_commands(release_payload):
+    branch = str(release_payload.get("branch") or "feature/release")
+    expected_tag = str(release_payload.get("expected_tag") or "v" + VERSION)
+    target_version = str(release_payload.get("target_version") or VERSION)
+    title = release_pack_title(target_version)
+    return "\n".join([
+        "# human-run release commands; this file is documentation only",
+        f"cd {shlex.quote(str(ROOT))}",
+        "",
+        f"git tag -a {shlex.quote(expected_tag)} \\",
+        f"  -m {shlex.quote(title)}",
+        "",
+        "git switch main",
+        f"git merge --ff-only {shlex.quote(branch)}",
+        "",
+        f"git push --atomic origin main {shlex.quote(expected_tag)}",
+        "",
+    ])
+
+
+def release_pack_title(target_version):
+    if target_version == VERSION:
+        return f"v{target_version} — release publication pack"
+    return f"v{target_version} — lai harness release"
+
+
+def release_pack_resolve_out_dir(raw_out, expected_tag):
+    target = Path(raw_out).expanduser() if raw_out else release_pack_default_dir(expected_tag)
+    target = target.resolve()
+    if release_pack_path_is_inside(target, ROOT):
+        raise SystemExit("Refusing to write release pack inside the repository; use --out under /tmp or another external directory")
+    return target
+
+
+def release_pack_files(pack_dir, release_payload, include_vsix=False):
+    target_version = release_payload["target_version"]
+    expected_tag = release_payload["expected_tag"]
+    files = {
+        "release_body": pack_dir / "release-body.md",
+        "checklist": pack_dir / "release-checklist.md",
+        "publishing": pack_dir / "github-publishing.md",
+        "commands": pack_dir / "human-release-commands.sh",
+        "summary": pack_dir / "summary.json",
+    }
+    if include_vsix:
+        files["vsix"] = pack_dir / f"lai-harness-{target_version}.vsix"
+    return files
+
+
+def write_release_pack(target=None, out_dir=None, include_vsix=False, force=False):
+    release_payload = collect_release_check(target=target)
+    pack_dir = release_pack_resolve_out_dir(out_dir, release_payload["expected_tag"])
+    files = release_pack_files(pack_dir, release_payload, include_vsix=include_vsix)
+
+    if pack_dir.exists() and any(pack_dir.iterdir()) and not force:
+        raise SystemExit(f"Release pack directory already exists and is not empty: {pack_dir}. Use --force or --out DIR")
+    pack_dir.mkdir(parents=True, exist_ok=True)
+
+    (files["release_body"]).write_text(
+        release_pack_body(release_payload["target_version"], release_payload["expected_tag"]),
+        encoding="utf-8",
+    )
+    (files["checklist"]).write_text(
+        release_pack_read("docs/RELEASE-CHECKLIST.md"),
+        encoding="utf-8",
+    )
+    (files["publishing"]).write_text(
+        release_pack_read("docs/GITHUB-PUBLISHING.md"),
+        encoding="utf-8",
+    )
+    (files["commands"]).write_text(
+        release_pack_publish_commands(release_payload),
+        encoding="utf-8",
+    )
+
+    vsix_result = None
+    if include_vsix:
+        script = ROOT / "scripts" / "package-vsix.sh"
+        proc = subprocess.run(
+            [str(script), str(files["vsix"])],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=120,
+        )
+        vsix_result = {
+            "returncode": proc.returncode,
+            "stdout_tail": proc.stdout[-1000:],
+            "stderr_tail": proc.stderr[-1000:],
+        }
+        if proc.returncode != 0:
+            raise SystemExit("VSIX packaging failed; run scripts/package-vsix.sh directly for details")
+
+    summary = release_pack_payload(
+        release_payload,
+        pack_dir,
+        files,
+        include_vsix=include_vsix,
+        vsix_result=vsix_result,
+    )
+    (files["summary"]).write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return summary
+
+
+def release_pack_payload(release_payload, pack_dir, files, include_vsix=False, vsix_result=None):
+    return {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "target_version": release_payload["target_version"],
+        "expected_tag": release_payload["expected_tag"],
+        "repository": str(ROOT),
+        "branch": release_payload.get("branch"),
+        "head": release_payload.get("head"),
+        "release_check_overall": release_payload.get("overall"),
+        "release_check_phase": release_payload.get("phase"),
+        "pack_dir": str(pack_dir),
+        "files": {name: str(path) for name, path in files.items()},
+        "with_vsix": bool(include_vsix),
+        "vsix": vsix_result,
+        "release_safety": "pack only; no tag, merge, push, upload, publication, model call, or repository file mutation was executed",
+    }
+
+
+def render_release_pack(args=None):
+    options = parse_release_pack_args(args or [])
+    payload = write_release_pack(
+        target=options["target"],
+        out_dir=options["out_dir"],
+        include_vsix=options["with_vsix"],
+        force=options["force"],
+    )
+    if options["json"]:
+        return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+
+    lines = [
+        "# lai release pack",
+        "",
+        f"Product: {payload['product']}",
+        f"Version: {payload['version']}",
+        f"Target version: {payload['target_version']}",
+        f"Expected tag: {payload['expected_tag']}",
+        f"Repository: {payload['repository']}",
+        f"Branch: {payload['branch']}",
+        f"HEAD: {payload['head']}",
+        f"Release check: {payload['release_check_overall']} / {payload['release_check_phase']}",
+        f"Pack directory: {payload['pack_dir']}",
+        "",
+        "## Files",
+    ]
+    for name, path in payload["files"].items():
+        lines.append(f"- {name}: {path}")
+    lines.extend([
+        "",
+        "Release pack is local-only. It does not tag, merge, push, upload, publish, call the model, or mutate repository files.",
+    ])
+    return "\n".join(lines)
+
+
 def run_tool(name, args):
     print(
         f"\n[{name}] "
@@ -6840,6 +7110,10 @@ def main():
 
     if args and args[0] == "--release-check":
         print(render_release_check(args[1:]))
+        return
+
+    if args and args[0] == "--release-pack":
+        print(render_release_pack(args[1:]))
         return
 
     if args and args[0] == "--workspace":
