@@ -55,6 +55,8 @@ See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow, [Branding](
 - deterministic `lai model` benchmark planning, JSONL samples, and local scoring;
 - deterministic `lai semantics` subsystem map for model-friendly code navigation;
 - deterministic `lai runs` / `lai run show` browser for local run history;
+- deterministic `lai readiness` environment and repository health check;
+- focused `diagnose`, `ci-fix`, and `release` skills for safer pre-beta operations;
 - no Python package dependencies in the current harness.
 
 ## Quick start
@@ -75,6 +77,9 @@ Configure `~/.config/lai/config.toml`, `LAI_*` environment variables, or leading
 ```text
 @lai /plan add a focused regression test for the parser
 @lai /debug reproduce why the timeout becomes NaN
+@lai /diagnose explain why the CI is failing
+@lai /ci-fix repair the failing publication gate
+@lai /release verify whether alpha.19 is ready
 @lai /implement add the requested test and minimal fix
 @lai /review review my current Git changes
 @lai /audit
@@ -84,6 +89,7 @@ lai context "repair parser timeout"
 lai semantics
 lai runs
 lai run last
+lai readiness
 lai recovery
 # if recovery reports a compatible interrupted run:
 lai resume
@@ -99,9 +105,12 @@ Read the complete [Installation](docs/INSTALLATION.md) and [Quick start](docs/QU
 | `/plan` | Produce a short grounded plan | No |
 | `/test` | Run and diagnose an existing check | No |
 | `/debug` | Reproduce and trace an exact failure chain | No |
+| `/diagnose` | Diagnose symptoms, logs, environment drift, or run state before fixing | No |
 | `/review` | Review current code or Git changes | No |
 | `/security` | Trace evidence-backed security findings | No |
+| `/release` | Verify release readiness and produce human-run release commands | No |
 | `/fix` | Apply and validate a focused fix | Yes |
+| `/ci-fix` | Repair a concrete failing validation or CI gate | Yes |
 | `/refactor` | Make a behavior-preserving structural change | Yes |
 | `/implement` | Complete explicit criteria and validate them | Yes |
 | `/status` | Show workspace state | No |

@@ -48,3 +48,8 @@ Runtime records can expose repository names, absolute paths, task descriptions, 
 ## Run history
 
 `lai runs`, `lai run last`, `lai run show <run-id|--last>`, and `lai run tail <run-id|--last>` are deterministic and do not call the model. They read repository-scoped events from the existing metrics and audit JSONL files, optionally enriched by the current checkpoint. Historical events are advisory operational records; inspect current files before using a past run as evidence.
+
+
+## Readiness
+
+`lai readiness` combines configuration path checks, Git state, server authentication, installed skill status, recovery status, and the latest run summary. It is diagnostic only: it does not call the model, start the server, replay tools, or mutate files.

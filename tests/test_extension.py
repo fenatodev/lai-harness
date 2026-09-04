@@ -20,6 +20,8 @@ class ExtensionTest(unittest.TestCase):
         self.assertEqual(participant["fullName"], "lai harness")
         self.assertEqual(participant["id"], "lai-local-agent.lai")
         self.assertEqual(package["contributes"]["configuration"]["title"], "lai harness")
+        command_names = {cmd["name"] for cmd in participant["commands"]}
+        self.assertTrue({"diagnose", "ci-fix", "release", "readiness"}.issubset(command_names))
         self.assertEqual(
             package["repository"]["url"],
             "https://github.com/fenatodev/lai-harness.git",
@@ -167,6 +169,14 @@ if (
 if (
   extension.workspaceSafetyError('plan', target) !== ''
 ) process.exit(10);
+
+if (
+  extension.workspaceSafetyError('diagnose', target) !== ''
+) process.exit(15);
+
+if (
+  !extension.workspaceSafetyError('ci-fix', target)
+) process.exit(16);
 
 target = extension.selectExecutionCwd({
   workspacePaths: ['/repo/safe'],

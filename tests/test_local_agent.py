@@ -634,7 +634,7 @@ class LocalAgentTest(unittest.TestCase):
             check=True,
         )
         payload = json.loads(raw.stdout)
-        self.assertEqual(payload["version"], "0.4.0-alpha.18")
+        self.assertEqual(payload["version"], "0.4.0-alpha.19")
         self.assertEqual(payload["runs"][0]["run_id"], "run-1")
         self.assertEqual(payload["runs"][1]["run_id"], "run-2")
         self.assertIsNotNone(payload["runs"][1]["last_failure"])
@@ -660,6 +660,85 @@ class LocalAgentTest(unittest.TestCase):
         )
         self.assertNotEqual(empty_last.returncode, 0)
         self.assertIn("No runs recorded", empty_last.stderr)
+
+    def test_readiness_reports_repository_health_without_model(self):
+        original_skills_dir = agent.SKILLS_DIR
+        original_metrics_dir = agent.METRICS_DIR
+        original_metrics_file = agent.METRICS_FILE
+        original_audit_dir = agent.AUDIT_DIR
+        original_audit_file = agent.AUDIT_FILE
+        try:
+            agent.SKILLS_DIR = Path(__file__).parents[1] / ".agents" / "skills"
+            agent.METRICS_DIR = self.base / "data" / "metrics"
+            agent.METRICS_FILE = agent.METRICS_DIR / "events.jsonl"
+            agent.AUDIT_DIR = self.base / "data" / "audit"
+            agent.AUDIT_FILE = agent.AUDIT_DIR / "events.jsonl"
+            with mock.patch.object(agent, "gateway", return_value="127.0.0.1"), \
+                 mock.patch.object(agent, "doctor_status", return_value=(401, 200)):
+                rendered = agent.render_readiness_status()
+                raw = agent.render_readiness_status(json_mode=True)
+        finally:
+            agent.SKILLS_DIR = original_skills_dir
+            agent.METRICS_DIR = original_metrics_dir
+            agent.METRICS_FILE = original_metrics_file
+            agent.AUDIT_DIR = original_audit_dir
+            agent.AUDIT_FILE = original_audit_file
+
+        self.assertIn("# lai readiness", rendered)
+        self.assertIn("Authentication: OK", rendered)
+        self.assertIn("mode_skills", rendered)
+        payload = json.loads(raw)
+        self.assertEqual(payload["version"], "0.4.0-alpha.19")
+        self.assertTrue(payload["server"]["authentication_ok"])
+        self.assertIn(payload["overall"], {"ready", "attention"})
+        self.assertTrue(
+            any(item["mode"] == "diagnose" for item in payload["skills"])
+        )
+        self.assertTrue(
+            any(item["mode"] == "ci-fix" for item in payload["skills"])
+        )
+        self.assertTrue(
+            any(item["mode"] == "release" for item in payload["skills"])
+        )
+
+    def test_deterministic_readiness_cli_needs_no_model(self):
+        data_dir = self.base / "data"
+        env = {**os.environ, "LAI_DATA_DIR": str(data_dir)}
+        result = subprocess.run(
+            [str(SOURCE), "--readiness", "--json"],
+            cwd=self.root,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=8,
+            check=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["product"], "lai harness")
+        self.assertEqual(payload["version"], "0.4.0-alpha.19")
+        self.assertEqual(payload["repository"], str(self.root.resolve()))
+        self.assertIn("checks", payload)
+
+    def test_new_diagnostic_skills_load_from_standard_files(self):
+        skills = Path(__file__).parents[1] / ".agents" / "skills"
+        self.assertIn("MODE: DIAGNOSE", agent.load_mode_skill("diagnose", skills))
+        self.assertIn("MODE: CI-FIX", agent.load_mode_skill("ci-fix", skills))
+        self.assertIn("MODE: RELEASE", agent.load_mode_skill("release", skills))
+
+    def test_policy_keeps_diagnose_and_release_read_only_but_allows_ci_fix_writes(self):
+        write_args = {"path": "sample.txt", "content": "x"}
+        self.assertEqual(
+            agent.evaluate_tool_policy("create", write_args, mode="diagnose")["decision"],
+            "DENY",
+        )
+        self.assertEqual(
+            agent.evaluate_tool_policy("create", write_args, mode="release")["decision"],
+            "DENY",
+        )
+        self.assertEqual(
+            agent.evaluate_tool_policy("create", write_args, mode="ci-fix")["decision"],
+            "ALLOW",
+        )
 
     def test_tool_signature_is_canonical_and_includes_tool_name(self):
         first = agent.canonical_tool_signature(
@@ -1455,7 +1534,7 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "lai harness 0.4.0-alpha.18")
+        self.assertEqual(result.stdout.strip(), "lai harness 0.4.0-alpha.19")
 
     def test_deterministic_model_eval_plan_needs_no_server(self):
         result = subprocess.run(
@@ -1506,7 +1585,7 @@ class LocalAgentTest(unittest.TestCase):
         )
         payload = json.loads(result.stdout)
         self.assertEqual(payload["product"], "lai harness")
-        self.assertEqual(payload["version"], "0.4.0-alpha.18")
+        self.assertEqual(payload["version"], "0.4.0-alpha.19")
         scenario_ids = {item["id"] for item in payload["scenarios"]}
         self.assertIn("context-ranking", scenario_ids)
 

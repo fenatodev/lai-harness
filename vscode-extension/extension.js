@@ -43,6 +43,7 @@ function appendStderrDiagnostic(current, line, maxChars = MAX_STDERR_DIAGNOSTIC_
 
 const WRITE_COMMANDS = new Set([
     'fix',
+    'ci-fix',
     'refactor',
     'implement'
 ]);
@@ -142,7 +143,8 @@ function activate(context) {
             request.command === 'clearcontext' ||
             request.command === 'status' ||
             request.command === 'metrics' ||
-            request.command === 'audit';
+            request.command === 'audit' ||
+            request.command === 'readiness';
 
         const typedPrompt = request.prompt.trim();
 
@@ -161,7 +163,8 @@ function activate(context) {
             clearcontext: '',
             status: '',
             metrics: '',
-            audit: ''
+            audit: '',
+            readiness: ''
         };
 
         const userPrompt =
@@ -231,7 +234,9 @@ function activate(context) {
 
             if (
                 request.command === 'fix' ||
+                request.command === 'ci-fix' ||
                 request.command === 'debug' ||
+                request.command === 'diagnose' ||
                 request.command === 'implement'
             ) {
                 const diagnostics = vscode.languages
@@ -320,15 +325,19 @@ function activate(context) {
             test: '--test',
             review: '--review',
             debug: '--debug',
+            diagnose: '--diagnose',
             refactor: '--refactor',
             security: '--security',
             plan: '--plan',
+            'ci-fix': '--ci-fix',
             implement: '--implement',
+            release: '--release',
             handoff: '--handoff',
             clearcontext: '--clear-context',
             status: '--status',
             metrics: '--metrics',
-            audit: '--audit'
+            audit: '--audit',
+            readiness: '--readiness'
         };
 
         const cliMode = commandModes[request.command];
@@ -343,15 +352,19 @@ function activate(context) {
             test: 'lai harness executando testes...',
             review: 'lai harness revisando código...',
             debug: 'lai harness investigando a causa...',
+            diagnose: 'lai harness diagnosticando com evidência...',
             refactor: 'lai harness refatorando e validando...',
             security: 'lai harness revisando segurança...',
             plan: 'lai harness planejando implementação...',
+            'ci-fix': 'lai harness corrigindo falha de CI...',
             implement: 'lai harness implementando e validando...',
+            release: 'lai harness verificando release...',
             handoff: 'lai harness preparando handoff...',
             clearcontext: 'lai harness limpando contexto local...',
             status: 'lai harness lendo status do workspace...',
             metrics: 'lai harness lendo métricas locais...',
-            audit: 'lai harness lendo trilha de auditoria...'
+            audit: 'lai harness lendo trilha de auditoria...',
+            readiness: 'lai harness verificando prontidão operacional...'
         };
 
         stream.progress(

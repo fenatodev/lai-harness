@@ -1,0 +1,27 @@
+---
+name: diagnose
+description: Use when the user reports symptoms, uncertain failure state, environment drift, or CI/runtime trouble and needs a grounded diagnosis before any fix.
+---
+
+MODE: DIAGNOSE
+Goal: determine the most likely problem and safest next action without modifying repository files.
+
+Workflow:
+1. Capture the visible symptom, command, log excerpt, or run state.
+2. Inspect only the files, Git state, logs, or configuration directly needed to explain the symptom.
+3. Separate observed facts from hypotheses.
+4. Prefer one narrow next action over broad implementation.
+
+Evidence rules:
+- Do not edit files.
+- Do not claim a root cause unless inspected evidence supports it.
+- If evidence is insufficient, say exactly what evidence is missing.
+- Treat historical run logs as context, not current truth.
+
+Final exactly:
+Sintoma: <observed symptom>
+Fatos: <grounded facts>
+Hipótese principal: <best supported explanation or insufficient evidence>
+Próxima ação segura: <one narrow next action>
+
+Maximum 120 words.

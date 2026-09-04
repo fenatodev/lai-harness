@@ -12,7 +12,7 @@ import urllib.request
 import unicodedata
 from pathlib import Path
 
-VERSION = "0.4.0-alpha.18"
+VERSION = "0.4.0-alpha.19"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -83,6 +83,13 @@ SEMANTIC_CODE_CONTRACT = {
             "paths": ["src/local-agent", "docs/RUN-HISTORY.md", "docs/OBSERVABILITY.md"],
             "entrypoints": ["collect_run_history", "render_run_history_list", "render_run_history_show", "render_run_history_tail"],
             "terms": ["run", "runs", "history", "session", "browser", "show", "tail", "last", "failure", "validation", "audit", "metrics", "timeline"],
+        },
+        {
+            "id": "operational-readiness",
+            "intent": "check repository, server, skills, run history, and release posture before a work session",
+            "paths": ["src/local-agent", "docs/READINESS.md", "docs/MODES.md", ".agents/skills/diagnose/SKILL.md", ".agents/skills/ci-fix/SKILL.md", ".agents/skills/release/SKILL.md"],
+            "entrypoints": ["collect_readiness_status", "render_readiness_status", "load_mode_skill"],
+            "terms": ["readiness", "ready", "diagnose", "ci", "release", "skill", "mode", "environment", "server", "git", "health"],
         },
         {
             "id": "extension-shell",
@@ -1004,7 +1011,7 @@ def evaluate_tool_policy(name, args, mode=None):
     if name not in known_tools:
         return {"decision": "DENY", "reason": f"unknown tool: {name}"}
 
-    read_only_modes = {"selection", "test", "review", "debug", "security", "plan"}
+    read_only_modes = {"selection", "test", "review", "debug", "diagnose", "security", "plan", "release"}
     if name in WRITE_TOOLS and mode in read_only_modes:
         return {
             "decision": "DENY",
@@ -4049,6 +4056,302 @@ def handle_run_history(args):
     raise SystemExit("Usage: lai runs [--limit N] | lai run last | lai run show <run-id|--last> | lai run tail <run-id|--last> [--limit N]")
 
 
+def git_origin_url():
+    try:
+        proc = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+        if proc.returncode != 0:
+            return "[missing]"
+        return proc.stdout.strip() or "[missing]"
+    except Exception:
+        return "[unavailable]"
+
+
+def configured_mode_skill_status(mode):
+    standard = Path(SKILLS_DIR) / mode / "SKILL.md"
+    legacy = Path(SKILLS_DIR) / f"{mode}.txt"
+    bundled = ROOT / ".agents" / "skills" / mode / "SKILL.md"
+
+    if standard.is_file():
+        try:
+            parse_standard_skill(standard, expected_name=mode)
+            return {"mode": mode, "status": "ok", "path": str(standard)}
+        except Exception as exc:
+            return {
+                "mode": mode,
+                "status": "fail",
+                "path": str(standard),
+                "detail": str(exc)[:200],
+            }
+
+    if legacy.is_file():
+        return {"mode": mode, "status": "warn", "path": str(legacy), "detail": "legacy skill format"}
+
+    if bundled.is_file():
+        return {"mode": mode, "status": "warn", "path": str(bundled), "detail": "bundled but not installed"}
+
+    return {"mode": mode, "status": "fail", "path": str(standard), "detail": "missing skill"}
+
+
+def collect_readiness_status():
+    checks = []
+
+    def add_check(name, status, detail=""):
+        checks.append({
+            "name": name,
+            "status": status,
+            "detail": str(detail or "")[:500],
+        })
+
+    git_branch = workspace_git_branch()
+    git_status = workspace_git_status()
+    git_clean = git_status == "[clean]"
+    origin = git_origin_url()
+
+    add_check(
+        "git_branch",
+        "fail" if git_branch == "[unavailable]" else "ok",
+        git_branch,
+    )
+    add_check(
+        "git_status",
+        "ok" if git_clean else "warn",
+        git_status,
+    )
+    add_check(
+        "git_origin",
+        "ok" if "fenatodev/lai-harness" in origin else "warn",
+        origin,
+    )
+
+    path_checks = {
+        "config_dir": path_status(CONFIG["config_dir"], expect_dir=True),
+        "api_key_file": path_status(CONFIG["api_key_file"], expect_file=True, secret=True),
+        "data_dir": path_status(CONFIG["data_dir"], expect_dir=True),
+        "skills_dir": path_status(CONFIG["skills_dir"], expect_dir=True),
+        "metrics_dir": path_status(CONFIG["metrics_dir"], expect_dir=True),
+        "audit_dir": path_status(CONFIG["audit_dir"], expect_dir=True),
+    }
+    for name, detail in path_checks.items():
+        status = "ok" if detail == "OK" else ("warn" if detail == "MISSING" else "fail")
+        add_check(name, status, detail)
+
+    skill_modes = [
+        "plan",
+        "debug",
+        "diagnose",
+        "test",
+        "review",
+        "security",
+        "fix",
+        "ci-fix",
+        "refactor",
+        "implement",
+        "release",
+    ]
+    skills = [configured_mode_skill_status(mode) for mode in skill_modes]
+    failing_skills = [item for item in skills if item["status"] == "fail"]
+    warning_skills = [item for item in skills if item["status"] == "warn"]
+    add_check(
+        "mode_skills",
+        "fail" if failing_skills else ("warn" if warning_skills else "ok"),
+        (
+            "missing=" + ",".join(item["mode"] for item in failing_skills)
+            if failing_skills
+            else (
+                "legacy_or_bundled=" + ",".join(item["mode"] for item in warning_skills)
+                if warning_skills
+                else "all standard skills available"
+            )
+        ),
+    )
+
+    try:
+        host = gateway()
+    except Exception as exc:
+        host = "[unavailable]"
+        unauthenticated = 0
+        authenticated = 0
+        server_detail = str(exc)[:300]
+    else:
+        try:
+            unauthenticated, authenticated = doctor_status(host)
+            server_detail = f"unauthenticated={unauthenticated or '000'} authenticated={authenticated or '000'}"
+        except Exception as exc:
+            unauthenticated = 0
+            authenticated = 0
+            server_detail = str(exc)[:300]
+
+    server_ok = authenticated == 200 and unauthenticated != 200
+    add_check(
+        "server_authentication",
+        "ok" if server_ok else "fail",
+        server_detail,
+    )
+
+    try:
+        active_spec = load_active_spec()
+        if active_spec is None:
+            spec_status = {"status": "none"}
+        else:
+            try:
+                spec_path = str(active_spec["path"].relative_to(ROOT))
+            except Exception:
+                spec_path = str(active_spec.get("path"))
+            spec_status = {
+                "status": active_spec.get("status"),
+                "mode": active_spec.get("mode"),
+                "path": spec_path,
+                "requirements": active_spec.get("requirements", []),
+            }
+        add_check("active_spec", "ok", spec_status.get("status"))
+    except SystemExit as exc:
+        spec_status = {"status": "error", "detail": str(exc)}
+        add_check("active_spec", "fail", str(exc))
+
+    try:
+        recovery = inspect_recovery_checkpoint()
+        recovery_status = {
+            "status": recovery.get("status"),
+            "resumable": bool(recovery.get("resumable")),
+            "reasons": recovery.get("reasons") or [],
+        }
+        add_check(
+            "recovery",
+            "warn" if recovery_status["resumable"] else "ok",
+            recovery_status.get("status"),
+        )
+    except Exception as exc:
+        recovery_status = {"status": "error", "resumable": False, "reasons": [str(exc)]}
+        add_check("recovery", "fail", str(exc))
+
+    runs = collect_run_history()
+    latest = latest_run_history_record(runs)
+    latest_public = run_history_public_record(latest) if latest else None
+    add_check(
+        "run_history",
+        "ok" if latest else "warn",
+        f"recorded={len(runs)}",
+    )
+
+    fatal_failures = {
+        "git_branch",
+        "api_key_file",
+        "mode_skills",
+        "server_authentication",
+        "active_spec",
+        "recovery",
+    }
+    has_fatal_failure = any(
+        check["status"] == "fail" and check["name"] in fatal_failures
+        for check in checks
+    )
+    has_warning = any(check["status"] == "warn" for check in checks)
+    overall = "blocked" if has_fatal_failure else ("attention" if has_warning else "ready")
+
+    return {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "repository": str(ROOT),
+        "overall": overall,
+        "git": {
+            "branch": git_branch,
+            "status": git_status,
+            "clean": git_clean,
+            "origin": origin,
+        },
+        "server": {
+            "host": host,
+            "port": LLAMA_PORT,
+            "unauthenticated_props": unauthenticated,
+            "authenticated_props": authenticated,
+            "authentication_ok": server_ok,
+        },
+        "paths": path_checks,
+        "skills": skills,
+        "active_spec": spec_status,
+        "recovery": recovery_status,
+        "run_count": len(runs),
+        "latest_run": latest_public,
+        "checks": checks,
+    }
+
+
+def render_readiness_status(json_mode=False):
+    status = collect_readiness_status()
+
+    if json_mode:
+        return json.dumps(
+            status,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+
+    lines = [
+        "# lai readiness",
+        "",
+        f"Product: {status['product']}",
+        f"Version: {status['version']}",
+        f"Repository: {status['repository']}",
+        f"Overall: {status['overall']}",
+        "",
+        "## Checks",
+    ]
+
+    for check in status["checks"]:
+        detail = check.get("detail") or ""
+        lines.append(f"- [{check['status']}] {check['name']}: {detail}")
+
+    lines.extend([
+        "",
+        "## Git",
+        f"Branch: {status['git']['branch']}",
+        f"Origin: {status['git']['origin']}",
+        "Status:",
+        "```text",
+        status["git"]["status"],
+        "```",
+        "",
+        "## Server",
+        f"Address: {status['server']['host']}:{status['server']['port']}",
+        f"Unauthenticated /props: HTTP {status['server']['unauthenticated_props'] or '000'}",
+        f"Authenticated /props:   HTTP {status['server']['authenticated_props'] or '000'}",
+        "Authentication: " + ("OK" if status["server"]["authentication_ok"] else "FAILED"),
+        "",
+        "## Active spec",
+        "Status: " + str(status["active_spec"].get("status") or "[unknown]"),
+        "",
+        "## Recovery",
+        "Status: " + str(status["recovery"].get("status") or "[unknown]"),
+        "Resumable: " + str(bool(status["recovery"].get("resumable"))),
+        "",
+        "## Latest run",
+    ])
+
+    latest = status.get("latest_run")
+    if latest:
+        failure = latest.get("last_failure")
+        lines.append("Run ID: " + str(latest.get("run_id")))
+        lines.append("Mode: " + str(latest.get("mode") or "unknown"))
+        lines.append("Status: " + str(latest.get("status") or "unknown"))
+        lines.append("Last event: " + str(latest.get("last_ts") or "[unknown]"))
+        lines.append("Failure: " + ("yes" if failure else "no"))
+    else:
+        lines.append("[none]")
+
+    lines.extend([
+        "",
+        "Readiness does not call the model, start the server, replay tools, or mutate files.",
+    ])
+    return "\n".join(lines)
+
+
 def run_tool(name, args):
     print(
         f"\n[{name}] "
@@ -4287,7 +4590,7 @@ def api_call(
 
 CONTEXT_INVENTORY_LIMIT = 400
 CONTEXT_RESULT_LIMIT = 8
-CONTEXT_INTELLIGENCE_MODES = {"plan", "debug", "fix", "implement", "refactor"}
+CONTEXT_INTELLIGENCE_MODES = {"plan", "debug", "diagnose", "fix", "ci-fix", "release", "implement", "refactor"}
 CONTEXT_RENDER_LIMIT = 1800
 CONTEXT_SAMPLE_BYTES = 32768
 CONTEXT_IGNORED_DIRS = {
@@ -5620,6 +5923,10 @@ def main():
         print(render_config_status())
         return
 
+    if args and args[0] == "--readiness":
+        print(render_readiness_status(json_mode="--json" in args[1:]))
+        return
+
     if args and args[0] == "--context":
         print_context_candidates(" ".join(args[1:]).strip())
         return
@@ -5794,10 +6101,13 @@ def main():
         "--test": "test",
         "--review": "review",
         "--debug": "debug",
+        "--diagnose": "diagnose",
         "--refactor": "refactor",
         "--security": "security",
         "--plan": "plan",
+        "--ci-fix": "ci-fix",
         "--implement": "implement",
+        "--release": "release",
     }
 
     mode = "general"
@@ -5978,9 +6288,20 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
         "test": {"project", "read", "search", "list", "git", "bash"},
         "review": {"read", "search", "list", "git"},
         "debug": {"inspect", "search", "git", "bash"},
+        "diagnose": {"project", "read", "inspect", "search", "list", "git", "bash"},
         "refactor": {"project", "read", "search", "list", "git", "edit", "create", "bash"},
         "security": {"read", "search", "list", "git"},
         "plan": {"inspect", "search"},
+        "release": {"project", "read", "inspect", "search", "list", "git", "bash"},
+        "ci-fix": {
+            "inspect",
+            "search",
+            "git",
+            "patch",
+            "rewrite",
+            "create",
+            "bash",
+        },
         "implement": {
             "inspect",
             "search",
@@ -6004,9 +6325,12 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
         "test": 512,
         "review": 128,
         "debug": 192,
+        "diagnose": 384,
         "refactor": 384,
         "security": 512,
         "plan": 256,
+        "release": 512,
+        "ci-fix": 640,
         "implement": 640,
     }
 
@@ -6017,9 +6341,12 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
         "plan",
         "implement",
         "fix",
+        "ci-fix",
         "test",
         "debug",
+        "diagnose",
         "refactor",
+        "release",
     }
 
     if (
@@ -6050,7 +6377,7 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
         skill = load_mode_skill(mode)
         system += f"\n\nACTIVE SKILL:\n{skill}"
 
-    if mode in {"plan", "debug"}:
+    if mode in {"plan", "debug", "diagnose", "ci-fix", "release"}:
         agents_path = ROOT / "AGENTS.md"
 
         if agents_path.is_file():
@@ -6068,7 +6395,7 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
             except Exception:
                 pass
 
-    if mode in {"fix", "test", "refactor", "security", "implement", "general"}:
+    if mode in {"fix", "ci-fix", "test", "refactor", "security", "implement", "general"}:
         agents_file = ROOT / "AGENTS.md"
         if agents_file.is_file():
             system += (
@@ -6081,7 +6408,7 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
     task_lower = task.lower()
 
     git_change_intent = (
-        mode in {"review", "security"}
+        mode in {"review", "security", "diagnose", "release"}
         and (
             "git" in task_lower
             or "diff" in task_lower
@@ -6257,9 +6584,12 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
         "test": 8,
         "review": 8,
         "debug": 12,
+        "diagnose": 8,
         "refactor": 12,
         "security": 8,
         "plan": 2,
+        "release": 8,
+        "ci-fix": 14,
         "implement": 14,
     }
 
@@ -6271,7 +6601,7 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
     debug_source_inspected = False
     patch_sanity_issue = None
     exploration_guard = PreWriteExplorationGuard(
-        mode in {"fix", "refactor", "implement"}
+        mode in {"fix", "ci-fix", "refactor", "implement"}
     )
     exploration_event_recorded = False
 
@@ -6592,7 +6922,7 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
             content = message.get("content", "").strip()
 
             if (
-                mode in {"fix", "refactor", "implement"}
+                mode in {"fix", "ci-fix", "refactor", "implement"}
                 and exploration_guard.exhausted
                 and not exploration_guard.write_succeeded
             ):
@@ -6654,7 +6984,7 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
                 })
                 continue
 
-            if mode in {"fix", "refactor", "implement"} and needs_validation:
+            if mode in {"fix", "ci-fix", "refactor", "implement"} and needs_validation:
                 messages.append({
                     "role": "user",
                     "content": (
@@ -6712,7 +7042,7 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
                     "answer": content[:1200],
                 })
 
-            if mode in {"review", "security"}:
+            if mode in {"review", "security", "diagnose", "release"}:
                 evidence = []
 
                 if git_review_snapshot:
@@ -7180,7 +7510,7 @@ KEEP: 1,3"""
                     return
 
                 if (
-                    mode in {"fix", "refactor", "implement"}
+                    mode in {"fix", "ci-fix", "refactor", "implement"}
                     and name in WRITE_TOOLS
                     and tool_result.startswith("OK:")
                 ):
@@ -7218,7 +7548,7 @@ KEEP: 1,3"""
                             )
 
                 elif (
-                    mode in {"fix", "refactor", "implement"}
+                    mode in {"fix", "ci-fix", "refactor", "implement"}
                     and name == "bash"
                     and needs_validation
                     and tool_result.startswith("exit_code=")

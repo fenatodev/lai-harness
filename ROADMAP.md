@@ -14,6 +14,7 @@
 ## Later
 
 - Support multiple OpenAI-compatible local providers without provider-specific prompts.
+- Add more focused mode skills only after they prove distinct from diagnose, ci-fix, release, and existing modes.
 - Add interactive approval UI and scoped approval grants for `ASK` operations.
 - Provide an optional containerized/disposable executor.
 - Use model-evaluation data to decide whether Qwen Coder or another <=8 GB model should replace the current baseline.

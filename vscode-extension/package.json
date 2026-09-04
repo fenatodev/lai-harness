@@ -2,7 +2,7 @@
   "name": "lai-chat",
   "displayName": "lai harness",
   "description": "lai harness: compact VS Code coding harness for local OpenAI-compatible LLM servers",
-  "version": "0.4.0-alpha.18",
+  "version": "0.4.0-alpha.19",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -58,6 +58,10 @@
             "description": "Reproduz uma falha e encontra a causa raiz"
           },
           {
+            "name": "diagnose",
+            "description": "Diagnostica sintomas, ambiente e falhas prováveis sem editar arquivos"
+          },
+          {
             "name": "refactor",
             "description": "Refatora preservando comportamento e valida com testes"
           },
@@ -70,8 +74,16 @@
             "description": "Analisa o projeto e cria um plano de implementação sem editar"
           },
           {
+            "name": "ci-fix",
+            "description": "Corrige falhas de CI, testes, lint ou publication gates com validação"
+          },
+          {
             "name": "implement",
             "description": "Implementa uma mudança e valida o resultado"
+          },
+          {
+            "name": "release",
+            "description": "Verifica a prontidão de release e prepara próximos comandos humanos"
           },
           {
             "name": "handoff",
@@ -92,6 +104,10 @@
           {
             "name": "audit",
             "description": "Mostra patch, sanity, validação e hashes da última execução"
+          },
+          {
+            "name": "readiness",
+            "description": "Mostra se o repositório e o ambiente estão prontos para trabalhar"
           }
         ]
       }

@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -41,6 +42,9 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertTrue((bin_dir / "lai-server-restart").is_file())
             self.assertTrue((data_dir / "skills" / "implement.txt").is_file())
             self.assertTrue((data_dir / "skills" / "implement" / "SKILL.md").is_file())
+            self.assertTrue((data_dir / "skills" / "diagnose" / "SKILL.md").is_file())
+            self.assertTrue((data_dir / "skills" / "ci-fix" / "SKILL.md").is_file())
+            self.assertTrue((data_dir / "skills" / "release" / "SKILL.md").is_file())
             restart_source = (bin_dir / "lai-server-restart").read_text()
             self.assertIn("lai-server-stop", restart_source)
             self.assertIn("lai-server-start", restart_source)
@@ -98,6 +102,19 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             )
             self.assertIn("# lai run history", runs.stdout)
             self.assertIn("Recorded runs: 0", runs.stdout)
+
+            readiness = subprocess.run(
+                [str(bin_dir / "lai"), "readiness", "--json"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            readiness_payload = json.loads(readiness.stdout)
+            self.assertEqual(readiness_payload["version"], "0.4.0-alpha.19")
+            modes = {item["mode"] for item in readiness_payload["skills"]}
+            self.assertTrue({"diagnose", "ci-fix", "release"}.issubset(modes))
 
             no_last = subprocess.run(
                 [str(bin_dir / "lai"), "run", "last"],

@@ -18,7 +18,9 @@ Ele complementa agentes cloud de alto contexto: o lai harness atende ciclos loca
 - identidade pública padronizada como lai harness, mantendo o comando `lai`;
 - avaliação determinística de modelos locais com `lai model` antes de trocar o default;
 - mapa semântico determinístico com `lai semantics` para orientar modelos pequenos pelos subsistemas;
-- histórico determinístico de execuções com `lai runs` e `lai run show`.
+- histórico determinístico de execuções com `lai runs` e `lai run show`;
+- verificação operacional com `lai readiness`;
+- skills focadas `diagnose`, `ci-fix` e `release` para preparar o beta com menos risco.
 
 ## Início rápido
 
@@ -38,6 +40,9 @@ Configure `LAI_HOST`, `LAI_PORT` e `LAI_MODEL`, instale a extensão a partir do 
 ```text
 @lai /plan planeje um teste de regressão focado
 @lai /debug reproduza e rastreie o valor incorreto
+@lai /diagnose diagnostique por que o CI falhou
+@lai /ci-fix corrija a falha de validação
+@lai /release verifique se a versão está pronta
 @lai /implement implemente a mudança e valide
 @lai /review revise minhas alterações Git atuais
 @lai /handoff contexto para continuar no Codex
@@ -52,6 +57,7 @@ lai model score model-eval/results.jsonl
 lai semantics
 lai runs
 lai run last
+lai readiness
 ```
 
 ## Segurança
