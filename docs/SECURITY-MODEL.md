@@ -8,7 +8,8 @@ The user, opened repository, installed LAI code, and local endpoint are assumed 
 
 ## Implemented controls
 
-- API key is read from a private external file and sent as a Bearer header.
+- The llama.cpp API key is read from a private external file and sent as a Bearer header.
+- The optional `lai serve` control plane uses a separate bearer token, requires restrictive token-file permissions, refuses non-loopback binds, limits JSON request bodies, and exposes no model/shell/repository-write endpoint in beta.11.
 - Configuration parsing rejects unknown TOML keys and invalid value types before runtime; diagnostics report secret file status without printing secret contents.
 - The reference server launcher refuses builds without API-key support and requests `--no-webui` when available.
 - File tools resolve targets against the repository root; parent and escaping-symlink paths are rejected.
@@ -36,6 +37,7 @@ Model prompt injection from repository files, malicious dependencies invoked by 
 - Never treat a port binding or API key as proof of internet safety.
 - Use only trusted repositories and review commands/diffs.
 - Rotate or delete local logs according to their sensitivity.
+- Keep `lai serve` on loopback. Put any smartphone/private-network transport behind a separate authenticated gateway/proxy; do not switch the harness to a public bind.
 - Do not expose LAI as a remote multi-user service without a separate authorization and isolation design.
 
 ## Security claims deliberately not made

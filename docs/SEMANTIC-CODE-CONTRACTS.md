@@ -32,6 +32,7 @@ Examples of subsystem ids:
 - `spec-workflow`
 - `model-evaluation`
 - `observability-recovery`
+- `local-control-plane`
 - `extension-shell`
 - `installation-publication`
 

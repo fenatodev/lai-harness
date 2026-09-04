@@ -46,7 +46,8 @@ Supported settings include:
 | `LAI_HOST` | WSL default gateway | Model-server host |
 | `LAI_PORT` | `8080` | Model-server port |
 | `LAI_MODEL` | documented Ministral baseline | API model identifier |
-| `LAI_API_KEY_FILE` | `~/.config/lai/llama-api-key` | Private key file |
+| `LAI_API_KEY_FILE` | `~/.config/lai/llama-api-key` | Private llama.cpp key file |
+| `LAI_CONTROL_API_KEY_FILE` | `~/.config/lai/control-api-key` | Private `lai serve` bearer-token file |
 | `LAI_DATA_DIR` | `~/.local/share/lai` | Skills and runtime records |
 | `LAI_CONFIG_DIR` | `~/.config/lai` | Configuration root |
 | `LAI_CONFIG_FILE` | `$LAI_CONFIG_DIR/config.toml` | TOML configuration file |
@@ -65,6 +66,17 @@ For WSL with a Windows-hosted `llama-server`, copy `scripts/start-secure.ps1` to
 The reference launcher requires an API-auth-capable `llama-server`, requests `--no-webui` and metrics when supported, and uses the development profile recorded in the benchmark document. Adjust context and GPU settings for your hardware. Do not reuse an internet-facing bind without firewall and authentication review.
 
 For Linux-native or remote OpenAI-compatible servers, set `LAI_HOST`, `LAI_PORT`, and `LAI_API_KEY_FILE` directly and use `lai doctor` rather than the Windows launcher. The repository intentionally does not include a model or chat template. Supply compatible files under their own license terms.
+
+## Optional local control plane
+
+For future mobile/private gateway access, initialize a separate control token and start the loopback-only API:
+
+```bash
+lai control-token init
+lai serve --bind 127.0.0.1 --port 8765
+```
+
+Do not reuse the llama.cpp key for this API. See [Local control plane](CONTROL-PLANE.md). Beta.11 does not expose model execution or repository writes over HTTP.
 
 ## Extension from source
 

@@ -1,44 +1,43 @@
 # Release notes
 
-## lai harness v0.4.0-beta.10 — release state convergence
+## lai harness v0.4.0-beta.11 — local control plane foundation
 
-This beta makes release state harder to misread and harder to tag from the wrong commit.
+This beta creates the safe local API boundary needed for future smartphone access without turning lai harness into a network-exposed shell or embedding messaging platforms into the core.
 
 ### What changed
 
-- Added opt-in `lai project-handoff --remote` and `lai next-chat --remote`.
-- Handoff output now preserves the local/offline governance result while also exposing the remote governance result when requested.
-- The effective handoff status and `manual_actions` come from remote verification when `--remote` is enabled.
-- Remote handoff evidence includes protected-main status, GitHub pre-release state, credential source metadata, and VSIX digest comparison without rendering credentials.
-- `lai release-check` now resolves the expected tag target directly and blocks if the tag already points to another commit.
-- A clean feature branch reports `ready_for_integration`; it can no longer report `ready_to_tag`.
-- `ready_to_tag` requires `main`, a clean/readiness-valid checkout, and `HEAD == origin/main`.
-- A tag is considered `released` only when it peels to synchronized `main` HEAD.
+- Added `lai control-token init|status` with a control-plane secret separate from the llama.cpp API key.
+- Token initialization uses cryptographically secure randomness, writes mode `0600`, refuses silent overwrite, and does not print the secret.
+- Added `lai serve`, implemented with Python's standard library only.
+- The server binds only to IPv4 loopback/`localhost` in beta.11; public, LAN, and tailnet bind addresses are rejected.
+- Every API endpoint requires bearer authentication.
+- Added `GET /v1/status`, `GET /v1/readiness`, `GET /v1/runs`, and `POST /v1/policy-check`.
+- Added bounded JSON request handling, content-type checks, structured errors, connection timeout, no-store responses, and suppressed default access logging.
+- Added explicit capability reporting that model execution, shell execution, and repository writes are disabled over HTTP.
+- Added focused server/token tests and an installed `lai serve` smoke test.
 
 ### Why this matters
 
-Beta.9 could verify a published release remotely, but `project-handoff` still recorded only offline governance and therefore reported `action_required` after publication. Separately, the beta.8 release exposed a tag-target hazard: a release tag could exist on an older commit before the intended protected-main integration was complete.
+The intended mobile architecture is no longer "expose llama.cpp" or "let Telegram run shell". The harness now has a narrow local control boundary that a separate gateway can consume. A private proxy such as Tailscale Serve can later forward to loopback while the harness itself remains bound to localhost.
 
-Beta.10 converts both incidents into deterministic checks instead of relying on operator memory.
-
-### Harness maturity
-
-Harness Score remains **L4 Self-correcting, 93/108 (86%)**. This beta does not add decorative score artifacts; it improves release correctness using mechanisms the project already needs.
+This separation also protects project scope: `lai-gateway` will own Telegram/PWA/mobile transport, while business/social automation remains a separate product that can be developed and dogfooded with lai harness.
 
 ### Safety boundary
 
-- Default `release-check`, `release-governance`, and `project-handoff` remain model-free and repository-read-only.
-- `project-handoff --remote` reuses the existing GitHub GET-only governance path.
-- No remote handoff path can tag, merge, push, upload, publish, or change branch protection.
-- Offline tag readiness uses only local Git metadata and the local `origin/main` tracking ref; GitHub CI remains an explicit separate gate.
+- No HTTP endpoint executes a model prompt.
+- No HTTP endpoint executes shell or Git commands.
+- No HTTP endpoint writes repository files.
+- `POST /v1/policy-check` classifies only and always returns `executed: false`.
+- Unsupported methods and endpoints fail with controlled JSON responses.
+- The control token is a separate trust domain from the model-server token.
+- `lai serve` refuses non-loopback binding in this beta.
 
 ### Validation gate
 
 ```bash
-lai readiness
-lai release-check --target 0.4.0-beta.10 --json
-lai release-pack --target 0.4.0-beta.10 --with-vsix --json
-lai project-handoff --target 0.4.0-beta.10 --json
+lai control-token status --json
+lai release-check --target 0.4.0-beta.11 --json
+lai release-pack --target 0.4.0-beta.11 --with-vsix --json
 make lint
 make check
 make test-dev
@@ -49,6 +48,6 @@ make validate
 
 ### Release body for GitHub
 
-lai harness v0.4.0-beta.10 converges release state across `release-check`, remote governance, and project handoff. Feature branches now report `ready_for_integration`; `ready_to_tag` is reserved for synchronized protected `main`, and an expected tag pointing at another commit blocks the release check.
+lai harness v0.4.0-beta.11 adds an authenticated, loopback-only local control plane for future mobile integrations. `lai serve` exposes narrow JSON status/readiness/run-history/policy endpoints while explicitly disabling model execution, shell execution, and repository writes over HTTP.
 
-The handoff can optionally include live GitHub verification with `--remote`, preserving local/offline evidence while using verified branch protection, pre-release state, and VSIX digest evidence as the effective release posture. Remote verification remains GET-only and model-free. Harness Score remains L4 Self-correcting at 93/108 (86%).
+A separate `lai control-token` lifecycle keeps control-plane authentication independent from llama.cpp. The implementation uses Python's standard library, refuses non-loopback binds, limits request bodies, returns structured JSON errors, and includes installed-wrapper smoke coverage. Messaging/PWA adapters remain outside the harness core by design.

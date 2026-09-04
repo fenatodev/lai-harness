@@ -23,6 +23,10 @@ lai harness has four runtime layers: the VS Code chat participant, the Python ha
 
 `src/local-agent` uses only Python's standard library. It owns prompting, centralized policy evaluation, tool dispatch, mode gates, output limits, endpoint authentication, persistence, and audit correlation.
 
+### Local control plane
+
+`lai serve` is an optional loopback-only HTTP/JSON adapter implemented inside the Python harness with the standard library. It uses a bearer token separate from the llama.cpp key and exposes only status, readiness, public run summaries, and policy classification in beta.11. It has no shell, file-write, Git-mutation, model-run, or publication endpoint. A future `lai-gateway` may proxy this surface to mobile clients without making the harness itself bind to LAN, tailnet, or public interfaces.
+
 ### Skills and tool schemas
 
 Skills are compact mode contracts stored in `skills/`. Tools are selected by mode, so a review model does not receive write-tool schemas and a plan model receives only `inspect` and `search`. `inspect` batches up to eight files. `patch` validates up to six exact replacements in memory before writing any target.

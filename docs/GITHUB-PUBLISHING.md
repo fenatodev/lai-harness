@@ -10,17 +10,17 @@ Public metadata for the repository and beta releases.
 
 **Description:** Local, auditable coding agent for VS Code, optimized for small LLMs via llama.cpp with compact tools, batch patching, validation guards, metrics, handoff and forensic audit.
 
-## Release v0.4.0-beta.10
+## Release v0.4.0-beta.11
 
-Use `lai release-pack --target 0.4.0-beta.10 --with-vsix --json` to generate local release files.
+Use `lai release-pack --target 0.4.0-beta.11 --with-vsix --json` to generate local release files.
 
-**Title:** lai harness v0.4.0-beta.10 — release state convergence
+**Title:** lai harness v0.4.0-beta.11 — local control plane foundation
 
 The GitHub Release body should come from generated `release-body.md` or [Release notes](RELEASE-NOTES.md). Mark the release as a pre-release while the project remains beta.
 
 Before merge, ensure protected `main` requires `Python 3.11`, `Python 3.12`, `Publication gates`, and `Harness Score L4`.
 
-After publication, run `lai release-governance --target 0.4.0-beta.10 --remote --json` to verify branch protection, pre-release metadata, and the VSIX digest when attached.
+After publication, run `lai release-governance --target 0.4.0-beta.11 --remote --json` to verify branch protection, pre-release metadata, and the VSIX digest when attached.
 
 ## Non-goals
 

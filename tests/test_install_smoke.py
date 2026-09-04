@@ -1,9 +1,13 @@
 import json
 import os
 from pathlib import Path
+import socket
 import subprocess
 import tempfile
+import time
 import unittest
+import urllib.error
+import urllib.request
 
 from fake_llama_server import FakeLlamaServer
 
@@ -17,6 +21,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             root = Path(raw)
             bin_dir = root / "bin"
             data_dir = root / "data"
+            config_dir = root / "config"
             key_file = root / "key"
             sample_repo = root / "sample-repo"
             key_file.write_text("synthetic-test-key")
@@ -27,6 +32,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 **os.environ,
                 "LAI_BIN_DIR": str(bin_dir),
                 "LAI_DATA_DIR": str(data_dir),
+                "LAI_CONFIG_DIR": str(config_dir),
             }
             install = subprocess.run(
                 [str(REPO / "scripts" / "install-local.sh")],
@@ -79,7 +85,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             workspace_payload = json.loads(workspace_status.stdout)
-            self.assertEqual(workspace_payload["version"], "0.4.0-beta.10")
+            self.assertEqual(workspace_payload["version"], "0.4.0-beta.11")
             self.assertEqual(workspace_payload["repository"], str(sample_repo.resolve()))
             self.assertIn("base_dir", workspace_payload)
 
@@ -125,6 +131,59 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertEqual(policy_payload["decision"], "ALLOW")
             self.assertFalse(policy_payload["executed"])
 
+            control_token = subprocess.run(
+                [str(bin_dir / "lai"), "control-token", "init", "--json"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            control_token_payload = json.loads(control_token.stdout)
+            control_token_path = Path(control_token_payload["path"])
+            self.assertTrue(control_token_path.is_file())
+            self.assertEqual(control_token_path.stat().st_mode & 0o777, 0o600)
+            self.assertFalse(control_token_payload["secret_printed"])
+            control_secret = control_token_path.read_text(encoding="utf-8").strip()
+            self.assertNotIn(control_secret, control_token.stdout)
+
+            with socket.socket() as probe:
+                probe.bind(("127.0.0.1", 0))
+                control_port = probe.getsockname()[1]
+            control_server = subprocess.Popen(
+                [str(bin_dir / "lai"), "serve", "--port", str(control_port)],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                control_payload = None
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    request = urllib.request.Request(
+                        f"http://127.0.0.1:{control_port}/v1/status",
+                        headers={"Authorization": f"Bearer {control_secret}"},
+                    )
+                    try:
+                        with urllib.request.urlopen(request, timeout=1) as response:
+                            control_payload = json.loads(response.read().decode("utf-8"))
+                            break
+                    except (urllib.error.URLError, TimeoutError):
+                        time.sleep(0.05)
+                self.assertIsNotNone(control_payload, "installed lai serve did not become ready")
+                self.assertEqual(control_payload["repository"], str(sample_repo.resolve()))
+                self.assertFalse(control_payload["capabilities"]["model_execution"])
+                self.assertFalse(control_payload["capabilities"]["shell_execution"])
+            finally:
+                control_server.terminate()
+                try:
+                    control_server.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    control_server.kill()
+                    control_server.wait(timeout=3)
+
             runs = subprocess.run(
                 [str(bin_dir / "lai"), "runs"],
                 cwd=sample_repo,
@@ -145,7 +204,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             readiness_payload = json.loads(readiness.stdout)
-            self.assertEqual(readiness_payload["version"], "0.4.0-beta.10")
+            self.assertEqual(readiness_payload["version"], "0.4.0-beta.11")
             modes = {item["mode"] for item in readiness_payload["skills"]}
             self.assertTrue({"diagnose", "ci-fix", "release"}.issubset(modes))
 
@@ -158,7 +217,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             release_payload = json.loads(release_check.stdout)
-            self.assertEqual(release_payload["version"], "0.4.0-beta.10")
+            self.assertEqual(release_payload["version"], "0.4.0-beta.11")
             self.assertIn("release_safety", {item["name"] for item in release_payload["checks"]})
 
             release_pack = subprocess.run(
@@ -166,7 +225,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                     str(bin_dir / "lai"),
                     "release-pack",
                     "--target",
-                    "0.4.0-beta.10",
+                    "0.4.0-beta.11",
                     "--out",
                     str(root / "release-pack"),
                     "--json",
@@ -178,7 +237,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             release_pack_payload = json.loads(release_pack.stdout)
-            self.assertEqual(release_pack_payload["version"], "0.4.0-beta.10")
+            self.assertEqual(release_pack_payload["version"], "0.4.0-beta.11")
             self.assertTrue(Path(release_pack_payload["files"]["release_body"]).is_file())
 
             governance = subprocess.run(
@@ -186,7 +245,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                     str(bin_dir / "lai"),
                     "release-governance",
                     "--target",
-                    "0.4.0-beta.10",
+                    "0.4.0-beta.11",
                     "--json",
                 ],
                 cwd=sample_repo,
@@ -196,7 +255,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             governance_payload = json.loads(governance.stdout)
-            self.assertEqual(governance_payload["version"], "0.4.0-beta.10")
+            self.assertEqual(governance_payload["version"], "0.4.0-beta.11")
             self.assertIn("manual_actions", governance_payload)
 
             alias_governance = subprocess.run(
@@ -208,7 +267,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             alias_governance_payload = json.loads(alias_governance.stdout)
-            self.assertEqual(alias_governance_payload["version"], "0.4.0-beta.10")
+            self.assertEqual(alias_governance_payload["version"], "0.4.0-beta.11")
             self.assertIn("github_release", {item["id"] for item in alias_governance_payload["manual_actions"]})
 
             project_handoff = subprocess.run(
@@ -216,7 +275,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                     str(bin_dir / "lai"),
                     "project-handoff",
                     "--target",
-                    "0.4.0-beta.10",
+                    "0.4.0-beta.11",
                     "--out",
                     str(root / "project-handoff"),
                     "--json",
@@ -228,11 +287,11 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             project_handoff_payload = json.loads(project_handoff.stdout)
-            self.assertEqual(project_handoff_payload["version"], "0.4.0-beta.10")
+            self.assertEqual(project_handoff_payload["version"], "0.4.0-beta.11")
             self.assertTrue(Path(project_handoff_payload["files"]["markdown"]).is_file())
 
             next_chat = subprocess.run(
-                [str(bin_dir / "lai"), "next-chat", "--target", "0.4.0-beta.10", "--json"],
+                [str(bin_dir / "lai"), "next-chat", "--target", "0.4.0-beta.11", "--json"],
                 cwd=sample_repo,
                 env=install_env,
                 text=True,
@@ -240,7 +299,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             next_chat_payload = json.loads(next_chat.stdout)
-            self.assertEqual(next_chat_payload["version"], "0.4.0-beta.10")
+            self.assertEqual(next_chat_payload["version"], "0.4.0-beta.11")
             self.assertIn("critical_rules", next_chat_payload)
 
             no_last = subprocess.run(

@@ -8,7 +8,7 @@ Run a deterministic configuration report with:
 lai config
 ```
 
-The report does not call or start the model server. It prints effective values and path status checks. API key contents are never printed.
+The report does not call or start the model server. It prints effective values and path status checks. API key and control-plane token contents are never printed.
 
 ## TOML schema
 
@@ -18,6 +18,7 @@ The report does not call or start the model server. It prints effective values a
 - `port`
 - `model`
 - `api_key_file`
+- `control_api_key_file`
 - `data_dir`
 - `skills_dir`
 - `state_dir`
@@ -33,7 +34,9 @@ Unknown keys fail closed. `config_dir` and `config_file` are selected before the
 
 `port` must be an integer from 1 to 65535. `model` and `server_launcher` must be non-empty strings. `host` may be unset for automatic gateway detection, but if set it must be a hostname or IP address, not a URL or path. Filesystem values must be non-empty path strings.
 
-Missing directories or optional files are diagnostics, not fatal errors for deterministic commands. Runtime commands may still fail later when a required server, executable, template, or API key file is absent.
+Missing directories or optional files are diagnostics, not fatal errors for deterministic commands. Runtime commands may still fail later when a required server, executable, template, API key file, or control token is absent.
+
+The control-plane token is independent from the llama.cpp API key. Initialize it with `lai control-token init`; `lai serve` refuses an absent, empty, or group/other-readable token file.
 
 ## Server workflow
 

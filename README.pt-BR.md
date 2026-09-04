@@ -20,6 +20,7 @@ Ele complementa agentes cloud de alto contexto: o lai harness atende ciclos loca
 - mapa semântico determinístico com `lai semantics` para orientar modelos pequenos pelos subsistemas;
 - histórico determinístico de execuções com `lai runs`, `lai run show` e exportação sanitizada com `lai run export`;
 - verificação operacional com `lai readiness`;
+- control plane local autenticado com `lai serve`, limitado a loopback e sem execução HTTP de modelo/shell/escrita;
 - `lai policy-check` determinístico para classificar ações sem executá-las e reutilizar a mesma policy nos hooks do repositório;
 - hooks de desenvolvimento com gate L4 do Harness Score separado do CI do produto;
 - skills focadas `diagnose`, `ci-fix` e `release`, além de gates de preflight, para operar o beta com menos risco.
@@ -62,12 +63,15 @@ lai run last
 lai run export --last
 lai readiness
 lai policy-check --tool bash --command "git status --short" --json
+lai control-token status --json
+# após `lai control-token init` uma vez:
+lai serve --bind 127.0.0.1 --port 8765
 make harness-score-gate
-lai release-check --target 0.4.0-beta.10 --json
-lai release-pack --target 0.4.0-beta.10 --with-vsix --json
-lai release-governance --target 0.4.0-beta.10 --remote --json
-lai project-handoff --target 0.4.0-beta.10 --remote --json
-lai release "verifique se beta.10 está pronto"
+lai release-check --target 0.4.0-beta.11 --json
+lai release-pack --target 0.4.0-beta.11 --with-vsix --json
+lai release-governance --target 0.4.0-beta.11 --remote --json
+lai project-handoff --target 0.4.0-beta.11 --remote --json
+lai release "verifique se beta.11 está pronto"
 ```
 
 ## Segurança
@@ -82,7 +86,7 @@ As medições documentadas vieram de uma máquina e fixtures específicas. Elas 
 
 O código original do LAI usa MIT. VS Code, llama.cpp, modelos, GGUF e templates permanecem sob termos próprios e não são redistribuídos. Consulte [THIRD_PARTY.md](THIRD_PARTY.md).
 
-A documentação técnica principal está em inglês no diretório [`docs/`](docs/), incluindo [Development harness](docs/DEVELOPMENT-HARNESS.md) e [Beta readiness](docs/BETA-READINESS.md).
+A documentação técnica principal está em inglês no diretório [`docs/`](docs/), incluindo [Development harness](docs/DEVELOPMENT-HARNESS.md), [Local control plane](docs/CONTROL-PLANE.md) e [Beta readiness](docs/BETA-READINESS.md).
 
 Use `lai release-pack` and see [Release pack](docs/RELEASE-PACK.md) before manual publication. See [Protected branch write guard](docs/PROTECTED-BRANCH-WRITES.md) before running write-capable modes on release-sensitive branches.
 

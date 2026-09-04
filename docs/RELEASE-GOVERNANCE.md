@@ -5,7 +5,7 @@
 ```bash
 lai release-governance
 lai release-governance --json
-lai release-governance --target 0.4.0-beta.10 --remote --json
+lai release-governance --target 0.4.0-beta.11 --remote --json
 lai governance --remote --json
 ```
 
@@ -34,4 +34,4 @@ Once `main` is protected, do not push release commits directly to it. Use the fe
 
 ## Chat migration
 
-Use `lai project-handoff --target 0.4.0-beta.10 --remote --out /tmp/lai-harness-project-handoff-v0.4.0-beta.10 --force --json` when a long chat needs live GitHub release evidence in the next session. Omit `--remote` for a fully offline handoff.
+Use `lai project-handoff --target 0.4.0-beta.11 --remote --out /tmp/lai-harness-project-handoff-v0.4.0-beta.11 --force --json` when a long chat needs live GitHub release evidence in the next session. Omit `--remote` for a fully offline handoff.
