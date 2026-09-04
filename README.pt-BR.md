@@ -16,7 +16,8 @@ Ele complementa agentes cloud de alto contexto: o lai harness atende ciclos loca
 - métricas, auditoria forense e contexto por workspace;
 - cliente Python sem dependências externas;
 - identidade pública padronizada como lai harness, mantendo o comando `lai`;
-- avaliação determinística de modelos locais com `lai model` antes de trocar o default.
+- avaliação determinística de modelos locais com `lai model` antes de trocar o default;
+- mapa semântico determinístico com `lai semantics` para orientar modelos pequenos pelos subsistemas.
 
 ## Início rápido
 
@@ -47,11 +48,12 @@ Para comparar modelos locais sem trocar o default no escuro:
 lai model plan
 lai model sample > model-eval/results.jsonl
 lai model score model-eval/results.jsonl
+lai semantics
 ```
 
 ## Segurança
 
-O LAI **não é uma sandbox**. As ferramentas de arquivo ficam confinadas à raiz do repositório e a ferramenta Git dedicada é somente leitura, mas `bash` executa com as permissões do usuário e usa uma denylist incompleta por natureza. Use uma conta de menor privilégio, mantenha backups e revise os diffs.
+O lai harness **não é uma sandbox**. As ferramentas de arquivo ficam confinadas à raiz do repositório e a ferramenta Git dedicada é somente leitura, mas `bash` executa com as permissões do usuário e usa uma denylist incompleta por natureza. Use uma conta de menor privilégio, mantenha backups e revise os diffs.
 
 Chaves, modelos, logs, estados, métricas, auditoria e handoffs reais não devem ser publicados. Leia [SECURITY-MODEL.md](docs/SECURITY-MODEL.md).
 

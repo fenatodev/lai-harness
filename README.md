@@ -30,7 +30,7 @@ local-agent (Python standard library)
                   user-supplied GGUF
 ```
 
-See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow and [Branding](docs/BRANDING.md) for naming rules.
+See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow, [Branding](docs/BRANDING.md) for naming rules, and [Semantic code contracts](docs/SEMANTIC-CODE-CONTRACTS.md) for subsystem navigation metadata.
 
 ## Features
 
@@ -53,6 +53,7 @@ See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow and [Brandin
 - deterministic, explainable context ranking with bounded metadata-only `lai context`;
 - validated configuration diagnostics with secret-safe `lai config`;
 - deterministic `lai model` benchmark planning, JSONL samples, and local scoring;
+- deterministic `lai semantics` subsystem map for model-friendly code navigation;
 - no Python package dependencies in the current harness.
 
 ## Quick start
@@ -79,6 +80,7 @@ Configure `~/.config/lai/config.toml`, `LAI_*` environment variables, or leading
 lai spec
 lai config
 lai context "repair parser timeout"
+lai semantics
 lai recovery
 # if recovery reports a compatible interrupted run:
 lai resume

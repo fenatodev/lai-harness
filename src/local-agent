@@ -12,9 +12,87 @@ import urllib.request
 import unicodedata
 from pathlib import Path
 
-VERSION = "0.4.0-alpha.14"
+VERSION = "0.4.0-alpha.15"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
+
+SEMANTIC_CODE_CONTRACT = {
+    "name": "lai harness code semantics",
+    "purpose": (
+        "Make the repository easier for small local models to navigate by "
+        "declaring stable domain terms, subsystem intent, and canonical files."
+    ),
+    "rules": [
+        "semantic contracts are advisory metadata, not inspected evidence",
+        "canonical ids remain stable across public lowercase renames",
+        "runtime behavior must stay covered by tests before a semantic rename ships",
+    ],
+    "subsystems": [
+        {
+            "id": "configuration",
+            "intent": "resolve CLI, environment, TOML, XDG paths, server, and model settings",
+            "paths": ["src/local-agent", "src/lai", "docs/CONFIGURATION.md"],
+            "entrypoints": ["load_configuration", "render_config_status", "doctor_status"],
+            "terms": ["config", "configuration", "toml", "env", "xdg", "server", "host", "port", "model", "api", "key", "doctor"],
+        },
+        {
+            "id": "policy-gateway",
+            "intent": "classify tool calls as ALLOW, ASK, or DENY before execution",
+            "paths": ["src/local-agent", "docs/SECURITY-MODEL.md", ".agents/rules/core-safety.md"],
+            "entrypoints": ["evaluate_tool_policy", "git_mutation_in_shell", "render_policy_result"],
+            "terms": ["policy", "approval", "allow", "ask", "deny", "bash", "git", "mutation", "safety", "security"],
+        },
+        {
+            "id": "tool-runtime",
+            "intent": "execute bounded repository tools for read, search, patch, shell, and git inspection",
+            "paths": ["src/local-agent", "docs/ARCHITECTURE.md", "docs/MODES.md"],
+            "entrypoints": ["run_tool", "tool_read", "tool_search", "tool_patch", "tool_bash", "tool_git"],
+            "terms": ["tool", "runtime", "read", "search", "inspect", "patch", "rewrite", "bash", "git", "validation"],
+        },
+        {
+            "id": "context-intelligence",
+            "intent": "rank likely files for a task without treating candidates as evidence",
+            "paths": ["src/local-agent", "docs/CONTEXT-INTELLIGENCE.md"],
+            "entrypoints": ["rank_context_candidates", "render_context_candidates", "print_context_candidates"],
+            "terms": ["context", "ranking", "candidate", "inventory", "semantic", "terms", "workspace", "recent", "modified"],
+        },
+        {
+            "id": "spec-workflow",
+            "intent": "load active specs, enforce traceability, and inject implementation requirements",
+            "paths": ["src/local-agent", ".specs/README.md", "docs/DESIGN-DECISIONS.md"],
+            "entrypoints": ["parse_spec", "load_active_spec", "render_active_spec_context"],
+            "terms": ["spec", "requirements", "traceability", "workflow", "status", "acceptance", "validation"],
+        },
+        {
+            "id": "model-evaluation",
+            "intent": "compare local coding models through deterministic scenarios, sample records, and scoring",
+            "paths": ["src/local-agent", "docs/MODEL-EVALUATION.md"],
+            "entrypoints": ["render_model_evaluation_plan", "render_model_evaluation_sample", "render_model_evaluation_score"],
+            "terms": ["model", "evaluation", "benchmark", "score", "scenario", "latency", "tokens", "hallucination", "truncation"],
+        },
+        {
+            "id": "observability-recovery",
+            "intent": "record metrics, audit events, checkpoints, workspace status, and recovery state",
+            "paths": ["src/local-agent", "docs/OBSERVABILITY.md", "docs/RECOVERY.md"],
+            "entrypoints": ["record_metric_event", "record_audit_event", "save_run_checkpoint", "render_recovery_context"],
+            "terms": ["metrics", "audit", "checkpoint", "recovery", "resume", "handoff", "workspace", "status"],
+        },
+        {
+            "id": "extension-shell",
+            "intent": "connect VS Code chat requests to the local CLI while preserving workspace safety",
+            "paths": ["vscode-extension/extension.js", "vscode-extension/package.json", "vscode-extension/README.md"],
+            "entrypoints": ["activate", "resolveAgentPath", "runAgent"],
+            "terms": ["vscode", "extension", "chat", "participant", "selection", "workspace", "agent", "command"],
+        },
+        {
+            "id": "installation-publication",
+            "intent": "install local binaries, package the VSIX, and validate release artifacts",
+            "paths": ["scripts/install-local.sh", "scripts/validate.sh", "scripts/package-vsix.sh", "docs/INSTALLATION.md", "docs/GITHUB-PUBLISHING.md"],
+            "entrypoints": ["install-local.sh", "validate.sh", "package-vsix.sh"],
+            "terms": ["install", "package", "vsix", "publication", "release", "ci", "validate", "publishing"],
+        },
+    ],
+}
 
 CONFIG_OPTIONS = {
     "--config": "config_file",
@@ -984,6 +1062,69 @@ def safe_path(value):
         raise ValueError("Path outside repository is blocked")
 
     return p
+
+
+def semantic_code_contract_payload():
+    return {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "contract": SEMANTIC_CODE_CONTRACT,
+    }
+
+
+def render_semantic_code_contract(json_mode=False):
+    payload = semantic_code_contract_payload()
+    if json_mode:
+        return json.dumps(payload, indent=2, sort_keys=True)
+
+    lines = [
+        "# lai code semantics",
+        f"Version: {VERSION}",
+        "",
+        "Purpose:",
+        f"- {SEMANTIC_CODE_CONTRACT['purpose']}",
+        "",
+        "Rules:",
+    ]
+    for rule in SEMANTIC_CODE_CONTRACT["rules"]:
+        lines.append(f"- {rule}")
+    lines.extend(["", "Subsystems:"])
+    for subsystem in SEMANTIC_CODE_CONTRACT["subsystems"]:
+        lines.append(f"- {subsystem['id']}: {subsystem['intent']}")
+        lines.append("  - paths: " + ", ".join(subsystem["paths"]))
+        lines.append("  - entrypoints: " + ", ".join(subsystem["entrypoints"]))
+        lines.append("  - terms: " + ", ".join(subsystem["terms"]))
+    return "\n".join(lines)
+
+
+def _semantic_contract_tokens(subsystem):
+    values = [
+        subsystem.get("id", ""),
+        " ".join(subsystem.get("entrypoints") or []),
+        " ".join(subsystem.get("terms") or []),
+    ]
+    tokens = set()
+    for value in values:
+        folded = _context_fold_text(value)
+        for token in re.split(r"[^a-z0-9]+", folded):
+            if len(token) >= 3 and token not in CONTEXT_STOPWORDS:
+                tokens.add(token)
+    return tokens
+
+
+def context_semantic_references(terms, inventory):
+    if not terms or not inventory:
+        return {}
+    known_paths = set(inventory)
+    references = {}
+    for subsystem in SEMANTIC_CODE_CONTRACT["subsystems"]:
+        contract_terms = _semantic_contract_tokens(subsystem)
+        if not any(term in contract_terms for term in terms):
+            continue
+        for rel in subsystem.get("paths") or []:
+            if rel in known_paths:
+                references.setdefault(rel, []).append(subsystem["id"])
+    return references
 
 
 MODEL_EVALUATION_SCENARIOS = [
@@ -3492,7 +3633,7 @@ CONTEXT_STOPWORDS = {
     "file", "files", "code", "repo", "repository", "project", "task",
     "inspect", "search", "context", "src", "para", "com", "arquivo", "arquivos",
     "codigo", "projeto", "teste", "testes",
-    "uma", "um", "que", "por", "dos", "das", "de", "do", "da",
+    "uma", "um", "que", "por", "dos", "das", "de", "do", "da", "sem",
 }
 
 
@@ -3640,6 +3781,7 @@ def rank_context_candidates(task, workspace_state=None, active_spec=None, limit=
     except Exception:
         recent, modified = set(), set()
     spec_refs = context_spec_references(active_spec, inventory)
+    semantic_refs = context_semantic_references(terms, inventory)
     active_spec_rel = None
     if active_spec and active_spec.get("path"):
         try:
@@ -3666,6 +3808,9 @@ def rank_context_candidates(task, workspace_state=None, active_spec=None, limit=
         if rel in spec_refs:
             score += 45
             reasons.append("spec_reference")
+        if rel in semantic_refs:
+            score += 38
+            reasons.append("semantic_contract:" + ",".join(semantic_refs[rel][:2]))
         if any(term in path_low or term in path_parts for term in terms):
             score += 50
             reasons.append("task_path_match")
@@ -3701,7 +3846,7 @@ def print_context_candidates(task):
     ranked = rank_context_candidates(
         task, workspace_state=state, active_spec=spec, limit=CONTEXT_RESULT_LIMIT,
     )
-    print("# LAI Context Candidates")
+    print("# lai context candidates")
     print("Task: " + str(task or "[none]")[:300])
     if not ranked:
         print("- [none]")
@@ -4804,6 +4949,10 @@ def main():
 
     if args and args[0] == "--model-eval":
         handle_model_evaluation(args[1:])
+        return
+
+    if args and args[0] == "--semantics":
+        print(render_semantic_code_contract(json_mode="--json" in args[1:]))
         return
 
     if args and args[0] == "--recovery":

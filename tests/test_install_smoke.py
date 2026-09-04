@@ -77,6 +77,17 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertIn("# lai model evaluation", model_plan.stdout)
             self.assertIn("does not call, start, or download a model", model_plan.stdout)
 
+            semantics = subprocess.run(
+                [str(bin_dir / "lai"), "semantics"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("# lai code semantics", semantics.stdout)
+            self.assertIn("policy-gateway", semantics.stdout)
+
             with FakeLlamaServer() as server:
                 runtime_env = {
                     **install_env,

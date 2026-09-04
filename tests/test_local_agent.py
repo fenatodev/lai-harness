@@ -1225,7 +1225,7 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "lai harness 0.4.0-alpha.14")
+        self.assertEqual(result.stdout.strip(), "lai harness 0.4.0-alpha.15")
 
     def test_deterministic_model_eval_plan_needs_no_server(self):
         result = subprocess.run(
@@ -1240,6 +1240,32 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("implement-small-diff", result.stdout)
         self.assertIn("does not call, start, or download a model", result.stdout)
 
+    def test_deterministic_semantics_cli_needs_no_server(self):
+        result = subprocess.run(
+            [str(SOURCE), "--semantics"],
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        self.assertIn("# lai code semantics", result.stdout)
+        self.assertIn("policy-gateway", result.stdout)
+        self.assertIn("src/local-agent", result.stdout)
+        self.assertIn("advisory metadata", result.stdout)
+
+        raw = subprocess.run(
+            [str(SOURCE), "--semantics", "--json"],
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        payload = json.loads(raw.stdout)
+        self.assertEqual(payload["product"], "lai harness")
+        subsystem_ids = {item["id"] for item in payload["contract"]["subsystems"]}
+        self.assertIn("context-intelligence", subsystem_ids)
+        self.assertIn("policy-gateway", subsystem_ids)
+
     def test_deterministic_model_eval_json_and_sample_are_parseable(self):
         result = subprocess.run(
             [str(SOURCE), "--model-eval", "plan", "--json"],
@@ -1250,7 +1276,7 @@ class LocalAgentTest(unittest.TestCase):
         )
         payload = json.loads(result.stdout)
         self.assertEqual(payload["product"], "lai harness")
-        self.assertEqual(payload["version"], "0.4.0-alpha.14")
+        self.assertEqual(payload["version"], "0.4.0-alpha.15")
         scenario_ids = {item["id"] for item in payload["scenarios"]}
         self.assertIn("context-ranking", scenario_ids)
 
@@ -1422,6 +1448,30 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("task_path_match", reasons)
         self.assertIn("content_match", reasons)
 
+    def test_context_ranking_uses_semantic_contracts(self):
+        (self.root / "src").mkdir()
+        (self.root / "docs").mkdir()
+        (self.root / ".agents" / "rules").mkdir(parents=True)
+        (self.root / "src" / "local-agent").write_text("policy runtime\n")
+        (self.root / "docs" / "SECURITY-MODEL.md").write_text("safety model\n")
+        (self.root / ".agents" / "rules" / "core-safety.md").write_text("approval rules\n")
+
+        with mock.patch.object(agent, "context_git_changed_paths", return_value=set()):
+            ranked = agent.rank_context_candidates(
+                "melhorar policy approval safety",
+                workspace_state={},
+                active_spec=None,
+                limit=8,
+            )
+
+        by_path = {item["path"]: item for item in ranked}
+        self.assertIn("src/local-agent", by_path)
+        self.assertIn(
+            "semantic_contract:policy-gateway",
+            by_path["src/local-agent"]["reasons"],
+        )
+        self.assertIn("docs/SECURITY-MODEL.md", by_path)
+
     def test_context_ranking_is_deterministic(self):
         (self.root / "a.py").write_text("target token\n")
         (self.root / "b.py").write_text("target token\n")
@@ -1449,7 +1499,7 @@ class LocalAgentTest(unittest.TestCase):
             cwd=self.root, env=env, text=True, capture_output=True,
             timeout=5, check=True,
         )
-        self.assertIn("# LAI Context Candidates", result.stdout)
+        self.assertIn("# lai context candidates", result.stdout)
         self.assertIn("worker.py", result.stdout)
 
     def test_context_ranking_degrades_when_git_signal_is_unavailable(self):
