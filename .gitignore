@@ -19,3 +19,6 @@ api-key*
 .coverage
 .pytest_cache/
 .vscode-test/
+
+# Local development environment
+.venv/

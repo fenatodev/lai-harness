@@ -151,7 +151,7 @@ function activate(context) {
             isContextCommand;
 
         if (!typedPrompt && !promptOptional) {
-            stream.markdown('Digite uma tarefa para o Local AI.');
+            stream.markdown('Digite uma tarefa para o LAI Harness.');
             return;
         }
 
@@ -338,24 +338,24 @@ function activate(context) {
             : [prompt];
 
         const progressLabels = {
-            explain: 'Local AI explicando seleção...',
-            fix: 'Local AI investigando e corrigindo...',
-            test: 'Local AI executando testes...',
-            review: 'Local AI revisando código...',
-            debug: 'Local AI investigando a causa...',
-            refactor: 'Local AI refatorando e validando...',
-            security: 'Local AI revisando segurança...',
-            plan: 'Local AI planejando implementação...',
-            implement: 'Local AI implementando e validando...',
-            handoff: 'Local AI preparando handoff...',
-            clearcontext: 'Local AI limpando contexto local...',
-            status: 'Local AI lendo status do workspace...',
-            metrics: 'Local AI lendo métricas locais...',
-            audit: 'Local AI lendo trilha de auditoria...'
+            explain: 'LAI Harness explicando seleção...',
+            fix: 'LAI Harness investigando e corrigindo...',
+            test: 'LAI Harness executando testes...',
+            review: 'LAI Harness revisando código...',
+            debug: 'LAI Harness investigando a causa...',
+            refactor: 'LAI Harness refatorando e validando...',
+            security: 'LAI Harness revisando segurança...',
+            plan: 'LAI Harness planejando implementação...',
+            implement: 'LAI Harness implementando e validando...',
+            handoff: 'LAI Harness preparando handoff...',
+            clearcontext: 'LAI Harness limpando contexto local...',
+            status: 'LAI Harness lendo status do workspace...',
+            metrics: 'LAI Harness lendo métricas locais...',
+            audit: 'LAI Harness lendo trilha de auditoria...'
         };
 
         stream.progress(
-            progressLabels[request.command] || 'Local AI executando...'
+            progressLabels[request.command] || 'LAI Harness executando...'
         );
 
         await new Promise((resolve, reject) => {
@@ -441,7 +441,7 @@ function activate(context) {
 
                 if (!producedOutput) {
                     stream.markdown(
-                        '_Local AI terminou sem produzir resposta._'
+                        '_LAI Harness terminou sem produzir resposta._'
                     );
                 }
 

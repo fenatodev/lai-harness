@@ -2,7 +2,6 @@ import importlib.util
 from importlib.machinery import SourceFileLoader
 import io
 import json
-import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -606,6 +605,73 @@ class LocalAgentTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "port"):
             agent.load_configuration(["--port", "invalid"], environ={}, home=self.root)
 
+    def test_load_mode_skill_prefers_standard_skill(self):
+        skills = self.root / "skills"
+        standard = skills / "fix" / "SKILL.md"
+        standard.parent.mkdir(parents=True)
+        standard.write_text(
+            "---\nname: fix\ndescription: Use when fixing a bug safely.\n"
+            "---\n\nSTANDARD\n"
+        )
+        (skills / "fix.txt").write_text("LEGACY\n")
+
+        self.assertEqual(agent.load_mode_skill("fix", skills), "STANDARD")
+
+    def test_load_mode_skill_falls_back_to_legacy(self):
+        skills = self.root / "skills"
+        skills.mkdir()
+        (skills / "plan.txt").write_text("LEGACY PLAN\n")
+
+        self.assertEqual(
+            agent.load_mode_skill("plan", skills),
+            "LEGACY PLAN",
+        )
+
+    def test_invalid_standard_skill_does_not_fall_back(self):
+        skills = self.root / "skills"
+        standard = skills / "fix" / "SKILL.md"
+        standard.parent.mkdir(parents=True)
+        standard.write_text("---\nname: wrong\ndescription: Invalid.\n---\n\nBODY\n")
+        (skills / "fix.txt").write_text("LEGACY\n")
+
+        with self.assertRaisesRegex(SystemExit, "Invalid skill"):
+            agent.load_mode_skill("fix", skills)
+
+    def test_main_loads_standard_skill_into_system_prompt(self):
+        skills = self.root / "skills"
+        skill = skills / "fix" / "SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text(
+            "---\nname: fix\n"
+            "description: Use when fixing a synthetic bug safely.\n"
+            "---\n\nSTANDARD FIX BODY\n"
+        )
+
+        captured = {}
+
+        def stop_at_model(host, messages, **kwargs):
+            captured["messages"] = messages
+            raise RuntimeError("STOP_AT_MODEL")
+
+        with mock.patch.object(agent, "CLI_ARGS", ["--fix", "synthetic task"]), \
+             mock.patch.object(agent, "SKILLS_DIR", skills), \
+             mock.patch.object(agent, "server_ready", return_value=True), \
+             mock.patch.object(agent, "api_call", side_effect=stop_at_model), \
+             mock.patch.object(agent, "record_metric_event"), \
+             mock.patch.object(agent, "record_audit_event"):
+            with self.assertRaisesRegex(RuntimeError, "STOP_AT_MODEL"):
+                agent.main()
+
+        system = captured["messages"][0]["content"]
+        self.assertIn("ACTIVE SKILL:\nSTANDARD FIX BODY", system)
+
+    def test_load_mode_skill_reports_missing_skill(self):
+        skills = self.root / "skills"
+        skills.mkdir()
+
+        with self.assertRaisesRegex(SystemExit, "Skill não encontrada"):
+            agent.load_mode_skill("debug", skills)
+
     def test_server_probe_uses_bearer_authentication(self):
         response = mock.MagicMock()
         response.status = 200
@@ -675,7 +741,7 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "lai-local-agent 0.4.0-alpha.5")
+        self.assertEqual(result.stdout.strip(), "lai-local-agent 0.4.0-alpha.6")
 
     def test_deterministic_show_config_obeys_cli_without_server(self):
         result = subprocess.run(

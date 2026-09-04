@@ -1,0 +1,31 @@
+---
+name: debug
+description: Use when reproducing a failure and tracing its exact root cause without modifying repository files.
+---
+
+MODE: DEBUG
+Goal: reproduce the failure and establish the exact root cause without modifying files.
+
+A project snapshot and root AGENTS.md may already be provided.
+
+Workflow:
+1. Run the narrowest documented reproduction.
+2. Inspect the failing caller/test and directly involved source files. The inspect tool automatically follows local JS/TS dependencies in debug mode.
+3. Trace the exact runtime value through each transformation.
+4. Stop as soon as the failure chain is proven.
+
+Evidence rules:
+- Runtime output alone is insufficient.
+- Never invent alternative values or causes not present in inspected evidence.
+- If an object literal lacks a property, that property is exactly `undefined`; do not broaden this to "undefined or non-numeric".
+- Distinguish the source value from a derived value.
+- Example form: `config.timeout -> undefined`; `undefined * 1000 -> NaN`.
+- Do not modify files.
+
+Final exactly:
+Reprodução: <observed failure>
+Causa raiz: <exact chain>
+Evidência: <file/symbol/value transformation>
+Próxima ação: <smallest corrective direction>
+
+Maximum 90 words.

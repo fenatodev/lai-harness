@@ -40,6 +40,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertTrue((bin_dir / "lai-server-stop").is_file())
             self.assertTrue((bin_dir / "lai-server-restart").is_file())
             self.assertTrue((data_dir / "skills" / "implement.txt").is_file())
+            self.assertTrue((data_dir / "skills" / "implement" / "SKILL.md").is_file())
             restart_source = (bin_dir / "lai-server-restart").read_text()
             self.assertIn("lai-server-stop", restart_source)
             self.assertIn("lai-server-start", restart_source)

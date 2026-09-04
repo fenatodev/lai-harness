@@ -1,6 +1,6 @@
-# LAI — Local AI Agent
+# LAI Harness
 
-**A compact, auditable coding agent for local LLMs.**
+**Local-first coding harness for constrained LLMs.**
 
 Small local models become much more useful when the agent architecture is optimized around them. LAI is an experimental VS Code coding agent designed around constrained context, low tool-schema overhead, batch operations, evidence gates, validation guards, metrics, and forensic auditing.
 

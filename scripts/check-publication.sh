@@ -5,17 +5,58 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 failed=0
+scan_forbidden() {
+    local pattern="$1"
+
+    if command -v rg >/dev/null 2>&1; then
+        rg -n -i --hidden \
+            --glob '!.git/**' \
+            --glob '!.venv/**' \
+            --glob '!scripts/check-publication.sh' \
+            --glob '!scripts/package-vsix.sh' \
+            "$pattern" .
+        return $?
+    fi
+
+    if command -v grep >/dev/null 2>&1; then
+        grep -RInEi \
+            --exclude-dir=.git \
+            --exclude-dir=.venv \
+            --exclude='check-publication.sh' \
+            --exclude='package-vsix.sh' \
+            "$pattern" .
+        return $?
+    fi
+
+    echo "publication scanner unavailable: neither rg nor grep found" >&2
+    return 127
+}
+
 check_forbidden() {
     local label="$1"
     local pattern="$2"
-    if rg -n -i --hidden \
-        --glob '!.git/**' \
-        --glob '!scripts/check-publication.sh' \
-        --glob '!scripts/package-vsix.sh' \
-        "$pattern" .; then
-        echo "publication check failed: $label" >&2
-        failed=1
+    local output
+    local status
+
+    if output="$(scan_forbidden "$pattern")"; then
+        status=0
+    else
+        status=$?
     fi
+
+    case "$status" in
+        0)
+            printf '%s\n' "$output"
+            echo "publication check failed: $label" >&2
+            failed=1
+            ;;
+        1)
+            ;;
+        *)
+            echo "publication check failed: scanner error for $label (exit $status)" >&2
+            failed=1
+            ;;
+    esac
 }
 
 check_forbidden "private project name" 'business-automation'

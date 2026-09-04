@@ -9,7 +9,6 @@ import tempfile
 import unittest
 import urllib.error
 import urllib.request
-from unittest import mock
 
 from fake_llama_server import FakeLlamaServer
 

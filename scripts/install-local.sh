@@ -14,5 +14,12 @@ install -m 0755 "$repo_root/scripts/ministral-stop" "$bin_dir/lai-server-stop"
 install -m 0755 "$repo_root/scripts/ministral-restart" "$bin_dir/lai-server-restart"
 install -m 0644 "$repo_root"/skills/*.txt "$data_dir/skills/"
 
+for skill_dir in "$repo_root"/.agents/skills/*; do
+    [ -d "$skill_dir" ] || continue
+    name="$(basename "$skill_dir")"
+    install -d "$data_dir/skills/$name"
+    install -m 0644 "$skill_dir/SKILL.md" "$data_dir/skills/$name/SKILL.md"
+done
+
 echo "Installed lai/local-agent in $bin_dir and skills in $data_dir/skills."
 echo "The VS Code extension is installed separately; see docs/INSTALLATION.md."

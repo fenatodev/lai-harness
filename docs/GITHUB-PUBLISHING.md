@@ -3,7 +3,7 @@
 ## Repository
 
 - **Name:** `lai-local-agent`
-- **Display name:** LAI — Local AI Agent
+- **Display name:** LAI Harness
 - **Description/About:** Local, auditable coding agent for VS Code, optimized for small LLMs via llama.cpp with compact tools, batch patching, validation guards, metrics, handoff and forensic audit.
 - **Website:** leave empty until project documentation has a stable public URL.
 

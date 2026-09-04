@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-VERSION = "0.4.0-alpha.5"
+VERSION = "0.4.0-alpha.6"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
 CONFIG_OPTIONS = {
@@ -131,6 +131,60 @@ LLAMA_PORT = CONFIG["port"]
 DATA_BASE = CONFIG["data_dir"]
 CONFIG_BASE = CONFIG["config_dir"]
 SKILLS_DIR = CONFIG["skills_dir"]
+
+
+def parse_standard_skill(path, expected_name=None):
+    text = path.read_text(encoding="utf-8", errors="replace")
+
+    if not text.startswith("---\n"):
+        raise ValueError("missing frontmatter")
+
+    end = text.find("\n---\n", 4)
+    if end < 0:
+        raise ValueError("unterminated frontmatter")
+
+    metadata = {}
+    for line in text[4:end].splitlines():
+        if not line.strip():
+            continue
+        if ":" not in line:
+            raise ValueError("invalid frontmatter entry")
+        key, value = line.split(":", 1)
+        key, value = key.strip(), value.strip()
+        if key in metadata:
+            raise ValueError(f"duplicate frontmatter key: {key}")
+        metadata[key] = value
+
+    name = metadata.get("name", "")
+    description = metadata.get("description", "")
+    if not name or not description:
+        raise ValueError("name and description are required")
+    if expected_name is not None and name != expected_name:
+        raise ValueError(f"expected skill name {expected_name!r}, got {name!r}")
+
+    body = text[end + 5:].strip()
+    if not body:
+        raise ValueError("skill body is empty")
+
+    return body
+
+
+def load_mode_skill(mode, skills_dir=None):
+    base = Path(skills_dir or SKILLS_DIR)
+    standard = base / mode / "SKILL.md"
+    legacy = base / f"{mode}.txt"
+
+    if standard.is_file():
+        try:
+            return parse_standard_skill(standard, expected_name=mode)
+        except (OSError, ValueError) as exc:
+            raise SystemExit(f"Invalid skill {standard}: {exc}") from exc
+
+    if legacy.is_file():
+        return legacy.read_text(errors="replace").strip()
+
+    raise SystemExit(f"Skill não encontrada: {standard} or {legacy}")
+
 
 try:
     ROOT = Path(subprocess.check_output(
@@ -3842,12 +3896,7 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
         )
 
     if mode not in {"general", "selection"}:
-        skill_path = SKILLS_DIR / f"{mode}.txt"
-
-        if not skill_path.is_file():
-            raise SystemExit(f"Skill não encontrada: {skill_path}")
-
-        skill = skill_path.read_text(errors="replace").strip()
+        skill = load_mode_skill(mode)
         system += f"\n\nACTIVE SKILL:\n{skill}"
 
     if mode in {"plan", "debug"}:
