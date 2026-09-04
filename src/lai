@@ -13,13 +13,17 @@ case "$command_name" in
         shift
         exec "$bin_dir/lai-$command_name" "$@"
         ;;
-    status|metrics|audit|handoff|clear-context)
+    status|metrics|audit|handoff|clear-context|recovery)
         shift
         exec "$bin_dir/local-agent" "--$command_name" "$@"
         ;;
     spec)
         shift
         exec "$bin_dir/local-agent" --spec-status "$@"
+        ;;
+    resume)
+        shift
+        exec "$bin_dir/local-agent" --resume "$@"
         ;;
     version)
         exec "$bin_dir/local-agent" --version

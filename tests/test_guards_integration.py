@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -127,6 +128,60 @@ class GuardIntegrationTest(unittest.TestCase):
         self.assertEqual(policy[-1]["decision"], "ASK")
         self.assertEqual(outcomes[-1]["outcome"], "user_action_required")
         self.assertEqual(outcomes[-1]["tool"], "bash")
+
+    def test_explicit_resume_starts_fresh_run_without_tool_replay(self):
+        branch = subprocess.run(
+            ["git", "branch", "--show-current"], cwd=self.repo,
+            text=True, capture_output=True, check=True,
+        ).stdout.strip() or "[detached HEAD]"
+        status = subprocess.run(
+            ["git", "status", "--short"], cwd=self.repo,
+            text=True, capture_output=True, check=True,
+        ).stdout.strip() or "[clean]"
+        key = hashlib.sha256(str(self.repo.resolve()).encode("utf-8")).hexdigest()[:16]
+        checkpoint_dir = self.data / "checkpoints"
+        checkpoint_dir.mkdir(parents=True)
+        checkpoint = {
+            "schema_version": 1,
+            "root": str(self.repo.resolve()),
+            "run_id": "prior-run",
+            "resumed_from": None,
+            "mode": "general",
+            "task": "resume synthetic task",
+            "phase": "tool_completed",
+            "terminal": False,
+            "branch": branch,
+            "git_status": status,
+            "tracked_hashes": {},
+            "last_tool": "read",
+            "reason": None,
+            "updated_at": "2026-01-01T00:00:00Z",
+        }
+        checkpoint_path = checkpoint_dir / f"{key}.json"
+        checkpoint_path.write_text(json.dumps(checkpoint))
+
+        responder = SequenceResponder([completion("resumed safely")])
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(server, "--resume")
+
+        self.assertEqual(result.stdout.strip(), "resumed safely")
+        self.assertEqual(len(responder.payloads), 1)
+        system = responder.payloads[0]["messages"][0]["content"]
+        self.assertIn("RECOVERY CONTEXT", system)
+        self.assertIn("Previous run: prior-run", system)
+        self.assertIn("Do not assume any previous tool call should be replayed", system)
+        events = [
+            json.loads(line)
+            for line in (self.data / "audit" / "events.jsonl").read_text().splitlines()
+        ]
+        resume = [event for event in events if event.get("type") == "recovery_resume"][-1]
+        self.assertEqual(resume["from_run_id"], "prior-run")
+        self.assertNotEqual(resume["run_id"], "prior-run")
+        final_checkpoint = json.loads(checkpoint_path.read_text())
+        self.assertEqual(final_checkpoint["phase"], "completed")
+        self.assertTrue(final_checkpoint["terminal"])
+        self.assertEqual(final_checkpoint["resumed_from"], "prior-run")
+        self.assertNotEqual(final_checkpoint["run_id"], "prior-run")
 
     def test_truncated_response_is_discarded_and_retried_once(self):
         partial = "PARTIAL_OUTPUT_MUST_NOT_ENTER_HISTORY"
@@ -1212,6 +1267,12 @@ class GuardIntegrationTest(unittest.TestCase):
         ]
         self.assertEqual(events[0]["reason"], "exploration_budget_exhausted")
         self.assertEqual(events[-1]["reason"], "overall_round_limit_reached")
+        key = hashlib.sha256(str(self.repo.resolve()).encode("utf-8")).hexdigest()[:16]
+        checkpoint = json.loads(
+            (self.data / "checkpoints" / f"{key}.json").read_text()
+        )
+        self.assertEqual(checkpoint["phase"], "failed")
+        self.assertTrue(checkpoint["terminal"])
 
     def test_simple_implement_still_creates_and_validates(self):
         responder = SequenceResponder([
@@ -1232,6 +1293,19 @@ class GuardIntegrationTest(unittest.TestCase):
 
         self.assertEqual(result.stdout.strip(), "done")
         self.assertEqual((self.repo / "simple.py").read_text(), "VALUE = 1\n")
+        audit_events = [
+            json.loads(line)
+            for line in (self.data / "audit" / "events.jsonl").read_text().splitlines()
+        ]
+        phases = [
+            event.get("phase")
+            for event in audit_events
+            if event.get("type") == "checkpoint"
+        ]
+        self.assertIn("started", phases)
+        self.assertIn("tool_completed", phases)
+        self.assertIn("validation_completed", phases)
+        self.assertEqual(phases[-1], "completed")
 
     def test_acceptance_guard_requires_explicit_test_change(self):
         responder = SequenceResponder([

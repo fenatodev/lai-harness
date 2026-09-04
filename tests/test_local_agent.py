@@ -46,10 +46,13 @@ def make_spec_text(mode="full", status="active", requirement="REQ-001"):
 class LocalAgentTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
+        self.base = Path(self.temp.name)
+        self.root = self.base / "repo"
+        self.root.mkdir()
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
         agent.ROOT = self.root.resolve()
-        agent.STATE_BASE = self.root / ".lai-data" / "state"
+        agent.STATE_BASE = self.base / "data" / "state"
+        agent.RUN_CHECKPOINT_CONTEXT = None
         agent.CONFIG["api_key_file"] = self.root / "key"
         agent.read_paths.clear()
         agent.full_read_hashes.clear()
@@ -540,6 +543,26 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("## Run outcome", shown)
         self.assertIn("Outcome: user_action_required", shown)
 
+    def test_audit_prints_checkpoint_and_recovery_events(self):
+        agent.AUDIT_DIR = self.base / "audit"
+        agent.AUDIT_FILE = agent.AUDIT_DIR / "events.jsonl"
+        agent.record_audit_event({
+            "type": "checkpoint", "phase": "tool_completed",
+            "terminal": False, "last_tool": "read",
+        })
+        agent.record_audit_event({
+            "type": "recovery_resume", "from_run_id": "old",
+            "new_run_id": "new",
+        })
+        output = io.StringIO()
+        with redirect_stdout(output):
+            agent.print_lai_audit()
+        shown = output.getvalue()
+        self.assertIn("## Checkpoint", shown)
+        self.assertIn("Phase: tool_completed", shown)
+        self.assertIn("## Recovery resume", shown)
+        self.assertIn("From run: old", shown)
+
     def test_patch_dispatch_records_hashes_and_tool_metric(self):
         target = self.root / "sample.txt"
         target.write_text("before")
@@ -573,6 +596,135 @@ class LocalAgentTest(unittest.TestCase):
         agent.clear_workspace_state()
         self.assertFalse(handoff_path.exists())
         self.assertFalse(current.exists())
+
+    def test_checkpoint_storage_refuses_repository_directory(self):
+        original = agent.STATE_BASE
+        try:
+            agent.STATE_BASE = self.root / ".lai-data" / "state"
+            with self.assertRaisesRegex(RuntimeError, "outside repository"):
+                agent.run_checkpoint_path()
+        finally:
+            agent.STATE_BASE = original
+
+    def test_run_checkpoint_atomic_round_trip(self):
+        sample = self.root / "sample.txt"
+        sample.write_text("alpha\n")
+        checkpoint = agent.build_run_checkpoint(
+            mode="fix",
+            task="repair sample",
+            phase="started",
+            tracked_paths=["sample.txt"],
+        )
+        path = agent.save_run_checkpoint(checkpoint)
+        loaded = agent.load_run_checkpoint()
+        self.assertEqual(loaded["schema_version"], 1)
+        self.assertEqual(loaded["phase"], "started")
+        self.assertEqual(loaded["tracked_hashes"], checkpoint["tracked_hashes"])
+        self.assertEqual(path.parent, self.base / "data" / "checkpoints")
+
+    def test_run_checkpoint_atomic_failure_preserves_previous_file(self):
+        first = agent.build_run_checkpoint(mode="fix", task="one", phase="started")
+        path = agent.save_run_checkpoint(first)
+        before = path.read_text()
+        second = agent.build_run_checkpoint(mode="fix", task="two", phase="tool_completed")
+        with mock.patch.object(agent.os, "replace", side_effect=OSError("replace failed")):
+            with self.assertRaisesRegex(OSError, "replace failed"):
+                agent.save_run_checkpoint(second)
+        self.assertEqual(path.read_text(), before)
+
+    def test_recovery_compatibility_detects_branch_status_and_hash_drift(self):
+        sample = self.root / "sample.txt"
+        sample.write_text("alpha\n")
+        checkpoint = agent.build_run_checkpoint(
+            mode="general", task="continue", phase="tool_completed",
+            tracked_paths=["sample.txt"],
+        )
+        compatible, reasons = agent.check_recovery_compatibility(checkpoint)
+        self.assertTrue(compatible, reasons)
+        sample.write_text("changed\n")
+        compatible, reasons = agent.check_recovery_compatibility(checkpoint)
+        self.assertFalse(compatible)
+        self.assertTrue(any("hash changed" in reason for reason in reasons))
+
+    def test_recovery_compatibility_detects_branch_and_status_drift(self):
+        checkpoint = agent.build_run_checkpoint(
+            mode="general", task="continue", phase="started",
+        )
+        with mock.patch.object(agent, "workspace_git_branch", return_value="other"):
+            compatible, reasons = agent.check_recovery_compatibility(checkpoint)
+        self.assertFalse(compatible)
+        self.assertTrue(any("branch changed" in reason for reason in reasons))
+
+        extra = self.root / "extra.txt"
+        extra.write_text("new\n")
+        compatible, reasons = agent.check_recovery_compatibility(checkpoint)
+        self.assertFalse(compatible)
+        self.assertIn("Git status changed since checkpoint", reasons)
+
+    def test_resume_with_hash_drift_fails_before_model(self):
+        sample = self.root / "sample.txt"
+        sample.write_text("alpha\n")
+        checkpoint = agent.build_run_checkpoint(
+            mode="general", task="continue", phase="tool_completed",
+            tracked_paths=["sample.txt"],
+        )
+        agent.save_run_checkpoint(checkpoint)
+        sample.write_text("changed\n")
+        env = {**__import__("os").environ, "LAI_DATA_DIR": str(self.base / "data")}
+        result = subprocess.run(
+            [str(SOURCE), "--resume"], cwd=self.root, env=env,
+            text=True, capture_output=True, timeout=5, check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Recovery blocked", result.stderr)
+        self.assertIn("tracked file hash changed", result.stderr)
+
+    def test_recovery_compatibility_fails_closed_when_git_evidence_unavailable(self):
+        checkpoint = agent.build_run_checkpoint(
+            mode="general", task="continue", phase="started",
+        )
+        with mock.patch.object(agent, "workspace_git_branch", return_value="[unavailable]"):
+            compatible, reasons = agent.check_recovery_compatibility(checkpoint)
+        self.assertFalse(compatible)
+        self.assertIn("Git branch evidence unavailable", reasons)
+
+        with mock.patch.object(agent, "workspace_git_status", return_value="[unavailable]"):
+            compatible, reasons = agent.check_recovery_compatibility(checkpoint)
+        self.assertFalse(compatible)
+        self.assertIn("Git status evidence unavailable", reasons)
+
+    def test_recovery_status_blocks_malformed_hash_map(self):
+        checkpoint = agent.build_run_checkpoint(
+            mode="general", task="continue", phase="started",
+        )
+        checkpoint["tracked_hashes"] = ["not-a-map"]
+        agent.save_run_checkpoint(checkpoint)
+        state = agent.inspect_recovery_checkpoint()
+        self.assertEqual(state["status"], "blocked")
+        self.assertFalse(state["resumable"])
+        self.assertIn("tracked hash map is invalid", state["reasons"])
+
+    def test_terminal_checkpoint_is_not_resumable(self):
+        checkpoint = agent.build_run_checkpoint(
+            mode="general", task="done", phase="completed", terminal=True,
+        )
+        agent.save_run_checkpoint(checkpoint)
+        status = agent.inspect_recovery_checkpoint()
+        self.assertEqual(status["status"], "terminal")
+        self.assertFalse(status["resumable"])
+
+    def test_deterministic_recovery_status_needs_no_server(self):
+        checkpoint = agent.build_run_checkpoint(
+            mode="general", task="continue", phase="started",
+        )
+        agent.save_run_checkpoint(checkpoint)
+        env = {**__import__("os").environ, "LAI_DATA_DIR": str(self.base / "data")}
+        result = subprocess.run(
+            [str(SOURCE), "--recovery"], cwd=self.root, env=env,
+            text=True, capture_output=True, check=True,
+        )
+        self.assertIn("# LAI Recovery", result.stdout)
+        self.assertIn("Status: interrupted", result.stdout)
 
     def test_workspace_state_prunes_unverified_paths_on_save(self):
         sample = self.root / "sample.txt"
@@ -969,7 +1121,7 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "lai-local-agent 0.4.0-alpha.8")
+        self.assertEqual(result.stdout.strip(), "lai-local-agent 0.4.0-alpha.9")
 
     def test_deterministic_show_config_obeys_cli_without_server(self):
         result = subprocess.run(

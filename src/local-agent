@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-VERSION = "0.4.0-alpha.8"
+VERSION = "0.4.0-alpha.9"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
 CONFIG_OPTIONS = {
@@ -2561,6 +2561,28 @@ def print_lai_audit():
             print("Reason: " + str(event.get("reason") or "[unknown]"))
             print()
 
+        elif kind == "checkpoint":
+            print("## Checkpoint")
+            print("Phase: " + str(event.get("phase") or "[unknown]"))
+            print("Terminal: " + str(bool(event.get("terminal"))))
+            if event.get("last_tool"):
+                print("Last tool: " + str(event.get("last_tool")))
+            if event.get("reason"):
+                print("Reason: " + str(event.get("reason")))
+            print()
+
+        elif kind == "recovery_resume":
+            print("## Recovery resume")
+            print("From run: " + str(event.get("from_run_id") or "[unknown]"))
+            print("New run: " + str(event.get("new_run_id") or event.get("run_id") or "[unknown]"))
+            print()
+
+        elif kind == "recovery_blocked":
+            print("## Recovery blocked")
+            for reason in event.get("reasons") or []:
+                print("Reason: " + str(reason))
+            print()
+
         elif kind == "patch":
             print("## Patch")
 
@@ -3268,6 +3290,247 @@ def workspace_state_paths():
     )
 
 
+CHECKPOINT_SCHEMA_VERSION = 1
+
+
+def run_checkpoint_path():
+    hashlib = __import__("hashlib")
+    key = hashlib.sha256(str(ROOT).encode("utf-8")).hexdigest()[:16]
+    path = STATE_BASE.parent / "checkpoints" / f"{key}.json"
+    try:
+        path.resolve().relative_to(ROOT.resolve())
+    except ValueError:
+        return path
+    raise RuntimeError("recovery checkpoint directory must be outside repository")
+
+
+def _atomic_write_text(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f".{path.name}.{os.getpid()}.{RUN_ID}.tmp")
+    try:
+        with temp.open("w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(temp, path)
+    except Exception:
+        try:
+            temp.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def build_run_checkpoint(
+    mode, task, phase, tracked_paths=None, terminal=False,
+    resumed_from=None, last_tool=None, reason=None,
+):
+    time = __import__("time")
+    normalized = []
+    for raw_path in tracked_paths or []:
+        rel = str(raw_path or "").replace("\\", "/").strip()
+        while rel.startswith("./"):
+            rel = rel[2:]
+        if rel and rel not in normalized:
+            normalized.append(rel)
+    checkpoint = {
+        "schema_version": CHECKPOINT_SCHEMA_VERSION,
+        "root": str(ROOT),
+        "run_id": RUN_ID,
+        "resumed_from": resumed_from,
+        "mode": str(mode)[:80],
+        "task": str(task)[:900],
+        "phase": str(phase)[:80],
+        "terminal": bool(terminal),
+        "branch": workspace_git_branch(),
+        "git_status": workspace_git_status(),
+        "tracked_hashes": hash_repository_paths(normalized),
+        "last_tool": str(last_tool)[:80] if last_tool else None,
+        "reason": str(reason)[:500] if reason else None,
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    return checkpoint
+
+
+def save_run_checkpoint(checkpoint):
+    path = run_checkpoint_path()
+    text = json.dumps(checkpoint, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    _atomic_write_text(path, text)
+    return path
+
+
+def load_run_checkpoint():
+    path = run_checkpoint_path()
+    if not path.is_file():
+        return None
+    data = json.loads(path.read_text(errors="replace"))
+    if data.get("schema_version") != CHECKPOINT_SCHEMA_VERSION:
+        raise ValueError("unsupported recovery checkpoint schema")
+    if data.get("root") != str(ROOT):
+        raise ValueError("recovery checkpoint repository mismatch")
+    return data
+
+
+def check_recovery_compatibility(checkpoint):
+    reasons = []
+    if checkpoint.get("root") != str(ROOT):
+        reasons.append("repository root changed")
+    expected_branch = checkpoint.get("branch")
+    current_branch = workspace_git_branch()
+    if expected_branch in {None, "[unavailable]"} or current_branch == "[unavailable]":
+        reasons.append("Git branch evidence unavailable")
+    elif expected_branch != current_branch:
+        reasons.append(f"branch changed: {expected_branch} -> {current_branch}")
+    expected_status = checkpoint.get("git_status")
+    current_status = workspace_git_status()
+    if expected_status in {None, "[unavailable]"} or current_status == "[unavailable]":
+        reasons.append("Git status evidence unavailable")
+    elif expected_status != current_status:
+        reasons.append("Git status changed since checkpoint")
+    expected_hashes = checkpoint.get("tracked_hashes") or {}
+    if not isinstance(expected_hashes, dict):
+        reasons.append("tracked hash map is invalid")
+        expected_hashes = {}
+    current_hashes = hash_repository_paths(expected_hashes.keys())
+    for path, expected in expected_hashes.items():
+        if not re.fullmatch(r"[0-9a-f]{64}", str(expected or "")):
+            reasons.append(f"tracked checkpoint hash is invalid: {path}")
+        elif current_hashes.get(path) != expected:
+            reasons.append(f"tracked file hash changed: {path}")
+    return not reasons, reasons
+
+
+def inspect_recovery_checkpoint():
+    try:
+        checkpoint = load_run_checkpoint()
+    except Exception as exc:
+        return {"status": "blocked", "resumable": False, "checkpoint": None, "reasons": [str(exc)]}
+    if checkpoint is None:
+        return {"status": "none", "resumable": False, "checkpoint": None, "reasons": []}
+    if checkpoint.get("terminal"):
+        return {"status": "terminal", "resumable": False, "checkpoint": checkpoint, "reasons": []}
+    try:
+        compatible, reasons = check_recovery_compatibility(checkpoint)
+    except Exception as exc:
+        return {
+            "status": "blocked",
+            "resumable": False,
+            "checkpoint": checkpoint,
+            "reasons": ["invalid recovery checkpoint: " + str(exc)],
+        }
+    return {
+        "status": "interrupted" if compatible else "blocked",
+        "resumable": compatible,
+        "checkpoint": checkpoint,
+        "reasons": reasons,
+    }
+
+
+def print_recovery_status():
+    state = inspect_recovery_checkpoint()
+    checkpoint = state.get("checkpoint") or {}
+    print("# LAI Recovery")
+    print(f"Status: {state['status']}")
+    if checkpoint:
+        print("Run ID: " + str(checkpoint.get("run_id") or "[unknown]"))
+        print("Mode: " + str(checkpoint.get("mode") or "[unknown]"))
+        print("Phase: " + str(checkpoint.get("phase") or "[unknown]"))
+        print("Updated: " + str(checkpoint.get("updated_at") or "[unknown]"))
+        print("Resumable: " + ("yes" if state.get("resumable") else "no"))
+    for reason in state.get("reasons") or []:
+        print("Blocked: " + str(reason))
+
+
+RUN_CHECKPOINT_CONTEXT = None
+
+
+def start_run_checkpoint(mode, task, resumed_from=None, tracked_paths=None):
+    global RUN_CHECKPOINT_CONTEXT
+    if mode == "selection":
+        RUN_CHECKPOINT_CONTEXT = None
+        return None
+    RUN_CHECKPOINT_CONTEXT = {
+        "mode": mode,
+        "task": task,
+        "resumed_from": resumed_from,
+        "tracked_paths": list(dict.fromkeys(str(p) for p in (tracked_paths or []) if p)),
+        "last_tool": None,
+        "terminal": False,
+    }
+    phase = "resumed" if resumed_from else "started"
+    try:
+        checkpoint = checkpoint_run_transition(phase)
+    except Exception:
+        RUN_CHECKPOINT_CONTEXT = None
+        raise
+    if resumed_from:
+        record_audit_event({
+            "type": "recovery_resume",
+            "from_run_id": resumed_from,
+            "new_run_id": RUN_ID,
+        })
+    return checkpoint
+
+
+def checkpoint_run_transition(
+    phase, terminal=False, tracked_paths=None, last_tool=None, reason=None,
+):
+    global RUN_CHECKPOINT_CONTEXT
+    context = RUN_CHECKPOINT_CONTEXT
+    if not context:
+        return None
+    if tracked_paths is not None:
+        existing = context.get("tracked_paths") or []
+        context["tracked_paths"] = list(dict.fromkeys(
+            [*(str(p) for p in existing if p), *(str(p) for p in tracked_paths if p)]
+        ))
+    if last_tool is not None:
+        context["last_tool"] = str(last_tool)
+    context["terminal"] = bool(terminal)
+    checkpoint = build_run_checkpoint(
+        mode=context["mode"],
+        task=context["task"],
+        phase=phase,
+        tracked_paths=context.get("tracked_paths") or [],
+        terminal=terminal,
+        resumed_from=context.get("resumed_from"),
+        last_tool=context.get("last_tool"),
+        reason=reason,
+    )
+    save_run_checkpoint(checkpoint)
+    record_audit_event({
+        "type": "checkpoint",
+        "phase": phase,
+        "terminal": bool(terminal),
+        "last_tool": context.get("last_tool"),
+        "reason": reason,
+    })
+    return checkpoint
+
+
+def finalize_run_checkpoint(phase="completed", reason=None):
+    context = RUN_CHECKPOINT_CONTEXT
+    if not context or context.get("terminal"):
+        return None
+    return checkpoint_run_transition(phase, terminal=True, reason=reason)
+
+
+def render_recovery_context(checkpoint):
+    if not checkpoint:
+        return ""
+    tracked = sorted((checkpoint.get("tracked_hashes") or {}).keys())[:12]
+    lines = [
+        "RECOVERY CONTEXT (non-authoritative; current repository evidence and rules override it):",
+        "Previous run: " + str(checkpoint.get("run_id") or "[unknown]"),
+        "Previous phase: " + str(checkpoint.get("phase") or "[unknown]"),
+        "Previous tool: " + str(checkpoint.get("last_tool") or "[none]"),
+        "This is a fresh run. Do not assume any previous tool call should be replayed.",
+    ]
+    if tracked:
+        lines.append("Tracked files at checkpoint: " + ", ".join(tracked))
+    return "\n".join(lines)[:1400]
+
+
 def normalize_workspace_state_paths(items):
     """Keep only verified regular files inside the current repository."""
     root = ROOT.resolve()
@@ -3796,6 +4059,10 @@ def main():
         print(json.dumps(visible, indent=2, sort_keys=True))
         return
 
+    if args and args[0] == "--recovery":
+        print_recovery_status()
+        return
+
     if args and args[0] == "--doctor":
         host = gateway()
         unauthenticated, authenticated = doctor_status(host)
@@ -3953,14 +4220,49 @@ def main():
     }
 
     mode = "general"
+    resume_checkpoint = None
 
-    if args and args[0] in supported_modes:
-        mode = supported_modes[args[0]]
-        args = args[1:]
+    if args and args[0] == "--resume":
+        recovery = inspect_recovery_checkpoint()
+        if not recovery.get("resumable"):
+            reasons = recovery.get("reasons") or [
+                "no compatible interrupted checkpoint"
+            ]
+            record_audit_event({
+                "type": "recovery_blocked",
+                "reasons": reasons,
+            })
+            print(
+                "Recovery blocked: " + "; ".join(str(reason) for reason in reasons),
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
+        resume_checkpoint = recovery["checkpoint"]
+        mode = str(resume_checkpoint.get("mode") or "")
+        allowed_resume_modes = set(supported_modes.values()) | {"general"}
+        if mode not in allowed_resume_modes or mode == "selection":
+            record_audit_event({
+                "type": "recovery_blocked",
+                "reasons": ["checkpoint mode is not resumable"],
+            })
+            print("Recovery blocked: checkpoint mode is not resumable", file=sys.stderr)
+            raise SystemExit(2)
+        task = str(resume_checkpoint.get("task") or "").strip()
+        if not task:
+            record_audit_event({
+                "type": "recovery_blocked",
+                "reasons": ["checkpoint task is empty"],
+            })
+            print("Recovery blocked: checkpoint task is empty", file=sys.stderr)
+            raise SystemExit(2)
+        args = []
+    else:
+        if args and args[0] in supported_modes:
+            mode = supported_modes[args[0]]
+            args = args[1:]
+        task = " ".join(args).strip()
 
     selection_mode = mode == "selection"
-
-    task = " ".join(args).strip()
 
     global ACTIVE_MODE, ACTIVE_TASK
 
@@ -3970,6 +4272,11 @@ def main():
     record_metric_event({
         "type": "run_start",
         "task_chars": len(task),
+        "resumed_from": (
+            resume_checkpoint.get("run_id")
+            if resume_checkpoint
+            else None
+        ),
     })
 
     prior_workspace_state = load_workspace_state()
@@ -3989,6 +4296,21 @@ def main():
 
     if not task:
         raise SystemExit("No task provided.")
+
+    start_run_checkpoint(
+        mode,
+        task,
+        resumed_from=(
+            resume_checkpoint.get("run_id")
+            if resume_checkpoint
+            else None
+        ),
+        tracked_paths=(
+            (resume_checkpoint.get("tracked_hashes") or {}).keys()
+            if resume_checkpoint
+            else None
+        ),
+    )
 
     exact = re.fullmatch(
         r"(?:responda|responda apenas|responda somente|respond only|reply only)\s*:\s*(.+)",
@@ -4126,6 +4448,10 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
 
     if active_spec_context:
         system += "\n\n" + active_spec_context
+
+    recovery_context = render_recovery_context(resume_checkpoint)
+    if recovery_context:
+        system += "\n\n" + recovery_context
 
     if mode not in {"general", "selection"}:
         skill = load_mode_skill(mode)
@@ -5250,6 +5576,13 @@ KEEP: 1,3"""
                     }
                     record_metric_event(outcome)
                     record_audit_event(outcome)
+                    checkpoint_run_transition(
+                        "user_action_required",
+                        terminal=True,
+                        tracked_paths=sorted(modified_paths),
+                        last_tool=name,
+                        reason=policy["reason"],
+                    )
                     print(tool_result)
                     return
 
@@ -5422,17 +5755,30 @@ KEEP: 1,3"""
                             "\nPOST_PATCH_SANITY: CLEAN"
                         )
 
+                is_validation_call = (
+                    name == "bash"
+                    and command_satisfies_validation(
+                        args.get("command", "")
+                    )
+                )
                 record_workspace_tool(
                     workspace_state,
                     name,
                     args,
                     tool_result,
-                    is_validation=(
-                        name == "bash"
-                        and command_satisfies_validation(
-                            args.get("command", "")
-                        )
+                    is_validation=is_validation_call,
+                )
+                checkpoint_paths = set(modified_paths)
+                if name in WRITE_TOOLS and tool_result.startswith("OK:"):
+                    checkpoint_paths.update(write_paths_for_call(name, args))
+                checkpoint_run_transition(
+                    (
+                        "validation_completed"
+                        if is_validation_call
+                        else "tool_completed"
                     ),
+                    tracked_paths=sorted(checkpoint_paths),
+                    last_tool=name,
                 )
 
             messages.append({
@@ -5575,5 +5921,24 @@ KEEP: 1,3"""
     raise SystemExit(2)
 
 
+def run_main_with_checkpoint_lifecycle():
+    try:
+        main()
+    except SystemExit as exc:
+        finalize_run_checkpoint(
+            "failed",
+            reason=f"SystemExit:{exc.code}",
+        )
+        raise
+    except BaseException as exc:
+        finalize_run_checkpoint(
+            "failed",
+            reason=type(exc).__name__,
+        )
+        raise
+    else:
+        finalize_run_checkpoint("completed")
+
+
 if __name__ == "__main__":
-    main()
+    run_main_with_checkpoint_lifecycle()

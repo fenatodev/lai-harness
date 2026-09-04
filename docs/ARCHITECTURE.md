@@ -10,7 +10,8 @@ LAI has four runtime layers: the VS Code chat participant, the Python harness, a
 4. The harness resolves the Git root, loads workspace state, the active repository spec, and the mode skill, selects only that mode's tool schemas, and calls the local endpoint.
 5. Every tool action crosses the central policy boundary before dispatch; `ASK` stops the run for user action and `DENY` blocks execution.
 6. Allowed tool results return to the model until it answers or reaches the mode's round limit.
-7. State, metrics, and applicable audit events are persisted outside the repository.
+7. Runtime checkpoint, workspace state, metrics, and applicable audit events are persisted outside the repository.
+8. Normal completion marks the checkpoint terminal; an abrupt interruption leaves a non-terminal checkpoint that can be inspected later.
 
 ## Components
 
@@ -38,13 +39,17 @@ Every builtin tool action is evaluated as `ALLOW`, `ASK`, or `DENY` before dispa
 
 The reference setup uses `llama-server` with an OpenAI-compatible chat-completions endpoint. The default model string records the experimental baseline but can be replaced with `LAI_MODEL`. LAI does not download or redistribute models.
 
+### Runtime recovery
+
+A versioned checkpoint under `$LAI_DATA_DIR/checkpoints` records run ID, mode, bounded task text, lifecycle phase, branch, Git status, tracked-file hashes, and the last tool name. Writes use same-directory atomic replacement. `lai recovery` inspects compatibility without the model; `lai resume` starts a fresh run only when live branch/status/hashes still match. Tool arguments are not stored for replay.
+
 ### Workspace state
 
 State is keyed by a SHA-256-derived workspace identity under `$LAI_DATA_DIR/state`. A compact Markdown and JSON handoff is also updated at the data-root level. Stored content can include task text, repository path, recent filenames, validation output, branch, and Git status.
 
 ### Metrics and audit
 
-Metrics use one `run_id` per process invocation and record API/tool duration, token usage, and schema count. Audit events record policy decisions, lifecycle outcomes, patch paths, before/after hashes, post-patch sanity, validation, and final status. These stores are operational records, not telemetry uploads.
+Metrics use one `run_id` per process invocation and record API/tool duration, token usage, and schema count. Audit events record policy decisions, checkpoint/recovery transitions, lifecycle outcomes, patch paths, before/after hashes, post-patch sanity, validation, and final status. These stores are operational records, not telemetry uploads.
 
 ## Guard sequence for implementation
 

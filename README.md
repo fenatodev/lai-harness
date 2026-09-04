@@ -47,6 +47,7 @@ See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow.
 - repository-local `.specs/` with stable `REQ-NNN` traceability;
 - deterministic `lai spec` inspection with quick/full workflow guidance;
 - policy decisions and user-action lifecycle outcomes in the audit trail;
+- crash-safe workspace checkpoints with explicit, drift-checked `lai recovery` / `lai resume`;
 - no Python package dependencies in the current harness.
 
 ## Quick start
@@ -71,6 +72,9 @@ Configure `~/.config/lai/config.toml`, `LAI_*` environment variables, or leading
 @lai /review review my current Git changes
 @lai /audit
 lai spec
+lai recovery
+# if recovery reports a compatible interrupted run:
+lai resume
 ```
 
 Read the complete [Installation](docs/INSTALLATION.md) and [Quick start](docs/QUICKSTART.md) guides before using write-capable modes.
@@ -106,7 +110,7 @@ Never commit API keys, state, metrics, audit logs, model files, or real project 
 
 Each run gets a `run_id`. Metrics record inference/tool timing, token usage, tool rounds, and schema counts. Audit events associate patches with before/after SHA-256 hashes, sanity state, validation results, and final status. These files can contain paths and task context and remain local by default.
 
-Workspace handoff is written to `current-context.md` and JSON. A receiving agent must verify it against the actual Git branch, status, and files before acting. See [Observability](docs/OBSERVABILITY.md) and [Handoff](docs/HANDOFF.md).
+Workspace handoff is written to `current-context.md` and JSON. A receiving agent must verify it against the actual Git branch, status, and files before acting. Runtime checkpoints are separate: they are atomic, workspace-scoped recovery records used only for explicit resume after branch/status/hash compatibility checks. See [Observability](docs/OBSERVABILITY.md), [Recovery](docs/RECOVERY.md), and [Handoff](docs/HANDOFF.md).
 
 ## Experimental results
 

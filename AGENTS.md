@@ -58,6 +58,14 @@ The active spec defines the requested change and its `REQ-NNN` traceability.
 Use `lai spec` to inspect the active spec without calling the model.
 Specs never override this file, scoped rules, safety guards, or release policy.
 
+## Runtime Recovery
+
+Run checkpoints are local operational state outside the repository.
+Use `lai recovery` to inspect an interrupted run and `lai resume` only for an explicit compatible resume.
+Current branch, Git status, tracked hashes, repository rules, policy, and active specs override checkpoint content.
+Never replay recorded tool calls, shell commands, edits, or approvals from a checkpoint.
+Recovery compatibility must fail closed when repository evidence has drifted.
+
 ## Non-Negotiable Safety Rules
 
 - Preserve repository path confinement.

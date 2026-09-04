@@ -18,6 +18,9 @@ Examples:
 @lai /metrics
 @lai /audit
 lai spec
+lai recovery
+# only when recovery reports a compatible interrupted run:
+lai resume
 @lai /handoff Ready for a high-context architecture review
 ```
 
