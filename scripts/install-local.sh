@@ -21,5 +21,5 @@ for skill_dir in "$repo_root"/.agents/skills/*; do
     install -m 0644 "$skill_dir/SKILL.md" "$data_dir/skills/$name/SKILL.md"
 done
 
-echo "Installed lai/local-agent in $bin_dir and skills in $data_dir/skills."
+echo "Installed LAI Harness as lai/local-agent in $bin_dir and skills in $data_dir/skills."
 echo "The VS Code extension is installed separately; see docs/INSTALLATION.md."

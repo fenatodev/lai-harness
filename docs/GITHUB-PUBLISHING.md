@@ -21,7 +21,7 @@ Small local models become much more useful when the agent architecture is optimi
 
 **Body:**
 
-LAI is a compact, auditable VS Code coding agent designed for local LLMs and low-overhead tool use. This first public release extracts the working 0.2.3 experiment into a sanitized, configurable distribution.
+LAI Harness is a compact, auditable VS Code coding harness designed for local LLMs and low-overhead tool use. This first public release extracts the working 0.2.3 experiment into a sanitized, configurable distribution.
 
 Highlights:
 
@@ -32,7 +32,7 @@ Highlights:
 - configurable endpoint, model, data paths, key path, and VS Code agent path;
 - synthetic smoke tests and complete security/architecture documentation.
 
-LAI is experimental and is not a sandbox. Models, GGUF weights, llama.cpp, VS Code, and third-party templates are not included or licensed by LAI's MIT license.
+LAI Harness is experimental and is not a sandbox. Models, GGUF weights, llama.cpp, VS Code, and third-party templates are not included or licensed by LAI Harness's MIT license.
 
 ## LinkedIn project description
 
@@ -40,8 +40,8 @@ Built LAI, an experimental local coding agent for VS Code, to study how constrai
 
 ## Portfolio description
 
-LAI is a compact local coding-agent harness for small LLMs, featuring bounded tools, batch operations, validation/evidence guards, observability, audit trails, and cross-agent context handoff.
+LAI Harness is a compact local coding-agent harness for small LLMs, featuring bounded tools, batch operations, validation/evidence guards, observability, audit trails, and cross-agent context handoff.
 
 ## GitHub profile / pinned repository
 
-LAI explores a practical question: how much more useful can a small local model become when prompts, schemas, tool rounds, validation, and auditability are designed around its constraints?
+LAI Harness explores a practical question: how much more useful can a small local model become when prompts, schemas, tool rounds, validation, and auditability are designed around its constraints?

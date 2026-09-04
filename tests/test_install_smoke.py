@@ -34,7 +34,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 capture_output=True,
                 check=True,
             )
-            self.assertIn("Installed lai/local-agent", install.stdout)
+            self.assertIn("Installed LAI Harness", install.stdout)
             self.assertTrue((bin_dir / "lai").is_file())
             self.assertTrue((bin_dir / "lai-server-start").is_file())
             self.assertTrue((bin_dir / "lai-server-stop").is_file())
@@ -53,7 +53,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 capture_output=True,
                 check=True,
             )
-            self.assertIn("lai-local-agent", version.stdout)
+            self.assertIn("LAI Harness", version.stdout)
 
             status = subprocess.run(
                 [str(bin_dir / "lai"), "status"],

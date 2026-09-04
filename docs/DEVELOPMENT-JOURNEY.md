@@ -34,4 +34,4 @@ Review and security modes sometimes produced reasonable-sounding claims unsuppor
 
 Performance optimization required API calls, tool calls, tokens, inference duration, and schema counts. Operational accountability required patch paths, hashes, sanity, validation, and terminal state. Metrics and audit JSONL were added progressively, sharing a run ID but serving different questions.
 
-LAI remains experimental. Its contribution is the engineering lesson: small local models can become substantially more useful when their agent harness is designed around constrained context, low schema overhead, fewer inference rounds, concrete evidence, and visible failure modes.
+LAI Harness remains experimental. Its contribution is the engineering lesson: small local models can become substantially more useful when their agent harness is designed around constrained context, low schema overhead, fewer inference rounds, concrete evidence, and visible failure modes.

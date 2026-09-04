@@ -1,8 +1,8 @@
 {
   "name": "lai-chat",
   "displayName": "LAI Harness",
-  "description": "Compact VS Code coding agent for local OpenAI-compatible LLM servers",
-  "version": "0.4.0-alpha.11",
+  "description": "LAI Harness: compact VS Code coding harness for local OpenAI-compatible LLM servers",
+  "version": "0.4.0-alpha.12",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -35,11 +35,11 @@
         "id": "lai-local-agent.lai",
         "name": "lai",
         "fullName": "LAI Harness",
-        "description": "Compact coding agent for a local LLM",
+        "description": "Compact coding harness for a local LLM",
         "commands": [
           {
             "name": "explain",
-            "description": "Explica apenas a sele\u00e7\u00e3o atual, de forma r\u00e1pida e grounded"
+            "description": "Explica apenas a seleção atual, de forma rápida e grounded"
           },
           {
             "name": "fix",
@@ -51,7 +51,7 @@
           },
           {
             "name": "review",
-            "description": "Revisa c\u00f3digo com evid\u00eancias sem alterar arquivos"
+            "description": "Revisa código com evidências sem alterar arquivos"
           },
           {
             "name": "debug",
@@ -63,15 +63,15 @@
           },
           {
             "name": "security",
-            "description": "Faz revis\u00e3o defensiva de seguran\u00e7a com evid\u00eancias"
+            "description": "Faz revisão defensiva de segurança com evidências"
           },
           {
             "name": "plan",
-            "description": "Analisa o projeto e cria um plano de implementa\u00e7\u00e3o sem editar"
+            "description": "Analisa o projeto e cria um plano de implementação sem editar"
           },
           {
             "name": "implement",
-            "description": "Implementa uma mudan\u00e7a e valida o resultado"
+            "description": "Implementa uma mudança e valida o resultado"
           },
           {
             "name": "handoff",
@@ -79,19 +79,19 @@
           },
           {
             "name": "clearcontext",
-            "description": "Limpa o contexto local persistido deste reposit\u00f3rio"
+            "description": "Limpa o contexto local persistido deste repositório"
           },
           {
             "name": "status",
-            "description": "Mostra contexto, Git, valida\u00e7\u00e3o e estado atual do LAI"
+            "description": "Mostra contexto, Git, validação e estado atual do LAI"
           },
           {
             "name": "metrics",
-            "description": "Mostra lat\u00eancia, tokens e tool calls recentes do LAI"
+            "description": "Mostra latência, tokens e tool calls recentes do LAI"
           },
           {
             "name": "audit",
-            "description": "Mostra patch, sanity, valida\u00e7\u00e3o e hashes da \u00faltima execu\u00e7\u00e3o"
+            "description": "Mostra patch, sanity, validação e hashes da última execução"
           }
         ]
       }

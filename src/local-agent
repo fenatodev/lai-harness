@@ -12,7 +12,8 @@ import urllib.request
 import unicodedata
 from pathlib import Path
 
-VERSION = "0.4.0-alpha.11"
+VERSION = "0.4.0-alpha.12"
+PRODUCT_NAME = "LAI Harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
 CONFIG_OPTIONS = {
@@ -4481,7 +4482,7 @@ def main():
     args = list(CLI_ARGS)
 
     if args and args[0] in {"--version", "-V"}:
-        print(f"lai-local-agent {VERSION}")
+        print(f"{PRODUCT_NAME} {VERSION}")
         return
 
     if args and args[0] == "--show-config":
@@ -4733,7 +4734,7 @@ def main():
     save_workspace_state(workspace_state)
 
     if not task:
-        task = input("local-agent> ").strip()
+        task = input("lai> ").strip()
 
     if not task:
         raise SystemExit("No task provided.")

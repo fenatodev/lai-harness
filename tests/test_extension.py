@@ -9,6 +9,18 @@ EXTENSION = REPO / "vscode-extension"
 
 
 class ExtensionTest(unittest.TestCase):
+    def test_package_branding_preserves_compatibility_ids(self):
+        package = json.loads((EXTENSION / "package.json").read_text())
+        self.assertEqual(package["displayName"], "LAI Harness")
+        self.assertIn("LAI Harness", package["description"])
+        self.assertEqual(package["name"], "lai-chat")
+        self.assertEqual(package["publisher"], "lai-local-agent")
+        participant = package["contributes"]["chatParticipants"][0]
+        self.assertEqual(participant["name"], "lai")
+        self.assertEqual(participant["fullName"], "LAI Harness")
+        self.assertEqual(participant["id"], "lai-local-agent.lai")
+        self.assertEqual(package["contributes"]["configuration"]["title"], "LAI Harness")
+
     def test_agent_path_configuration_is_declared(self):
         package = json.loads((EXTENSION / "package.json").read_text())
         setting = package["contributes"]["configuration"]["properties"]["lai.agentPath"]

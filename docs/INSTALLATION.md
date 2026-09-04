@@ -15,7 +15,7 @@
 ./scripts/install-local.sh
 ```
 
-This installs `lai`, the active harness, server helpers, and skills in `~/.local` by default. Override `LAI_BIN_DIR` or `LAI_DATA_DIR` before running the script. Ensure the bin directory is on `PATH`. Tests use temporary overrides and never require changing an active installation.
+This installs LAI Harness as `lai`, plus the active internal harness, server helpers, and skills in `~/.local` by default. Override `LAI_BIN_DIR` or `LAI_DATA_DIR` before running the script. Ensure the bin directory is on `PATH`. Tests use temporary overrides and never require changing an active installation.
 
 Create a private API-key file without putting the value in shell history:
 
@@ -80,4 +80,4 @@ With the endpoint running:
 lai doctor
 ```
 
-Success requires authenticated `/props` to return HTTP 200 while the unauthenticated request does not. The doctor prints status codes, never the key.
+Run `lai config` first to inspect effective configuration without printing secrets. Success requires authenticated `/props` to return HTTP 200 while the unauthenticated request does not. The doctor prints status codes, never the key.

@@ -2,13 +2,13 @@
 
 **Local-first coding harness for constrained LLMs.**
 
-Small local models become much more useful when the agent architecture is optimized around them. LAI is an experimental VS Code coding agent designed around constrained context, low tool-schema overhead, batch operations, evidence gates, validation guards, metrics, and forensic auditing.
+Small local models become much more useful when the agent architecture is optimized around them. LAI Harness is an experimental VS Code coding harness designed around constrained context, low tool-schema overhead, batch operations, evidence gates, validation guards, metrics, and forensic auditing.
 
-LAI complements high-context cloud agents. It targets fast, bounded local cycles—planning, debugging, focused implementation, testing, and review—and can leave a compact handoff for another agent or a future session.
+LAI Harness complements high-context cloud agents. It targets fast, bounded local cycles—planning, debugging, focused implementation, testing, and review—and can leave a compact handoff for another agent or a future session.
 
-## Why LAI
+## Why LAI Harness
 
-General-purpose agent harnesses can spend a large share of a small model's budget on prompts, tool schemas, and repeated inference rounds. LAI reduces that overhead with mode-specific tools and prompts, batch inspection and patching, compact workspace state, and deliberately short outputs.
+General-purpose agent harnesses can spend a large share of a small model's budget on prompts, tool schemas, and repeated inference rounds. LAI Harness reduces that overhead with mode-specific tools and prompts, batch inspection and patching, compact workspace state, and deliberately short outputs.
 
 ## Architecture
 
@@ -30,9 +30,11 @@ local-agent (Python standard library)
                   user-supplied GGUF
 ```
 
-See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow.
+See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow and [Branding](docs/BRANDING.md) for naming rules.
 
 ## Features
+
+- canonical LAI Harness branding while preserving the `lai` command and compatibility identifiers;
 
 - ten compact tools, selected per mode;
 - multi-file `inspect` and transactional exact-replacement `patch`;
@@ -106,7 +108,7 @@ Detailed contracts are in [Modes](docs/MODES.md).
 
 ## Security boundary
 
-LAI is **not a sandbox**. Every builtin tool action crosses a deterministic policy boundary. Safe actions are `ALLOW`, sensitive Git/dependency mutations are `ASK` and stop for explicit user action, and selected destructive commands are `DENY`. However, allowed `bash` commands still execute with the user's OS permissions and command inspection cannot cover every equivalent spelling or indirect action. Use LAI only in trusted, disposable or backed-up workspaces under a least-privilege account. Review [Security model](docs/SECURITY-MODEL.md).
+LAI Harness is **not a sandbox**. Every builtin tool action crosses a deterministic policy boundary. Safe actions are `ALLOW`, sensitive Git/dependency mutations are `ASK` and stop for explicit user action, and selected destructive commands are `DENY`. However, allowed `bash` commands still execute with the user's OS permissions and command inspection cannot cover every equivalent spelling or indirect action. Use LAI Harness only in trusted, disposable or backed-up workspaces under a least-privilege account. Review [Security model](docs/SECURITY-MODEL.md).
 
 Never commit API keys, state, metrics, audit logs, model files, or real project handoffs. The included `.gitignore` blocks their common locations.
 

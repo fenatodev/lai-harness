@@ -40,6 +40,6 @@ Model prompt injection from repository files, malicious dependencies invoked by 
 
 ## Security claims deliberately not made
 
-LAI does not claim complete shell containment, prompt-injection resistance, tenant isolation, deterministic model behavior, or proof that passing tests imply a secure program.
+LAI Harness does not claim complete shell containment, prompt-injection resistance, tenant isolation, deterministic model behavior, or proof that passing tests imply a secure program.
 
 The implemented Git-mutation policy and its residual limits are documented separately in [Git shell hardening](GIT-SHELL-HARDENING.md).

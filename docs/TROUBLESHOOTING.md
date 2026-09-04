@@ -22,7 +22,7 @@ Re-run `scripts/install-local.sh` or apply executable permission to the installe
 
 ## Model fails to load
 
-Check available RAM/VRAM, model identifier/path, quantization, context size, and the server log. LAI does not manage model downloads or licenses.
+Check available RAM/VRAM, model identifier/path, quantization, context size, and the server log. LAI Harness does not manage model downloads or licenses.
 
 ## VS Code does not show @lai
 

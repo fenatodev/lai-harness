@@ -1,6 +1,6 @@
 # Modes
 
-LAI uses mode-specific skills, tools, token limits, and inference-round limits. The source code is authoritative when this summary and a future version diverge.
+LAI Harness uses mode-specific skills, tools, token limits, and inference-round limits. The source code is authoritative when this summary and a future version diverge.
 
 | Command | Contract | Available capabilities |
 | --- | --- | --- |

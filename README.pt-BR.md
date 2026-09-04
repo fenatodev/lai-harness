@@ -1,10 +1,10 @@
-# LAI — Local AI Agent
+# LAI Harness
 
-**Um agente de programação compacto e auditável para LLMs locais.**
+**Um harness de programação compacto e auditável para LLMs locais.**
 
-Modelos locais pequenos se tornam muito mais úteis quando a arquitetura do agente é otimizada ao redor deles. O LAI é um agente experimental para VS Code, construído para reduzir contexto desnecessário, schemas de ferramentas e rodadas repetidas de inferência.
+Modelos locais pequenos se tornam muito mais úteis quando a arquitetura do agente é otimizada ao redor deles. O LAI Harness é um harness experimental para VS Code, construído para reduzir contexto desnecessário, schemas de ferramentas e rodadas repetidas de inferência.
 
-Ele complementa agentes cloud de alto contexto: o LAI atende ciclos locais rápidos e delimitados; outro agente pode assumir trabalhos amplos usando o handoff persistente.
+Ele complementa agentes cloud de alto contexto: o LAI Harness atende ciclos locais rápidos e delimitados; outro agente pode assumir trabalhos amplos usando o handoff persistente.
 
 ## Destaques
 
@@ -14,11 +14,12 @@ Ele complementa agentes cloud de alto contexto: o LAI atende ciclos locais rápi
 - debug, review e security baseados em evidência;
 - sanity check após patches;
 - métricas, auditoria forense e contexto por workspace;
-- cliente Python sem dependências externas.
+- cliente Python sem dependências externas;
+- identidade pública padronizada como LAI Harness, mantendo o comando `lai`.
 
 ## Início rápido
 
-Você precisa de Python 3.10+, Git, ripgrep, VS Code compatível e um servidor `llama.cpp` autenticado com API OpenAI-compatible.
+Você precisa de Python 3.11+, Git, ripgrep, VS Code compatível e um servidor `llama.cpp` autenticado com API OpenAI-compatible.
 
 ```bash
 git clone https://github.com/fenatodev/lai-local-agent.git

@@ -2,6 +2,7 @@
 
 ## Near term
 
+- Evaluate small local coding models with a repeatable LAI Harness benchmark.
 - Harden the `ALLOW` / `ASK` / `DENY` policy with structured commands or a stronger execution boundary.
 - Add configuration validation and a non-WSL server workflow.
 - Expand end-to-end fixtures for every mode and guard.

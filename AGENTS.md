@@ -4,6 +4,8 @@
 
 LAI Harness is a compact, auditable, local-first coding harness optimized for constrained LLMs.
 
+The user-facing product name is LAI Harness; the command remains `lai`, and compatibility identifiers such as `local-agent` and `lai-local-agent` are intentionally preserved unless a migration spec says otherwise.
+
 The current runtime is primarily implemented in `src/local-agent`, while `src/lai` is the user-facing CLI wrapper. The VS Code extension connects `@lai` to the separately installed harness.
 
 The project deliberately favors deterministic guards, bounded exploration, compact context, low tool-schema overhead, explicit validation, and auditable execution over large autonomous workflows.

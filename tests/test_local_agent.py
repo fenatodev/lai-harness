@@ -1225,7 +1225,33 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "lai-local-agent 0.4.0-alpha.11")
+        self.assertEqual(result.stdout.strip(), "LAI Harness 0.4.0-alpha.12")
+
+    def test_branding_doc_preserves_lai_command_and_compatibility_ids(self):
+        branding = (Path(__file__).parents[1] / "docs" / "BRANDING.md").read_text()
+        self.assertIn("LAI Harness", branding)
+        self.assertIn("lai", branding)
+        self.assertIn("local-agent", branding)
+        self.assertIn("lai-local-agent", branding)
+        self.assertIn("lai-chat", branding)
+
+    def test_public_docs_do_not_use_old_product_title(self):
+        repo = Path(__file__).parents[1]
+        allowed = {
+            repo / "docs" / "BRANDING.md",
+            repo / ".specs" / "006-lai-harness-branding.md",
+        }
+        public_roots = [repo / "README.md", repo / "README.pt-BR.md", repo / "docs", repo / "vscode-extension"]
+        stale = []
+        for root in public_roots:
+            paths = [root] if root.is_file() else root.rglob("*.md")
+            for candidate in paths:
+                if candidate in allowed:
+                    continue
+                text = candidate.read_text(encoding="utf-8")
+                if "LAI — Local AI Agent" in text or "# LAI —" in text:
+                    stale.append(candidate.relative_to(repo).as_posix())
+        self.assertEqual(stale, [])
 
     def test_deterministic_show_config_obeys_cli_without_server(self):
         result = subprocess.run(

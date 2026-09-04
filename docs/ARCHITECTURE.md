@@ -1,6 +1,6 @@
 # Architecture
 
-LAI has four runtime layers: the VS Code chat participant, the Python harness, an authenticated OpenAI-compatible server, and a user-supplied model.
+LAI Harness has four runtime layers: the VS Code chat participant, the Python harness, an authenticated OpenAI-compatible server, and a user-supplied model.
 
 ## Request flow
 
@@ -45,7 +45,7 @@ Every builtin tool action is evaluated as `ALLOW`, `ASK`, or `DENY` before dispa
 
 ### llama.cpp and model
 
-The reference setup uses `llama-server` with an OpenAI-compatible chat-completions endpoint. The default model string records the experimental baseline but can be replaced with `LAI_MODEL`. LAI does not download or redistribute models.
+The reference setup uses `llama-server` with an OpenAI-compatible chat-completions endpoint. The default model string records the experimental baseline but can be replaced with `LAI_MODEL`. LAI Harness does not download or redistribute models.
 
 ### Runtime recovery
 

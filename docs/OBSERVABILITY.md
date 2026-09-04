@@ -2,7 +2,7 @@
 
 `lai config` is a deterministic operator diagnostic. It reports effective configuration and path statuses without starting or probing the model server. It prints API key paths and file status only, never secret contents.
 
-LAI records local operational data under `$LAI_DATA_DIR` (default `~/.local/share/lai`). It does not send these records to a hosted telemetry service.
+LAI Harness records local operational data under `$LAI_DATA_DIR` (default `~/.local/share/lai`). It does not send these records to a hosted telemetry service.
 
 ## Status and workspace state
 
