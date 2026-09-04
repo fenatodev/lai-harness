@@ -9,7 +9,7 @@ The user, opened repository, installed LAI code, and local endpoint are assumed 
 ## Implemented controls
 
 - The llama.cpp API key is read from a private external file and sent as a Bearer header.
-- The optional `lai serve` control plane uses a separate bearer token, requires restrictive token-file permissions, refuses non-loopback binds, limits JSON request bodies, and exposes no model/shell/repository-write endpoint in beta.11.
+- The optional `lai serve` control plane uses a separate bearer token, restrictive token-file permissions, loopback-only binding, bounded JSON bodies, and fixed asynchronous execution for `plan`/`review`/`security` only. Control-run children use a dedicated process group, do not auto-start llama.cpp, and expose no generic shell or repository-write endpoint.
 - Configuration parsing rejects unknown TOML keys and invalid value types before runtime; diagnostics report secret file status without printing secret contents.
 - The reference server launcher refuses builds without API-key support and requests `--no-webui` when available.
 - File tools resolve targets against the repository root; parent and escaping-symlink paths are rejected.
@@ -25,7 +25,7 @@ The user, opened repository, installed LAI code, and local endpoint are assumed 
 
 ## Residual risks
 
-The `bash` tool is not sandboxed. It uses command inspection to feed the central policy and executes `ALLOW` commands with the LAI user's permissions. Known Git mutations and dependency installs stop at `ASK`; selected destructive patterns stop at `DENY`. Aliases, wrapper scripts, alternate executables, interpreters, shell features, or unlisted commands can still bypass intent. Its working directory is the repository root, but OS-level reads and writes are not confined there.
+The `bash` tool is not sandboxed. This is also why shell-capable `diagnose` and `release` modes are not exposed through the beta.12 control-run API. It uses command inspection to feed the central policy and executes `ALLOW` commands with the LAI user's permissions. Known Git mutations and dependency installs stop at `ASK`; selected destructive patterns stop at `DENY`. Aliases, wrapper scripts, alternate executables, interpreters, shell features, or unlisted commands can still bypass intent. Its working directory is the repository root, but OS-level reads and writes are not confined there.
 
 Model prompt injection from repository files, malicious dependencies invoked by tests, symlink races, endpoint interception on an untrusted network, extension-host compromise, and sensitive content in state/audit/checkpoint output remain possible. Repository filenames and sampled text can also bias context ranking, so rankings remain advisory and require normal evidence inspection. Recovery hashes establish content identity at a checkpoint, not benign behavior or safe intent.
 
