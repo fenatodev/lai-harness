@@ -1,43 +1,50 @@
 # Release notes
 
-## lai harness v0.4.0-beta.8 — remote release governance
+## lai harness v0.4.0-beta.9 — self-correcting development harness
 
-This beta closes the gap between local release posture and the public GitHub state without making release-governance a write-capable command.
+This beta closes the repository development feedback loop around lai harness without expanding model autonomy.
 
 ### What changed
 
-- Added `lai release-governance --remote` for opt-in GitHub verification.
-- Verifies protected `main` policy: PRs, strict required checks, linear history, admin enforcement, and disabled force pushes/deletions.
-- Verifies the expected GitHub Release is a published pre-release.
-- Compares the local inspected VSIX SHA-256 with the GitHub asset digest when both are available.
-- Verified GitHub items are removed from `manual_actions`; missing/unverified state stays actionable.
-- Updated release documentation to use the protected-main PR workflow before tagging.
+- Added deterministic `lai policy-check`, which reuses the existing `ALLOW` / `ASK` / `DENY` runtime policy and never executes the requested action.
+- Added a repository-local shell gate that delegates to `lai policy-check`, blocks `DENY`, requires review for `ASK`, and fails closed when policy evidence is unavailable.
+- Added a repository-confined, best-effort feedback hook for fast syntax/lint feedback after edits.
+- Strengthened deterministic denial for force push, hard reset, npm publication, and recursive forced PowerShell deletion.
+- Added an explicit `verify-change` workflow for focused-to-full validation.
+- Added a separate Harness Score CI workflow pinned to the v1 action revision and gated at L4.
+- Extended remote release governance so protected `main` must also require `Harness Score L4`.
+
+### Harness maturity
+
+Harness Score 1.6.3 now measures the repository as **L4 Self-correcting, 93/108 (86%)**, up from beta.8's **L3 Sensing, 76/108 (70%)**. Hooks & Guardrails are 14/14 and CI Feedback remains 14/14.
+
+The remaining score gaps are intentionally not filled with decorative subagent, MCP, type-checker, or lockfile artifacts. They remain candidates only when they solve a concrete project need.
 
 ### Safety boundary
 
-- Default `lai release-governance` remains offline/local.
-- `--remote` performs GitHub API GET requests only.
-- No GitHub settings mutation, PR creation, merge, tag, push, upload, or Release publication.
-- No model call and no repository mutation from governance verification.
-- Credentials are consumed without being rendered in output.
+- Development hooks are guards, not an OS sandbox.
+- The shell hook reuses the same deterministic policy boundary as the product instead of maintaining a divergent denylist.
+- Hook failure does not silently become allow.
+- Feedback checks are advisory; focused tests and CI remain authoritative.
+- The maturity workflow is read-only and separate from product CI.
 
 ### Validation gate
 
 ```bash
 lai readiness
-lai workspace status --json
-lai release-check --target 0.4.0-beta.8 --json
-lai release-pack --target 0.4.0-beta.8 --with-vsix --json
-lai release-governance --target 0.4.0-beta.8 --remote --json
-lai project-handoff --target 0.4.0-beta.8 --out /tmp/lai-harness-project-handoff-v0.4.0-beta.8 --force --json
+lai policy-check --tool bash --command 'git status --short' --json
+lai release-check --target 0.4.0-beta.9 --json
+lai release-pack --target 0.4.0-beta.9 --with-vsix --json
+make lint
 make check
+make test-dev
+make test
+make harness-score-gate
 make validate
 ```
 
 ### Release body for GitHub
 
-lai harness v0.4.0-beta.8 adds opt-in remote release governance. `lai release-governance --remote` can now verify the protected `main` policy and the published GitHub pre-release without changing GitHub state.
+lai harness v0.4.0-beta.9 adds a self-correcting repository development harness around the existing local coding agent. The new deterministic `lai policy-check` lets the shell gate reuse the product's `ALLOW` / `ASK` / `DENY` policy without executing commands, while a best-effort feedback hook catches narrow syntax and lint problems immediately after edits.
 
-When an inspected local VSIX and GitHub asset digest are both available, the command compares SHA-256 so the public artifact can be tied back to the local release pack. The default governance command remains offline, and all remote behavior is GET-only and model-free.
-
-This beta also updates the release flow for protected `main`: release work goes through a feature branch and PR, then the merged `main` commit is tagged after green CI.
+The repository now gates Harness Score L4 in a separate CI workflow and remote release governance verifies that `Harness Score L4` is required on protected `main`. Harness Score 1.6.3 measures this cut at L4 Self-correcting, 93/108 (86%).

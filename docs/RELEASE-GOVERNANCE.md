@@ -5,7 +5,7 @@
 ```bash
 lai release-governance
 lai release-governance --json
-lai release-governance --target 0.4.0-beta.8 --remote --json
+lai release-governance --target 0.4.0-beta.9 --remote --json
 lai governance --remote --json
 ```
 
@@ -16,7 +16,7 @@ Without `--remote`, the command remains deterministic, offline, model-free, and 
 The remote check resolves `owner/repo` from the Git `origin` and verifies:
 
 - `main` requires pull requests;
-- required status checks are strict/up-to-date and include `Python 3.11`, `Python 3.12`, and `Publication gates`;
+- required status checks are strict/up-to-date and include `Python 3.11`, `Python 3.12`, `Publication gates`, and `Harness Score L4`;
 - linear history and administrator enforcement are enabled;
 - force pushes and branch deletion are disabled;
 - the expected GitHub Release exists, is published, and is marked as a pre-release;
@@ -34,4 +34,4 @@ Once `main` is protected, do not push release commits directly to it. Use the fe
 
 ## Chat migration
 
-Use `lai project-handoff --target 0.4.0-beta.8 --out /tmp/lai-harness-project-handoff-v0.4.0-beta.8 --force --json` when a long chat needs to move to a fresh session.
+Use `lai project-handoff --target 0.4.0-beta.9 --out /tmp/lai-harness-project-handoff-v0.4.0-beta.9 --force --json` when a long chat needs to move to a fresh session.

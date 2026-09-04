@@ -18,7 +18,8 @@ Important areas:
 - `src/lai` — canonical user-facing CLI wrapper.
 - `.agents/skills/` — canonical portable mode skills using `<mode>/SKILL.md`; installed skills are preferred at runtime.
 - `skills/` — legacy `<mode>.txt` skills retained as compatibility fallback.
-- `.agents/` — portable rules and progressively standard agent skills.
+- `.agents/` — portable rules, skills, and explicit development workflows.
+- `.cursor/hooks/` — repository development hooks; the shell gate delegates to `lai policy-check` and feedback checks remain best-effort.
 - `tests/` — behavioral, integration, fake-server, extension, and install-smoke coverage.
 - `scripts/validate.sh` — canonical publication validation gate.
 - `vscode-extension/` — VS Code integration.
@@ -37,7 +38,8 @@ Use the narrowest relevant check while developing.
 - `make lint` — Ruff lint checks.
 - `make check` — deterministic static/syntax checks.
 - `make validate` — complete publication gate.
-- `make harness-score` — repository harness maturity measurement.
+- `make harness-score` — pinned repository harness maturity measurement.
+- `make harness-score-gate` — require Harness Score L4 for repository harness changes.
 
 `make validate` invokes the complete existing publication gate.
 
@@ -79,6 +81,7 @@ Recovery compatibility must fail closed when repository evidence has drifted.
 - Never weaken tests solely to make faulty implementation code pass.
 - Required validation must finish before success is claimed.
 - Deterministic safety gates take precedence over model instructions.
+- The repository shell gate must fail closed and reuse the same `evaluate_tool_policy` boundary through `lai policy-check`.
 - Ranked context candidates are advisory metadata only; inspect current files before relying on their contents or implications.
 - Semantic code contracts are advisory metadata only; they guide file choice but never prove implementation facts.
 - A syntax check proves syntax only.

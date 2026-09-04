@@ -20,6 +20,8 @@ Ele complementa agentes cloud de alto contexto: o lai harness atende ciclos loca
 - mapa semântico determinístico com `lai semantics` para orientar modelos pequenos pelos subsistemas;
 - histórico determinístico de execuções com `lai runs`, `lai run show` e exportação sanitizada com `lai run export`;
 - verificação operacional com `lai readiness`;
+- `lai policy-check` determinístico para classificar ações sem executá-las e reutilizar a mesma policy nos hooks do repositório;
+- hooks de desenvolvimento com gate L4 do Harness Score separado do CI do produto;
 - skills focadas `diagnose`, `ci-fix` e `release`, além de gates de preflight, para operar o beta com menos risco.
 
 ## Início rápido
@@ -59,16 +61,18 @@ lai runs
 lai run last
 lai run export --last
 lai readiness
-lai release-check --target 0.4.0-beta.8 --json
-lai release-pack --target 0.4.0-beta.8 --with-vsix --json
-lai release-governance --target 0.4.0-beta.8 --remote --json
-lai project-handoff --target 0.4.0-beta.8 --json
-lai release "verifique se beta.8 está pronto"
+lai policy-check --tool bash --command "git status --short" --json
+make harness-score-gate
+lai release-check --target 0.4.0-beta.9 --json
+lai release-pack --target 0.4.0-beta.9 --with-vsix --json
+lai release-governance --target 0.4.0-beta.9 --remote --json
+lai project-handoff --target 0.4.0-beta.9 --json
+lai release "verifique se beta.9 está pronto"
 ```
 
 ## Segurança
 
-O lai harness **não é uma sandbox**. As ferramentas de arquivo ficam confinadas à raiz do repositório e a ferramenta Git dedicada é somente leitura, mas `bash` executa com as permissões do usuário e usa uma denylist incompleta por natureza. Use uma conta de menor privilégio, mantenha backups e revise os diffs.
+O lai harness **não é uma sandbox**. As ferramentas de arquivo ficam confinadas à raiz do repositório e a ferramenta Git dedicada é somente leitura. `bash` cruza a policy determinística `ALLOW` / `ASK` / `DENY`, mas comandos permitidos ainda executam com as permissões do usuário e nenhuma inspeção de comando substitui isolamento do SO. Use uma conta de menor privilégio, mantenha backups e revise os diffs.
 
 Chaves, modelos, logs, estados, métricas, auditoria e handoffs reais não devem ser publicados. Leia [SECURITY-MODEL.md](docs/SECURITY-MODEL.md).
 
@@ -78,7 +82,7 @@ As medições documentadas vieram de uma máquina e fixtures específicas. Elas 
 
 O código original do LAI usa MIT. VS Code, llama.cpp, modelos, GGUF e templates permanecem sob termos próprios e não são redistribuídos. Consulte [THIRD_PARTY.md](THIRD_PARTY.md).
 
-A documentação técnica principal está em inglês no diretório [`docs/`](docs/), incluindo [Beta readiness](docs/BETA-READINESS.md).
+A documentação técnica principal está em inglês no diretório [`docs/`](docs/), incluindo [Development harness](docs/DEVELOPMENT-HARNESS.md) e [Beta readiness](docs/BETA-READINESS.md).
 
 Use `lai release-pack` and see [Release pack](docs/RELEASE-PACK.md) before manual publication. See [Protected branch write guard](docs/PROTECTED-BRANCH-WRITES.md) before running write-capable modes on release-sensitive branches.
 

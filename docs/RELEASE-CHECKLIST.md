@@ -1,6 +1,6 @@
 # Release checklist
 
-Use this checklist for beta releases after `main` branch protection is enabled.
+Use this checklist for beta releases with protected `main`.
 
 ## Feature-branch preflight
 
@@ -8,39 +8,43 @@ Use this checklist for beta releases after `main` branch protection is enabled.
 cd ~/dev/projects/lai-local-agent
 lai readiness
 lai workspace status --json
-lai release-check --target 0.4.0-beta.8 --json
-lai release-pack --target 0.4.0-beta.8 --with-vsix --json
+lai release-check --target 0.4.0-beta.9 --json
+lai release-pack --target 0.4.0-beta.9 --with-vsix --json
+make lint
 make check
+make test-dev
+make test
+make harness-score-gate
 make validate
 ```
 
-Expected: current version matches the target, validation passes, VSIX inspection passes, and the Git tree is clean after the release commit.
+Expected: version/target aligned, validation and VSIX inspection green, Harness Score L4 satisfied, and a clean tree after the release commit.
 
 ## Protected-main integration
 
-1. Push `feature/v0.4.0-beta.8-remote-governance`.
+1. Push `feature/v0.4.0-beta.9-self-correcting-harness`.
 2. Open a PR into `main`.
-3. Require `Python 3.11`, `Python 3.12`, and `Publication gates` to pass with the branch up to date.
-4. Merge through GitHub; do not bypass branch protection or push the release commit directly to `main`.
-5. Fetch/switch to `main` locally and fast-forward to `origin/main`.
-6. Verify GitHub Actions on the resulting `main` commit.
+3. Confirm the PR exposes `Harness Score L4`; then add it to protected `main` required checks if it is not already required.
+4. Require `Python 3.11`, `Python 3.12`, `Publication gates`, and `Harness Score L4` with the branch up to date.
+5. Merge through GitHub; do not bypass branch protection or push the release commit directly to `main`.
+6. Fast-forward local `main` to `origin/main` and verify GitHub Actions on the merged commit.
 
 ## Tag after merge
 
 Only after merged `main` is green:
 
 ```bash
-git tag -a v0.4.0-beta.8 \
-  -m "v0.4.0-beta.8 — remote release governance"
-git push origin v0.4.0-beta.8
+git tag -a v0.4.0-beta.9 \
+  -m "v0.4.0-beta.9 — self-correcting development harness"
+git push origin v0.4.0-beta.9
 ```
 
 Then verify tag CI is green.
 
 ## GitHub pre-release
 
-1. Create the GitHub Release from `v0.4.0-beta.8`.
+1. Create the GitHub Release from `v0.4.0-beta.9`.
 2. Use the title/body from the release pack.
 3. Keep it marked as pre-release.
-4. Optionally attach the inspected `lai-harness-0.4.0-beta.8.vsix`.
-5. Run `lai release-governance --target 0.4.0-beta.8 --remote --json`; published governance should be fully verified.
+4. Optionally attach the inspected `lai-harness-0.4.0-beta.9.vsix`.
+5. Run `lai release-governance --target 0.4.0-beta.9 --remote --json`; published governance should be fully verified.

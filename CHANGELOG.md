@@ -1,3 +1,21 @@
+## [0.4.0-beta.9] - 2026-09-04
+
+### Added
+- Added deterministic `lai policy-check` so repository shell hooks can reuse the runtime `ALLOW` / `ASK` / `DENY` policy without executing the requested action.
+- Added repository-local gate and feedback hooks under `.cursor/hooks/` plus an explicit `verify-change` workflow.
+- Added a dedicated `Harness maturity` GitHub Actions workflow pinned to Harness Score v1 commit `7cf25e00af7336f0c6d0b5e69a6f0ca7f1b4553a` and gated at L4.
+- Added focused hook/policy tests and L4 validation via `make harness-score-gate`.
+
+### Changed
+- Strengthened shell policy so force push, hard reset, npm publication, and recursive forced PowerShell deletion are deterministic `DENY` decisions.
+- Extended remote release governance to require `Harness Score L4` alongside the existing product CI checks.
+- Pinned local Harness Score measurement to 1.6.3 for reproducible maturity gates.
+
+### Maturity
+- Harness Score improved from L3 Sensing, 76/108 (70%) to L4 Self-correcting, 93/108 (86%).
+- Remaining score gaps are not filled with decorative subagent, MCP, type-checker, or lockfile artifacts; those require separate product justification.
+
+
 ## [0.4.0-beta.8] - 2026-09-04
 
 ### Added

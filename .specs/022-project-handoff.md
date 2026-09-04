@@ -1,6 +1,6 @@
 # 022 Project handoff
 
-Status: accepted
+Status: complete
 Mode: full
 
 ## Problem

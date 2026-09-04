@@ -1,59 +1,62 @@
 # lai beta readiness
 
-This document records the release posture for `0.4.0-beta.8`. It is a small governance-hardening cut, not an agent architecture expansion.
+This document records the release posture for `0.4.0-beta.9`. It is a development-harness hardening cut: model-assisted product behavior stays stable while deterministic repository feedback closes the Harness Score L4 loop.
 
 ## Scope
 
-`0.4.0-beta.8` keeps model-assisted behavior stable and adds opt-in remote release verification:
+`0.4.0-beta.9` adds:
 
-- `lai release-governance --remote` checks GitHub state using GET-only API calls.
-- Protected `main` policy is verified for PRs, strict required checks, linear history, administrator enforcement, and disabled force pushes/deletions.
-- The expected GitHub pre-release is verified without publication privileges.
-- An attached VSIX digest is compared with the local inspected artifact when both digests exist.
-- Default governance stays offline/local and model-free.
-- Release documentation now follows feature branch -> PR -> CI -> merge -> main CI -> tag -> tag CI -> pre-release.
+- deterministic, model-free `lai policy-check` with `executed: false` evidence;
+- a policy-backed `beforeShellExecution` gate that maps `ALLOW` / `ASK` / `DENY` and fails closed;
+- a repository-confined, best-effort `afterFileEdit` feedback hook;
+- stronger `DENY` coverage for force push, hard reset, npm publication, and recursive forced PowerShell deletion;
+- an explicit `verify-change` workflow;
+- a dedicated Harness Score workflow gated at L4;
+- remote release governance that also requires `Harness Score L4` on protected `main`.
+
+The measured repository maturity is L4 Self-correcting, 93/108 (86%), using Harness Score 1.6.3.
 
 ## Required feature-branch gate
 
 ```bash
 lai readiness
-lai release-check --target 0.4.0-beta.8 --json
-lai release-pack --target 0.4.0-beta.8 --with-vsix --json
+lai policy-check --tool bash --command 'git status --short' --json
+lai release-check --target 0.4.0-beta.9 --json
+lai release-pack --target 0.4.0-beta.9 --with-vsix --json
 make lint
 make check
 make test-dev
 make test
+make harness-score-gate
 make validate
 ./scripts/install-local.sh
 lai version
 ```
 
-Before merge, `release-check` should report the current version correctly; the tag is intentionally absent. Integration into protected `main` must happen through a PR with all required checks green.
+Before merge, the beta.9 tag and GitHub Release are intentionally absent. The PR must run both product CI and `Harness Score L4` successfully.
 
-## Post-merge and publication gate
+## Protected-main integration
 
-After the PR is merged, update local `main` from `origin/main` and verify main CI. Tag that merged commit as `v0.4.0-beta.8`, push only the tag, verify tag CI, and then create the GitHub pre-release.
+After the first beta.9 PR exposes the new check, add `Harness Score L4` to the required status checks for `main`. Do not merge until all four required checks are green and the branch is up to date.
+
+After merge, sync local `main`, verify main CI, tag the merged commit as `v0.4.0-beta.9`, push only the tag, verify tag CI, and then create the GitHub pre-release.
 
 Final verification:
 
 ```bash
-lai release-check --target 0.4.0-beta.8 --json
-lai release-governance --target 0.4.0-beta.8 --remote --json
+lai release-check --target 0.4.0-beta.9 --json
+lai release-governance --target 0.4.0-beta.9 --remote --json
 ```
 
-Expected final posture: `release-check.phase=released`, remote branch protection `ok`, remote GitHub Release `ok`, and no GitHub governance items left in `manual_actions`.
+Expected final posture: `release-check.phase=released`, remote branch protection `ok`, GitHub Release `ok`, VSIX digest matching when attached, and no remaining `manual_actions`.
 
 ## Non-goals
 
-The beta cut does not add autonomous GitHub administration, PR creation, merge, tag/push execution, package upload, release publication, model downloading, cron execution, plugin loading, or a stronger shell sandbox.
+This cut does not add autonomous GitHub administration, a fake subagent, MCP merely for scoring, a type checker without a typing plan, automatic dependency installation, model downloading, or a stronger OS sandbox.
 
 ## Remaining beta risks
 
-- `bash` still runs with the user's OS permissions; the policy gateway is not a sandbox.
+- Allowed `bash` still executes with the user's OS permissions; hooks and policy are guards, not containment.
 - Model-assisted modes remain constrained by the configured local model.
-- VS Code Chat Participant API compatibility can vary by VS Code build.
+- VS Code/Cursor integration behavior can vary by host version; CI remains authoritative.
 - Signed releases and provenance attestations are not yet implemented.
-
-## Exit criteria
-
-Beta.8 is acceptable when local validation and install smoke pass, protected-main PR/main/tag CI is green, and read-only remote governance verifies the published GitHub state.
