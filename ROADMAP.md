@@ -22,3 +22,4 @@ Roadmap items are intentions, not commitments. Model redistribution and automati
 - v0.4.0-alpha.20: sanitized run export bundle with `lai run export`.
 - v0.4.0-alpha.21: release preflight and public mode aliases before beta readiness.
 - v0.4.0-beta.1: first beta readiness cut with deterministic release gates and documented stabilization posture.
+- v0.4.0-beta.2: release polish with current GitHub metadata, release notes, checklist, and public VSIX artifact naming.

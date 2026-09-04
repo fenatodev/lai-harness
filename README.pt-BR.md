@@ -59,8 +59,8 @@ lai runs
 lai run last
 lai run export --last
 lai readiness
-lai release-check --target 0.4.0-beta.1 --json
-lai release "verifique se beta.1 está pronto"
+lai release-check --target 0.4.0-beta.2 --json
+lai release "verifique se beta.2 está pronto"
 ```
 
 ## Segurança

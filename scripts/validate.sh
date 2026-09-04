@@ -11,6 +11,6 @@ bash -n scripts/*.sh
 python3 -m json.tool vscode-extension/package.json >/dev/null
 git diff --check
 ./scripts/check-publication.sh
-./scripts/package-vsix.sh "${1:-/tmp/lai-local-agent-validation.vsix}"
+./scripts/package-vsix.sh "${1:-/tmp/lai-harness-validation.vsix}"
 
 echo "All lai harness publication gates passed."

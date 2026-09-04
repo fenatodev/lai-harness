@@ -634,7 +634,7 @@ class LocalAgentTest(unittest.TestCase):
             check=True,
         )
         payload = json.loads(raw.stdout)
-        self.assertEqual(payload["version"], "0.4.0-beta.1")
+        self.assertEqual(payload["version"], "0.4.0-beta.2")
         self.assertEqual(payload["runs"][0]["run_id"], "run-1")
         self.assertEqual(payload["runs"][1]["run_id"], "run-2")
         self.assertIsNotNone(payload["runs"][1]["last_failure"])
@@ -726,7 +726,7 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("Authentication: OK", rendered)
         self.assertIn("mode_skills", rendered)
         payload = json.loads(raw)
-        self.assertEqual(payload["version"], "0.4.0-beta.1")
+        self.assertEqual(payload["version"], "0.4.0-beta.2")
         self.assertTrue(payload["server"]["authentication_ok"])
         self.assertIn(payload["overall"], {"ready", "attention"})
         self.assertTrue(
@@ -768,7 +768,7 @@ class LocalAgentTest(unittest.TestCase):
             agent.AUDIT_FILE = original_audit_file
 
         self.assertIn("RELEASE PREFLIGHT", context)
-        self.assertIn("Version: 0.4.0-beta.1", context)
+        self.assertIn("Version: 0.4.0-beta.2", context)
         self.assertIn("Readiness overall:", context)
         self.assertIn("- make check", context)
         self.assertIn("- make test-dev", context)
@@ -802,7 +802,7 @@ class LocalAgentTest(unittest.TestCase):
             stdout=subprocess.DEVNULL,
         )
         result = subprocess.run(
-            [str(SOURCE), "--release-check", "--target", "0.4.0-beta.1", "--json"],
+            [str(SOURCE), "--release-check", "--target", "0.4.0-beta.2", "--json"],
             cwd=self.root,
             env=env,
             text=True,
@@ -811,8 +811,8 @@ class LocalAgentTest(unittest.TestCase):
             check=True,
         )
         payload = json.loads(result.stdout)
-        self.assertEqual(payload["version"], "0.4.0-beta.1")
-        self.assertEqual(payload["expected_tag"], "v0.4.0-beta.1")
+        self.assertEqual(payload["version"], "0.4.0-beta.2")
+        self.assertEqual(payload["expected_tag"], "v0.4.0-beta.2")
         self.assertIn(payload["phase"], {"ready_to_tag", "released", "blocked"})
         self.assertIn("make validate", payload["validation_commands"])
         self.assertTrue(
@@ -845,7 +845,7 @@ class LocalAgentTest(unittest.TestCase):
         )
         payload = json.loads(result.stdout)
         self.assertEqual(payload["product"], "lai harness")
-        self.assertEqual(payload["version"], "0.4.0-beta.1")
+        self.assertEqual(payload["version"], "0.4.0-beta.2")
         self.assertEqual(payload["repository"], str(self.root.resolve()))
         self.assertIn("checks", payload)
 
@@ -1664,7 +1664,7 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "lai harness 0.4.0-beta.1")
+        self.assertEqual(result.stdout.strip(), "lai harness 0.4.0-beta.2")
 
     def test_deterministic_model_eval_plan_needs_no_server(self):
         result = subprocess.run(
@@ -1715,7 +1715,7 @@ class LocalAgentTest(unittest.TestCase):
         )
         payload = json.loads(result.stdout)
         self.assertEqual(payload["product"], "lai harness")
-        self.assertEqual(payload["version"], "0.4.0-beta.1")
+        self.assertEqual(payload["version"], "0.4.0-beta.2")
         scenario_ids = {item["id"] for item in payload["scenarios"]}
         self.assertIn("context-ranking", scenario_ids)
 
@@ -1822,6 +1822,23 @@ class LocalAgentTest(unittest.TestCase):
             text = (repo / rel).read_text(encoding="utf-8")
             self.assertIn(expected, text)
             self.assertNotIn("https://github.com/fenatodev/lai-local-agent.git", text)
+
+    def test_public_publishing_surface_uses_current_beta_identity(self):
+        repo = Path(__file__).parents[1]
+        publishing = (repo / "docs" / "GITHUB-PUBLISHING.md").read_text(encoding="utf-8")
+        release_notes = (repo / "docs" / "RELEASE-NOTES.md").read_text(encoding="utf-8")
+        release_checklist = (repo / "docs" / "RELEASE-CHECKLIST.md").read_text(encoding="utf-8")
+        package_script = (repo / "scripts" / "package-vsix.sh").read_text(encoding="utf-8")
+        validate_script = (repo / "scripts" / "validate.sh").read_text(encoding="utf-8")
+
+        self.assertIn("**Name:** `lai-harness`", publishing)
+        self.assertIn("lai harness v0.4.0-beta.2", publishing)
+        self.assertIn("lai harness v0.4.0-beta.2", release_notes)
+        self.assertIn("v0.4.0-beta.2", release_checklist)
+        self.assertNotIn("Release v0.3.0", publishing)
+        self.assertNotIn("**Name:** `lai-local-agent`", publishing)
+        self.assertIn("/tmp/lai-harness-${version}.vsix", package_script)
+        self.assertIn("/tmp/lai-harness-validation.vsix", validate_script)
 
     def test_public_docs_do_not_use_old_product_title(self):
         repo = Path(__file__).parents[1]

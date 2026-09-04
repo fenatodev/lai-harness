@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.0-beta.2] - 2026-09-04
+
+### Changed
+- Polish public release metadata, GitHub publishing notes, and beta release instructions after the first beta cut.
+- Use `lai-harness` in generated VSIX artifact filenames while preserving extension compatibility identifiers.
+- Update public quick-start and release-check examples for the beta.2 release target.
+
+### Added
+- Add ready-to-paste GitHub release notes and a human release checklist for the beta line.
+- Add a traceable release-polish spec for the beta.2 stabilization cut.
+
+### Tests
+- Add regression coverage that publishing metadata, release notes, and package artifact names stay aligned with the public `lai-harness` identity.
+
 ## [0.4.0-beta.1] - 2026-09-04
 
 ### Changed

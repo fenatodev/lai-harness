@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 extension_dir="$repo_root/vscode-extension"
 version="$(node -p "require('$extension_dir/package.json').version")"
-output="${1:-/tmp/lai-local-agent-${version}.vsix}"
+output="${1:-/tmp/lai-harness-${version}.vsix}"
 
 (cd "$extension_dir" && npx --yes @vscode/vsce@3.9.2 package --out "$output")
 

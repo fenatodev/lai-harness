@@ -19,7 +19,7 @@ The `lai` wrapper dispatches mode aliases directly:
 ```bash
 lai diagnose "explain this failure before fixing"
 lai ci-fix "repair the failing CI gate"
-lai release "check whether beta.1 is ready"
+lai release "check whether beta.2 is ready"
 ```
 
 These aliases are equivalent to calling `local-agent --diagnose`, `local-agent --ci-fix`, or `local-agent --release` directly.
@@ -45,7 +45,7 @@ For beta gates and scripted checks, prefer the model-free command:
 ```bash
 lai release-check
 lai release-check --json
-lai release-check --target 0.4.0-beta.1 --json
+lai release-check --target 0.4.0-beta.2 --json
 ```
 
 It reports the expected tag, current branch, HEAD, exact tag on HEAD, latest reachable tag, readiness status, preferred validation commands, and a release-safety check. It does not run validations; use `make validate` separately when validation evidence is needed.

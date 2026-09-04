@@ -1,10 +1,10 @@
 # lai beta readiness
 
-This document records the release posture for `0.4.0-beta.1`. It is a stabilization cut, not a feature expansion.
+This document records the release posture for `0.4.0-beta.2`. It is a stabilization cut, not a feature expansion.
 
 ## Scope
 
-`0.4.0-beta.1` promotes the alpha line after the following capabilities became deterministic and test-covered:
+`0.4.0-beta.2` promotes the alpha line after the following capabilities became deterministic and test-covered:
 
 - `lai readiness` for environment and repository health.
 - `lai release-check` for model-free release posture checks.
@@ -14,11 +14,11 @@ This document records the release posture for `0.4.0-beta.1`. It is a stabilizat
 
 ## Required local gate
 
-Run these before tagging beta.1:
+Run these before tagging beta.2:
 
 ```bash
 lai readiness
-lai release-check --target 0.4.0-beta.1 --json
+lai release-check --target 0.4.0-beta.2 --json
 make check
 make test-dev
 make test
@@ -32,14 +32,14 @@ Expected release-check posture before tagging:
 
 - `overall`: `ready`
 - `phase`: `ready_to_tag`
-- `expected_tag`: `v0.4.0-beta.1`
+- `expected_tag`: `v0.4.0-beta.2`
 - `release_safety`: `true`
 
 Expected posture after tagging and fast-forwarding main:
 
 - `overall`: `ready`
 - `phase`: `released`
-- `exact_tag`: `v0.4.0-beta.1`
+- `exact_tag`: `v0.4.0-beta.2`
 
 ## Non-goals
 
@@ -54,4 +54,4 @@ The beta cut does not add autonomous Git release execution, package publication,
 
 ## Exit criteria
 
-Beta.1 is acceptable when local validation, install smoke, `lai readiness`, `lai release-check`, and GitHub CI all pass for both `main` and the `v0.4.0-beta.1` tag.
+Beta.2 is acceptable when local validation, install smoke, `lai readiness`, `lai release-check`, and GitHub CI all pass for both `main` and the `v0.4.0-beta.2` tag.
