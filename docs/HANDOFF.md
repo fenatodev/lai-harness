@@ -1,4 +1,4 @@
-# LAI ↔ Codex handoff
+# lai ↔ codex handoff
 
 LAI maintains a compact handoff so a local bounded task can continue in a higher-context agent, or return later to LAI without reconstructing everything from chat history.
 

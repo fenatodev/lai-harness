@@ -88,6 +88,17 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertIn("# lai code semantics", semantics.stdout)
             self.assertIn("policy-gateway", semantics.stdout)
 
+            runs = subprocess.run(
+                [str(bin_dir / "lai"), "runs"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("# lai run history", runs.stdout)
+            self.assertIn("Recorded runs: 0", runs.stdout)
+
             with FakeLlamaServer() as server:
                 runtime_env = {
                     **install_env,

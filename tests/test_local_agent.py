@@ -2,6 +2,7 @@ import importlib.util
 from importlib.machinery import SourceFileLoader
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -431,6 +432,144 @@ class LocalAgentTest(unittest.TestCase):
         self.assertEqual(json.loads(agent.METRICS_FILE.read_text())["type"], "smoke")
         self.assertEqual(json.loads(agent.AUDIT_FILE.read_text())["type"], "smoke")
 
+
+    def test_run_history_lists_shows_and_tails_recorded_runs(self):
+        data_dir = self.base / "data"
+        metrics_dir = data_dir / "metrics"
+        audit_dir = data_dir / "audit"
+        metrics_dir.mkdir(parents=True)
+        audit_dir.mkdir(parents=True)
+        repo = str(self.root.resolve())
+
+        metric_events = [
+            {
+                "ts": "2026-09-04T08:00:00Z",
+                "run_id": "run-1",
+                "repo": repo,
+                "mode": "implement",
+                "type": "run_start",
+                "task_chars": 12,
+            },
+            {
+                "ts": "2026-09-04T08:00:01Z",
+                "run_id": "run-1",
+                "repo": repo,
+                "mode": "implement",
+                "type": "api",
+                "prompt_tokens": 100,
+                "completion_tokens": 20,
+                "duration_ms": 2500,
+            },
+            {
+                "ts": "2026-09-04T08:00:02Z",
+                "run_id": "run-1",
+                "repo": repo,
+                "mode": "implement",
+                "type": "tool",
+                "name": "bash",
+                "duration_ms": 300,
+            },
+        ]
+        audit_events = [
+            {
+                "ts": "2026-09-04T08:00:03Z",
+                "run_id": "run-1",
+                "repo": repo,
+                "mode": "implement",
+                "type": "policy_decision",
+                "tool": "bash",
+                "decision": "ASK",
+                "reason": "git commit requires human action",
+            },
+            {
+                "ts": "2026-09-04T08:00:04Z",
+                "run_id": "run-1",
+                "repo": repo,
+                "mode": "implement",
+                "type": "validation",
+                "command": "make check",
+                "result": "OK",
+            },
+            {
+                "ts": "2026-09-04T08:00:05Z",
+                "run_id": "run-1",
+                "repo": repo,
+                "mode": "implement",
+                "type": "checkpoint",
+                "phase": "completed",
+                "terminal": True,
+            },
+        ]
+        (metrics_dir / "events.jsonl").write_text(
+            "\n".join(json.dumps(item) for item in metric_events) + "\n"
+        )
+        (audit_dir / "events.jsonl").write_text(
+            "\n".join(json.dumps(item) for item in audit_events) + "\n"
+        )
+        env = {**os.environ, "LAI_DATA_DIR": str(data_dir)}
+
+        listed = subprocess.run(
+            [str(SOURCE), "--runs"],
+            cwd=self.root,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        self.assertIn("# lai run history", listed.stdout)
+        self.assertIn("run-1", listed.stdout)
+        self.assertIn("mode=implement", listed.stdout)
+        self.assertIn("tools=1", listed.stdout)
+        self.assertIn("policy=[ASK:1]", listed.stdout)
+
+        shown = subprocess.run(
+            [str(SOURCE), "--run", "show", "run-1"],
+            cwd=self.root,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        self.assertIn("# lai run show", shown.stdout)
+        self.assertIn("Run ID: run-1", shown.stdout)
+        self.assertIn("api_calls: 1", shown.stdout)
+        self.assertIn("- bash: 1", shown.stdout)
+        self.assertIn("- ASK: 1", shown.stdout)
+
+        tailed = subprocess.run(
+            [str(SOURCE), "--run", "tail", "run-1", "--limit", "2"],
+            cwd=self.root,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        self.assertIn("# lai run tail", tailed.stdout)
+        self.assertIn("audit:validation", tailed.stdout)
+        self.assertIn("audit:checkpoint", tailed.stdout)
+
+        raw = subprocess.run(
+            [str(SOURCE), "--runs", "--json"],
+            cwd=self.root,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        payload = json.loads(raw.stdout)
+        self.assertEqual(payload["version"], "0.4.0-alpha.17")
+        self.assertEqual(payload["runs"][0]["run_id"], "run-1")
+
+        missing = subprocess.run(
+            [str(SOURCE), "--run", "show", "missing-run"],
+            cwd=self.root,
+            env=env,
+            text=True,
+            capture_output=True,
+        )
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("Run not found", missing.stderr)
+
     def test_tool_signature_is_canonical_and_includes_tool_name(self):
         first = agent.canonical_tool_signature(
             "read", {"path": "sample.py", "max_lines": 20}
@@ -723,7 +862,7 @@ class LocalAgentTest(unittest.TestCase):
             [str(SOURCE), "--recovery"], cwd=self.root, env=env,
             text=True, capture_output=True, check=True,
         )
-        self.assertIn("# LAI Recovery", result.stdout)
+        self.assertIn("# lai recovery", result.stdout)
         self.assertIn("Status: interrupted", result.stdout)
 
     def test_workspace_state_prunes_unverified_paths_on_save(self):
@@ -1225,7 +1364,7 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "lai harness 0.4.0-alpha.16")
+        self.assertEqual(result.stdout.strip(), "lai harness 0.4.0-alpha.17")
 
     def test_deterministic_model_eval_plan_needs_no_server(self):
         result = subprocess.run(
@@ -1276,7 +1415,7 @@ class LocalAgentTest(unittest.TestCase):
         )
         payload = json.loads(result.stdout)
         self.assertEqual(payload["product"], "lai harness")
-        self.assertEqual(payload["version"], "0.4.0-alpha.16")
+        self.assertEqual(payload["version"], "0.4.0-alpha.17")
         scenario_ids = {item["id"] for item in payload["scenarios"]}
         self.assertIn("context-ranking", scenario_ids)
 

@@ -17,7 +17,8 @@ Ele complementa agentes cloud de alto contexto: o lai harness atende ciclos loca
 - cliente Python sem dependências externas;
 - identidade pública padronizada como lai harness, mantendo o comando `lai`;
 - avaliação determinística de modelos locais com `lai model` antes de trocar o default;
-- mapa semântico determinístico com `lai semantics` para orientar modelos pequenos pelos subsistemas.
+- mapa semântico determinístico com `lai semantics` para orientar modelos pequenos pelos subsistemas;
+- histórico determinístico de execuções com `lai runs` e `lai run show`.
 
 ## Início rápido
 
@@ -25,7 +26,7 @@ Você precisa de Python 3.11+, Git, ripgrep, VS Code compatível e um servidor `
 
 ```bash
 git clone https://github.com/fenatodev/lai-harness.git
-cd lai-local-agent
+cd lai-harness
 ./scripts/install-local.sh
 mkdir -p ~/.config/lai
 umask 077
@@ -49,6 +50,7 @@ lai model plan
 lai model sample > model-eval/results.jsonl
 lai model score model-eval/results.jsonl
 lai semantics
+lai runs
 ```
 
 ## Segurança

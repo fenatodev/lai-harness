@@ -44,3 +44,7 @@ Audit hashes demonstrate which bytes were observed at stages of a run. They do n
 ## Privacy and retention
 
 Runtime records can expose repository names, absolute paths, task descriptions, filenames, snippets of results, commands, validation output, and recovery metadata. Keep the data directory private, outside the repository, exclude it from version control, and delete or rotate records according to project policy. Avoid entering secrets in prompts. `/clearcontext` clears workspace context, not metrics, audit history, or recovery checkpoints.
+
+## Run history
+
+`lai runs`, `lai run show <run-id>`, and `lai run tail <run-id>` are deterministic and do not call the model. They read repository-scoped events from the existing metrics and audit JSONL files, optionally enriched by the current checkpoint. Historical events are advisory operational records; inspect current files before using a past run as evidence.

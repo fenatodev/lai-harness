@@ -12,7 +12,7 @@ import urllib.request
 import unicodedata
 from pathlib import Path
 
-VERSION = "0.4.0-alpha.16"
+VERSION = "0.4.0-alpha.17"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -76,6 +76,13 @@ SEMANTIC_CODE_CONTRACT = {
             "paths": ["src/local-agent", "docs/OBSERVABILITY.md", "docs/RECOVERY.md"],
             "entrypoints": ["record_metric_event", "record_audit_event", "save_run_checkpoint", "render_recovery_context"],
             "terms": ["metrics", "audit", "checkpoint", "recovery", "resume", "handoff", "workspace", "status"],
+        },
+        {
+            "id": "run-history",
+            "intent": "list and inspect recorded local runs without replaying actions or calling the model",
+            "paths": ["src/local-agent", "docs/RUN-HISTORY.md", "docs/OBSERVABILITY.md"],
+            "entrypoints": ["collect_run_history", "render_run_history_list", "render_run_history_show", "render_run_history_tail"],
+            "terms": ["run", "runs", "history", "session", "browser", "show", "tail", "audit", "metrics", "timeline"],
         },
         {
             "id": "extension-shell",
@@ -2826,7 +2833,7 @@ def record_metric_event(event):
 
 def print_lai_metrics():
     if not METRICS_FILE.is_file():
-        print("# LAI Metrics")
+        print("# lai metrics")
         print()
         print("No metrics recorded yet.")
         return
@@ -2915,7 +2922,7 @@ def print_lai_metrics():
 
     recent = ordered[-10:]
 
-    print("# LAI Metrics")
+    print("# lai metrics")
     print()
     print(f"Metrics file: {METRICS_FILE}")
     print(f"Recorded runs: {len(ordered)}")
@@ -3112,7 +3119,7 @@ def record_audit_event(event):
 
 
 def print_lai_audit():
-    print("# LAI Audit Trail")
+    print("# lai audit trail")
     print()
 
     if not AUDIT_FILE.is_file():
@@ -3371,6 +3378,474 @@ def print_lai_audit():
         f"Audit file: {AUDIT_FILE}"
     )
 
+
+
+def load_jsonl_tail(path, max_lines=5000):
+    if not path.is_file():
+        return []
+
+    try:
+        lines = path.read_text(errors="replace").splitlines()[-max_lines:]
+    except Exception:
+        return []
+
+    events = []
+
+    for line in lines:
+        try:
+            payload = json.loads(line)
+        except Exception:
+            continue
+
+        if isinstance(payload, dict):
+            events.append(payload)
+
+    return events
+
+
+def empty_run_history_record(run_id):
+    return {
+        "run_id": run_id,
+        "first_ts": None,
+        "last_ts": None,
+        "repo": str(ROOT),
+        "mode": "unknown",
+        "status": "observed",
+        "api_calls": 0,
+        "tool_calls": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "api_ms": 0.0,
+        "tool_ms": 0.0,
+        "tools": {},
+        "policy": {},
+        "validation_count": 0,
+        "modified_paths": [],
+        "phases": [],
+        "limits": [],
+        "events": [],
+        "checkpoint": None,
+    }
+
+
+def update_run_history_time(run, ts):
+    if not ts:
+        return
+
+    value = str(ts)
+
+    if not run.get("first_ts") or value < run["first_ts"]:
+        run["first_ts"] = value
+
+    if not run.get("last_ts") or value > run["last_ts"]:
+        run["last_ts"] = value
+
+
+def append_unique_run_history_path(run, path):
+    value = str(path or "").strip()
+
+    if value and value not in run["modified_paths"]:
+        run["modified_paths"].append(value)
+
+
+def collect_run_history(max_lines=5000):
+    runs = {}
+
+    def ensure_run(run_id):
+        return runs.setdefault(
+            run_id,
+            empty_run_history_record(run_id),
+        )
+
+    for source, path in (
+        ("metrics", METRICS_FILE),
+        ("audit", AUDIT_FILE),
+    ):
+        for event in load_jsonl_tail(path, max_lines=max_lines):
+            run_id = str(event.get("run_id") or "").strip()
+
+            if not run_id:
+                continue
+
+            if event.get("repo") != str(ROOT):
+                continue
+
+            event_copy = dict(event)
+            event_copy["source"] = source
+
+            run = ensure_run(run_id)
+            run["events"].append(event_copy)
+            update_run_history_time(run, event.get("ts"))
+
+            if event.get("mode"):
+                run["mode"] = str(event.get("mode"))[:80]
+
+            kind = event.get("type")
+
+            if source == "metrics" and kind == "run_start":
+                if run["status"] == "observed":
+                    run["status"] = "started"
+                run["task_chars"] = int(event.get("task_chars") or 0)
+
+            elif source == "metrics" and kind == "api":
+                run["api_calls"] += 1
+                run["prompt_tokens"] += int(event.get("prompt_tokens") or 0)
+                run["completion_tokens"] += int(event.get("completion_tokens") or 0)
+                run["api_ms"] += float(event.get("duration_ms") or 0)
+
+            elif source == "metrics" and kind == "tool":
+                name = str(event.get("name") or "unknown")[:80]
+                run["tool_calls"] += 1
+                run["tool_ms"] += float(event.get("duration_ms") or 0)
+                run["tools"][name] = run["tools"].get(name, 0) + 1
+
+            elif kind == "agent_limit":
+                run["limits"].append(event_copy)
+                if run["status"] not in {"completed", "failed"}:
+                    run["status"] = "limited"
+
+            elif source == "audit" and kind == "policy_decision":
+                decision = str(event.get("decision") or "unknown")[:40]
+                run["policy"][decision] = run["policy"].get(decision, 0) + 1
+
+            elif source == "audit" and kind == "checkpoint":
+                phase = str(event.get("phase") or "unknown")[:80]
+                run["phases"].append(phase)
+                if event.get("terminal"):
+                    run["status"] = phase
+                elif run["status"] in {"observed", "started"}:
+                    run["status"] = phase
+
+            elif source == "audit" and kind == "run_outcome":
+                run["status"] = str(event.get("outcome") or "outcome")[:80]
+
+            elif source == "audit" and kind == "patch":
+                for path in event.get("paths") or []:
+                    append_unique_run_history_path(run, path)
+
+            elif source == "audit" and kind == "validation":
+                run["validation_count"] += 1
+
+            elif source == "audit" and kind == "final":
+                if run["status"] not in {"completed", "failed"}:
+                    run["status"] = "final"
+                for path in event.get("modified_paths") or []:
+                    append_unique_run_history_path(run, path)
+
+    try:
+        checkpoint = load_run_checkpoint()
+    except Exception:
+        checkpoint = None
+
+    if isinstance(checkpoint, dict) and checkpoint.get("root") == str(ROOT):
+        run_id = str(checkpoint.get("run_id") or "").strip()
+        if run_id:
+            run = ensure_run(run_id)
+            run["checkpoint"] = checkpoint
+            if checkpoint.get("mode"):
+                run["mode"] = str(checkpoint.get("mode"))[:80]
+            update_run_history_time(run, checkpoint.get("updated_at"))
+            phase = str(checkpoint.get("phase") or "checkpoint")[:80]
+            if phase not in run["phases"]:
+                run["phases"].append(phase)
+            if checkpoint.get("terminal"):
+                run["status"] = phase
+            elif run["status"] in {"observed", "started"}:
+                run["status"] = phase
+
+    return sorted(
+        runs.values(),
+        key=lambda item: (
+            item.get("last_ts") or "",
+            item.get("run_id") or "",
+        ),
+    )
+
+
+def run_history_public_record(run):
+    return {
+        "run_id": run["run_id"],
+        "first_ts": run.get("first_ts"),
+        "last_ts": run.get("last_ts"),
+        "mode": run.get("mode"),
+        "status": run.get("status"),
+        "api_calls": run.get("api_calls", 0),
+        "tool_calls": run.get("tool_calls", 0),
+        "prompt_tokens": run.get("prompt_tokens", 0),
+        "completion_tokens": run.get("completion_tokens", 0),
+        "validation_count": run.get("validation_count", 0),
+        "modified_paths": run.get("modified_paths", []),
+        "policy": run.get("policy", {}),
+        "tools": run.get("tools", {}),
+        "phases": run.get("phases", []),
+    }
+
+
+def render_run_history_list(limit=10, json_mode=False):
+    runs = collect_run_history()
+    recent = runs[-limit:] if limit else runs
+
+    if json_mode:
+        return json.dumps(
+            {
+                "product": PRODUCT_NAME,
+                "version": VERSION,
+                "repository": str(ROOT),
+                "runs": [run_history_public_record(run) for run in recent],
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+
+    lines = [
+        "# lai run history",
+        "",
+        f"Repository: {ROOT}",
+        f"Metrics file: {METRICS_FILE}",
+        f"Audit file: {AUDIT_FILE}",
+        f"Recorded runs: {len(runs)}",
+        "",
+        "## Recent runs",
+    ]
+
+    if not recent:
+        lines.append("- [none]")
+        return "\n".join(lines)
+
+    for run in recent:
+        tools = ",".join(
+            f"{name}:{count}"
+            for name, count in sorted(run["tools"].items())
+        ) or "-"
+        policy = ",".join(
+            f"{name}:{count}"
+            for name, count in sorted(run["policy"].items())
+        ) or "-"
+        lines.append(
+            f"- {run['run_id']} | "
+            f"last={run.get('last_ts') or '[unknown]'} | "
+            f"mode={run.get('mode') or 'unknown'} | "
+            f"status={run.get('status') or 'unknown'} | "
+            f"api={run.get('api_calls', 0)} | "
+            f"tools={run.get('tool_calls', 0)} [{tools}] | "
+            f"validation={run.get('validation_count', 0)} | "
+            f"policy=[{policy}]"
+        )
+
+    lines.extend([
+        "",
+        "Use `lai run show <run-id>` for a summary or `lai run tail <run-id>` for the event timeline.",
+    ])
+    return "\n".join(lines)
+
+
+def find_run_history_record(run_id):
+    wanted = str(run_id or "").strip()
+    for run in collect_run_history():
+        if run.get("run_id") == wanted:
+            return run
+    return None
+
+
+def render_run_history_show(run_id, json_mode=False):
+    run = find_run_history_record(run_id)
+
+    if run is None:
+        raise SystemExit(f"Run not found for this repository: {run_id}")
+
+    if json_mode:
+        return json.dumps(
+            {
+                "product": PRODUCT_NAME,
+                "version": VERSION,
+                "repository": str(ROOT),
+                "run": run_history_public_record(run),
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+
+    compute_s = (float(run.get("api_ms") or 0) + float(run.get("tool_ms") or 0)) / 1000.0
+    lines = [
+        "# lai run show",
+        "",
+        f"Repository: {ROOT}",
+        f"Run ID: {run['run_id']}",
+        f"First event: {run.get('first_ts') or '[unknown]'}",
+        f"Last event: {run.get('last_ts') or '[unknown]'}",
+        f"Mode: {run.get('mode') or 'unknown'}",
+        f"Status: {run.get('status') or 'unknown'}",
+        "",
+        "## Counters",
+        f"api_calls: {run.get('api_calls', 0)}",
+        f"tool_calls: {run.get('tool_calls', 0)}",
+        f"prompt_tokens: {run.get('prompt_tokens', 0)}",
+        f"completion_tokens: {run.get('completion_tokens', 0)}",
+        f"compute_seconds: {compute_s:.2f}",
+        f"validation_events: {run.get('validation_count', 0)}",
+        "",
+        "## Tools",
+    ]
+
+    if run["tools"]:
+        for name, count in sorted(run["tools"].items()):
+            lines.append(f"- {name}: {count}")
+    else:
+        lines.append("- [none]")
+
+    lines.append("")
+    lines.append("## Policy decisions")
+    if run["policy"]:
+        for decision, count in sorted(run["policy"].items()):
+            lines.append(f"- {decision}: {count}")
+    else:
+        lines.append("- [none]")
+
+    lines.append("")
+    lines.append("## Phases")
+    if run["phases"]:
+        for phase in run["phases"][-12:]:
+            lines.append(f"- {phase}")
+    else:
+        lines.append("- [none]")
+
+    lines.append("")
+    lines.append("## Modified paths")
+    if run["modified_paths"]:
+        for path in run["modified_paths"][-20:]:
+            lines.append(f"- {path}")
+    else:
+        lines.append("- [none]")
+
+    if run.get("limits"):
+        lines.append("")
+        lines.append("## Limits")
+        for event in run["limits"][-10:]:
+            lines.append("- " + str(event.get("reason") or "unknown"))
+
+    lines.extend([
+        "",
+        f"Metrics file: {METRICS_FILE}",
+        f"Audit file: {AUDIT_FILE}",
+    ])
+    return "\n".join(lines)
+
+
+def render_run_history_event(event):
+    source = str(event.get("source") or "event")
+    kind = str(event.get("type") or "unknown")
+    parts = [
+        f"- {event.get('ts') or '[unknown]'} {source}:{kind}"
+    ]
+
+    if event.get("mode"):
+        parts.append("mode=" + str(event.get("mode"))[:80])
+    if event.get("name"):
+        parts.append("tool=" + str(event.get("name"))[:80])
+    if event.get("tool"):
+        parts.append("tool=" + str(event.get("tool"))[:80])
+    if event.get("decision"):
+        parts.append("decision=" + str(event.get("decision"))[:40])
+    if event.get("phase"):
+        parts.append("phase=" + str(event.get("phase"))[:80])
+    if event.get("outcome"):
+        parts.append("outcome=" + str(event.get("outcome"))[:80])
+    if event.get("reason"):
+        parts.append("reason=" + str(event.get("reason"))[:140])
+
+    return " | ".join(parts)
+
+
+def render_run_history_tail(run_id, limit=20, json_mode=False):
+    run = find_run_history_record(run_id)
+
+    if run is None:
+        raise SystemExit(f"Run not found for this repository: {run_id}")
+
+    events = sorted(
+        run.get("events") or [],
+        key=lambda event: (
+            str(event.get("ts") or ""),
+            str(event.get("source") or ""),
+            str(event.get("type") or ""),
+        ),
+    )[-limit:]
+
+    if json_mode:
+        return json.dumps(
+            {
+                "product": PRODUCT_NAME,
+                "version": VERSION,
+                "repository": str(ROOT),
+                "run_id": run_id,
+                "events": events,
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+
+    lines = [
+        "# lai run tail",
+        "",
+        f"Repository: {ROOT}",
+        f"Run ID: {run_id}",
+        f"Events shown: {len(events)}",
+        "",
+        "## Events",
+    ]
+
+    if not events:
+        lines.append("- [none]")
+    else:
+        for event in events:
+            lines.append(render_run_history_event(event))
+
+    return "\n".join(lines)
+
+
+def parse_run_history_limit(args, default=20):
+    if "--limit" not in args:
+        return default
+    index = args.index("--limit")
+    try:
+        value = int(args[index + 1])
+    except Exception:
+        raise SystemExit("Invalid --limit value")
+    if value < 1 or value > 200:
+        raise SystemExit("--limit must be between 1 and 200")
+    del args[index:index + 2]
+    return value
+
+
+def handle_run_history(args):
+    raw = list(args)
+    json_mode = "--json" in raw
+    raw = [item for item in raw if item != "--json"]
+
+    command = raw[0] if raw else "list"
+
+    if command == "list":
+        limit = parse_run_history_limit(raw, default=10)
+        print(render_run_history_list(limit=limit, json_mode=json_mode))
+        return
+
+    if command == "show":
+        if len(raw) < 2:
+            raise SystemExit("Usage: lai run show <run-id>")
+        print(render_run_history_show(raw[1], json_mode=json_mode))
+        return
+
+    if command == "tail":
+        if len(raw) < 2:
+            raise SystemExit("Usage: lai run tail <run-id> [--limit N]")
+        limit = parse_run_history_limit(raw, default=20)
+        print(render_run_history_tail(raw[1], limit=limit, json_mode=json_mode))
+        return
+
+    raise SystemExit("Usage: lai runs [--limit N] | lai run show <run-id> | lai run tail <run-id> [--limit N]")
 
 def run_tool(name, args):
     print(
@@ -4309,7 +4784,7 @@ def inspect_recovery_checkpoint():
 def print_recovery_status():
     state = inspect_recovery_checkpoint()
     checkpoint = state.get("checkpoint") or {}
-    print("# LAI Recovery")
+    print("# lai recovery")
     print(f"Status: {state['status']}")
     if checkpoint:
         print("Run ID: " + str(checkpoint.get("run_id") or "[unknown]"))
@@ -4633,7 +5108,7 @@ def render_workspace_handoff(state, compact=False):
         return "\n".join(sections)[:1600]
 
     lines = [
-        "# LAI Workspace Handoff",
+        "# lai workspace handoff",
         "",
         f"Repository: {state.get('root', ROOT)}",
         f"Branch: {state.get('git_branch') or '[unknown]'}",
@@ -4978,6 +5453,14 @@ def main():
 
     if args and args[0] == "--audit":
         print_lai_audit()
+        return
+
+    if args and args[0] == "--runs":
+        handle_run_history(["list", *args[1:]])
+        return
+
+    if args and args[0] == "--run":
+        handle_run_history(args[1:])
         return
 
     if args and args[0] == "--spec-status":

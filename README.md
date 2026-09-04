@@ -54,6 +54,7 @@ See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow, [Branding](
 - validated configuration diagnostics with secret-safe `lai config`;
 - deterministic `lai model` benchmark planning, JSONL samples, and local scoring;
 - deterministic `lai semantics` subsystem map for model-friendly code navigation;
+- deterministic `lai runs` / `lai run show` browser for local run history;
 - no Python package dependencies in the current harness.
 
 ## Quick start
@@ -62,7 +63,7 @@ Requirements: Python 3.11+, Git, ripgrep, VS Code with Chat Participant API supp
 
 ```bash
 git clone https://github.com/fenatodev/lai-harness.git
-cd lai-local-agent
+cd lai-harness
 ./scripts/install-local.sh
 mkdir -p ~/.config/lai
 umask 077
@@ -81,6 +82,7 @@ lai spec
 lai config
 lai context "repair parser timeout"
 lai semantics
+lai runs
 lai recovery
 # if recovery reports a compatible interrupted run:
 lai resume
