@@ -48,7 +48,7 @@ See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow.
 
 ## Quick start
 
-Requirements: Python 3.10+, Git, ripgrep, VS Code with Chat Participant API support, and an authenticated OpenAI-compatible `llama.cpp` server.
+Requirements: Python 3.11+, Git, ripgrep, VS Code with Chat Participant API support, and an authenticated OpenAI-compatible `llama.cpp` server.
 
 ```bash
 git clone https://github.com/fenatodev/lai-local-agent.git

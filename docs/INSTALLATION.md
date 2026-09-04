@@ -3,7 +3,7 @@
 ## Requirements
 
 - Linux or WSL2;
-- Python 3.10 or newer;
+- Python 3.11 or newer;
 - Git and ripgrep (`rg`);
 - VS Code with Chat Participant API support;
 - a running OpenAI-compatible local chat-completions endpoint;

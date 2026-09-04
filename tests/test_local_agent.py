@@ -741,7 +741,7 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "lai-local-agent 0.4.0-alpha.6")
+        self.assertEqual(result.stdout.strip(), "lai-local-agent 0.4.0-alpha.6.1")
 
     def test_deterministic_show_config_obeys_cli_without_server(self):
         result = subprocess.run(
