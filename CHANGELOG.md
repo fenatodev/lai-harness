@@ -1,3 +1,21 @@
+## [0.4.0-beta.12] - 2026-09-04
+
+### Added
+- Added asynchronous authenticated control runs through `POST /v1/runs` for the shell-free `plan`, `review`, and `security` modes.
+- Added `GET /v1/runs/<control_run_id>` lifecycle/result inspection and scoped `DELETE` cancellation for queued/running control runs.
+- Added a single-worker bounded queue, fixed subprocess argv/cwd, bounded output capture, terminal-record retention, and shutdown cleanup.
+- Added a real subprocess smoke against `FakeLlamaServer` proving remote model execution without repository mutation.
+
+### Safety
+- Remote run requests cannot choose an executable, shell command, argv prefix, cwd, or environment key; child launch uses `shell=False` and the current `local-agent` only.
+- `diagnose` and `release` remain excluded from HTTP because their current `bash` surface can still allow shell redirection; they require a stronger structured read-only shell boundary first.
+- Write-capable modes remain rejected before scheduling, and the control API still exposes no generic shell, Git mutation, file-write, package-install, or OS-administration endpoint.
+- Submitted tasks are not persisted as a new control-plane transcript store; public records expose task length and bounded terminal output only.
+
+### Architecture
+- Model work is serialized intentionally because the local model is a single scarce resource.
+- Beta.12 makes the control plane useful to a future Telegram/PWA gateway while keeping approval/write workflows deferred to a separate trust-boundary cut.
+
 ## [0.4.0-beta.11] - 2026-09-04
 
 ### Added

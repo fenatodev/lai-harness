@@ -1,14 +1,20 @@
 import importlib.util
+import os
+import socket
 from importlib.machinery import SourceFileLoader
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
 from unittest import mock
+
+from fake_llama_server import FakeLlamaServer
 
 
 SOURCE = Path(__file__).parents[1] / "src" / "local-agent"
@@ -128,10 +134,12 @@ class ControlPlaneTest(unittest.TestCase):
             "version": agent.VERSION,
             "repository": str(self.root),
             "capabilities": {
-                "model_execution": False,
+                "model_execution": True,
                 "shell_execution": False,
                 "repository_write": False,
                 "policy_classification": True,
+                "async_read_only_runs": True,
+                "allowed_run_modes": ["plan", "review", "security"],
             },
         }
         fake_readiness = {"overall": "ready", "checks": []}
@@ -142,8 +150,9 @@ class ControlPlaneTest(unittest.TestCase):
                 mock.patch.object(agent, "run_history_public_record", side_effect=lambda run: run):
             status_code, payload = self.request("/v1/status", token=self.token)
             self.assertEqual(status_code, 200)
-            self.assertFalse(payload["capabilities"]["model_execution"])
+            self.assertTrue(payload["capabilities"]["model_execution"])
             self.assertFalse(payload["capabilities"]["shell_execution"])
+            self.assertTrue(payload["capabilities"]["async_read_only_runs"])
 
             status_code, payload = self.request("/v1/readiness", token=self.token)
             self.assertEqual(status_code, 200)
@@ -197,8 +206,8 @@ class ControlPlaneTest(unittest.TestCase):
             token=self.token,
             body={},
         )
-        self.assertEqual(status, 405)
-        self.assertEqual(payload["error"]["code"], "method_not_allowed")
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"]["code"], "invalid_run_request")
 
         status, payload = self.request(
             "/v1/status",
@@ -212,6 +221,422 @@ class ControlPlaneTest(unittest.TestCase):
         status, payload = self.request("/v1/does-not-exist", token=self.token)
         self.assertEqual(status, 404)
         self.assertEqual(payload["error"]["code"], "not_found")
+
+    def wait_run(self, control_run_id, statuses, timeout=3):
+        wanted = {statuses} if isinstance(statuses, str) else set(statuses)
+        deadline = time.monotonic() + timeout
+        last = None
+        while time.monotonic() < deadline:
+            status, payload = self.request(
+                f"/v1/runs/{control_run_id}", token=self.token
+            )
+            self.assertEqual(status, 200)
+            last = payload["run"]
+            if last["status"] in wanted:
+                return last
+            time.sleep(0.02)
+        self.fail(f"control run did not reach {sorted(wanted)}; last={last}")
+
+    def test_async_run_rejects_non_shell_free_modes_and_invalid_requests(self):
+        for mode in (
+            "general", "implement", "fix", "ci-fix", "refactor",
+            "debug", "diagnose", "release", "test",
+        ):
+            status, payload = self.request(
+                "/v1/runs",
+                method="POST",
+                token=self.token,
+                body={"mode": mode, "task": "inspect safely"},
+            )
+            self.assertEqual(status, 400, mode)
+            self.assertEqual(payload["error"]["code"], "invalid_run_request")
+
+        for body in (
+            {"mode": "plan", "task": ""},
+            {"mode": "plan", "task": "x" * (agent.CONTROL_RUN_TASK_MAX_CHARS + 1)},
+            {"mode": "plan", "task": "ok", "command": "rm -rf /"},
+            {"mode": "plan", "task": "bad\x00task"},
+        ):
+            status, payload = self.request(
+                "/v1/runs", method="POST", token=self.token, body=body
+            )
+            self.assertEqual(status, 400)
+            self.assertEqual(payload["error"]["code"], "invalid_run_request")
+
+    def test_async_run_uses_fixed_subprocess_and_reports_bounded_result(self):
+        calls = []
+
+        class FakeProcess:
+            def __init__(self, argv, **kwargs):
+                calls.append((list(argv), dict(kwargs)))
+                self.returncode = None
+                self.done = threading.Event()
+                kwargs["stdout"].write(b"mobile plan result\n")
+                kwargs["stderr"].write(b"")
+                threading.Timer(0.05, self.finish).start()
+
+            def finish(self):
+                self.returncode = 0
+                self.done.set()
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                self.done.wait(timeout)
+                return self.returncode
+
+            def terminate(self):
+                self.returncode = -15
+                self.done.set()
+
+            def kill(self):
+                self.returncode = -9
+                self.done.set()
+
+        task = "prepare a read-only implementation plan"
+        with mock.patch.object(agent.subprocess, "Popen", FakeProcess):
+            status, payload = self.request(
+                "/v1/runs",
+                method="POST",
+                token=self.token,
+                body={"mode": "plan", "task": task},
+            )
+            self.assertEqual(status, 202)
+            control_run_id = payload["run"]["control_run_id"]
+            self.assertNotIn(task, json.dumps(payload))
+            final = self.wait_run(control_run_id, "succeeded")
+
+        self.assertEqual(final["exit_code"], 0)
+        self.assertIn("mobile plan result", final["stdout"])
+        self.assertFalse(final["stdout_truncated"])
+        self.assertEqual(len(calls), 1)
+        argv, kwargs = calls[0]
+        self.assertEqual(
+            argv,
+            [sys.executable, str(SOURCE.resolve()), "--plan", task],
+        )
+        self.assertEqual(kwargs["cwd"], str(self.root.resolve()))
+        self.assertIs(kwargs["stdin"], subprocess.DEVNULL)
+        self.assertFalse(kwargs["shell"])
+        self.assertTrue(kwargs["start_new_session"])
+        self.assertIsInstance(kwargs["env"], dict)
+        self.assertEqual(kwargs["env"][agent.CONTROL_RUN_CHILD_ENV], "1")
+
+    def test_async_run_real_subprocess_completes_against_fake_llama(self):
+        key_file = self.base / "llama-key"
+        key_file.write_text("synthetic-test-key", encoding="utf-8")
+        state_dir = self.base / "child-state"
+        metrics_dir = self.base / "child-metrics"
+        audit_dir = self.base / "child-audit"
+        before = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout
+
+        with FakeLlamaServer() as llama, mock.patch.dict(
+            os.environ,
+            {
+                "LAI_HOST": llama.host,
+                "LAI_PORT": str(llama.port),
+                "LAI_API_KEY_FILE": str(key_file),
+                "LAI_STATE_DIR": str(state_dir),
+                "LAI_METRICS_DIR": str(metrics_dir),
+                "LAI_AUDIT_DIR": str(audit_dir),
+            },
+            clear=False,
+        ):
+            status, payload = self.request(
+                "/v1/runs",
+                method="POST",
+                token=self.token,
+                body={"mode": "plan", "task": "return a concise read-only plan"},
+            )
+            self.assertEqual(status, 202)
+            final = self.wait_run(
+                payload["run"]["control_run_id"],
+                {"succeeded", "failed"},
+                timeout=8,
+            )
+
+        self.assertEqual(final["status"], "succeeded", final["stderr"])
+        self.assertEqual(final["exit_code"], 0)
+        self.assertIn("fake response", final["stdout"])
+        self.assertGreaterEqual(
+            sum(1 for method, path, _, _ in llama.requests if method == "POST" and path == "/v1/chat/completions"),
+            1,
+        )
+        after = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout
+        self.assertEqual(after, before)
+
+    def test_control_child_never_autostarts_model_service(self):
+        key_file = self.base / "offline-key"
+        key_file.write_text("synthetic-test-key", encoding="utf-8")
+        marker = self.base / "launcher-called"
+        launcher = self.base / "launcher.sh"
+        launcher.write_text(
+            "#!/usr/bin/env bash\nprintf called > \"$1\"\n",
+            encoding="utf-8",
+        )
+        launcher.chmod(0o755)
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            unused_port = probe.getsockname()[1]
+
+        env = {
+            **os.environ,
+            "LAI_HOST": "127.0.0.1",
+            "LAI_PORT": str(unused_port),
+            "LAI_API_KEY_FILE": str(key_file),
+            "LAI_DATA_DIR": str(self.base / "offline-data"),
+            "LAI_SERVER_LAUNCHER": str(launcher),
+            agent.CONTROL_RUN_CHILD_ENV: "1",
+        }
+        result = subprocess.run(
+            [str(SOURCE), "--plan", "inspect without starting services"],
+            cwd=self.root,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=5,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("control runs do not auto-start services", result.stderr)
+        self.assertFalse(marker.exists())
+
+    def test_control_run_queue_is_serial_and_bounded(self):
+        first_release = threading.Event()
+        calls = []
+
+        class FakeProcess:
+            def __init__(self, argv, **kwargs):
+                self.index = len(calls)
+                calls.append(self)
+                self.returncode = None
+                self.done = threading.Event()
+                kwargs["stdout"].write(f"run-{self.index}\n".encode())
+                if self.index == 0:
+                    threading.Thread(target=self._wait_first, daemon=True).start()
+                else:
+                    self.returncode = 0
+                    self.done.set()
+
+            def _wait_first(self):
+                first_release.wait(3)
+                if self.returncode is None:
+                    self.returncode = 0
+                    self.done.set()
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                self.done.wait(timeout)
+                return self.returncode
+
+            def terminate(self):
+                self.returncode = -15
+                self.done.set()
+
+            def kill(self):
+                self.returncode = -9
+                self.done.set()
+
+        accepted = []
+        with mock.patch.object(agent.subprocess, "Popen", FakeProcess):
+            status, payload = self.request(
+                "/v1/runs", method="POST", token=self.token,
+                body={"mode": "plan", "task": "first"},
+            )
+            self.assertEqual(status, 202)
+            accepted.append(payload["run"]["control_run_id"])
+            self.wait_run(accepted[0], "running")
+
+            for index in range(agent.CONTROL_RUN_QUEUE_LIMIT):
+                status, payload = self.request(
+                    "/v1/runs", method="POST", token=self.token,
+                    body={"mode": "review", "task": f"queued-{index}"},
+                )
+                self.assertEqual(status, 202)
+                accepted.append(payload["run"]["control_run_id"])
+            self.assertEqual(len(calls), 1)
+
+            status, payload = self.request(
+                "/v1/runs", method="POST", token=self.token,
+                body={"mode": "security", "task": "overflow"},
+            )
+            self.assertEqual(status, 429)
+            self.assertEqual(payload["error"]["code"], "queue_full")
+
+            first_release.set()
+            for run_id in accepted:
+                self.wait_run(run_id, "succeeded")
+
+        self.assertEqual(len(calls), 1 + agent.CONTROL_RUN_QUEUE_LIMIT)
+
+    def test_control_run_cancellation_is_scoped_to_run_lifecycle(self):
+        first_release = threading.Event()
+        calls = []
+
+        class BlockingProcess:
+            def __init__(self, argv, **kwargs):
+                calls.append(self)
+                self.returncode = None
+                self.done = threading.Event()
+                self.terminated = False
+                threading.Thread(target=self._hold, daemon=True).start()
+
+            def _hold(self):
+                first_release.wait(3)
+                if self.returncode is None:
+                    self.returncode = 0
+                    self.done.set()
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                self.done.wait(timeout)
+                return self.returncode
+
+            def terminate(self):
+                self.terminated = True
+                self.returncode = -15
+                self.done.set()
+
+            def kill(self):
+                self.returncode = -9
+                self.done.set()
+
+        with mock.patch.object(agent.subprocess, "Popen", BlockingProcess):
+            status, first = self.request(
+                "/v1/runs", method="POST", token=self.token,
+                body={"mode": "plan", "task": "running"},
+            )
+            first_id = first["run"]["control_run_id"]
+            self.wait_run(first_id, "running")
+            status, second = self.request(
+                "/v1/runs", method="POST", token=self.token,
+                body={"mode": "review", "task": "queued"},
+            )
+            second_id = second["run"]["control_run_id"]
+
+            status, payload = self.request(
+                f"/v1/runs/{second_id}", method="DELETE", token=self.token
+            )
+            self.assertEqual(status, 200)
+            self.assertEqual(payload["run"]["status"], "cancelled")
+            self.assertEqual(len(calls), 1)
+
+            status, payload = self.request(
+                f"/v1/runs/{first_id}", method="DELETE", token=self.token
+            )
+            self.assertEqual(status, 202)
+            final = self.wait_run(first_id, "cancelled")
+            self.assertTrue(final["cancel_requested"])
+            self.assertTrue(calls[0].terminated)
+
+            status, payload = self.request(
+                f"/v1/runs/{first_id}", method="DELETE", token=self.token
+            )
+            self.assertEqual(status, 409)
+            self.assertEqual(payload["error"]["code"], "run_not_cancellable")
+
+            status, payload = self.request(
+                "/v1/status", method="DELETE", token=self.token
+            )
+            self.assertEqual(status, 405)
+            first_release.set()
+
+    def test_control_run_output_and_record_retention_are_bounded(self):
+        class InstantProcess:
+            def __init__(self, argv, **kwargs):
+                self.returncode = 0
+                kwargs["stdout"].write(b"A" * 80 + b"TAIL")
+                kwargs["stderr"].write(b"B" * 80 + b"ERR")
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def terminate(self):
+                self.returncode = -15
+
+            def kill(self):
+                self.returncode = -9
+
+        with mock.patch.object(agent, "CONTROL_RUN_OUTPUT_LIMIT_BYTES", 32), \
+                mock.patch.object(agent.subprocess, "Popen", InstantProcess):
+            ids = []
+            for index in range(agent.CONTROL_RUN_RETAIN_LIMIT + 3):
+                record = agent.control_submit_run(
+                    self.server,
+                    {"mode": "plan", "task": f"retention-{index}"},
+                )
+                ids.append(record["control_run_id"])
+                self.wait_run(ids[-1], "succeeded")
+            final = agent.control_run_public_record(self.server, ids[-1])
+
+        self.assertTrue(final["stdout_truncated"])
+        self.assertTrue(final["stderr_truncated"])
+        self.assertTrue(final["stdout"].endswith("TAIL"))
+        self.assertTrue(final["stderr"].endswith("ERR"))
+        with self.server.control_run_lock:
+            self.assertLessEqual(
+                len(self.server.control_run_records),
+                agent.CONTROL_RUN_RETAIN_LIMIT,
+            )
+        self.assertIsNone(agent.control_run_public_record(self.server, ids[0]))
+
+    def test_control_server_close_terminates_active_child(self):
+        started = threading.Event()
+        process_box = []
+
+        class BlockingProcess:
+            def __init__(self, argv, **kwargs):
+                self.returncode = None
+                self.done = threading.Event()
+                self.terminated = False
+                process_box.append(self)
+                started.set()
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                self.done.wait(timeout)
+                return self.returncode
+
+            def terminate(self):
+                self.terminated = True
+                self.returncode = -15
+                self.done.set()
+
+            def kill(self):
+                self.returncode = -9
+                self.done.set()
+
+        extra = agent.create_control_server("127.0.0.1", 0, token=self.token)
+        try:
+            with mock.patch.object(agent.subprocess, "Popen", BlockingProcess):
+                agent.control_submit_run(extra, {"mode": "plan", "task": "hold"})
+                self.assertTrue(started.wait(1))
+                extra.server_close()
+                self.assertTrue(process_box[0].terminated)
+                self.assertFalse(extra.control_run_worker.is_alive())
+        finally:
+            extra.server_close()
 
     def test_serve_cli_fails_cleanly_when_token_is_missing(self):
         env = {

@@ -1,43 +1,39 @@
 # Release notes
 
-## lai harness v0.4.0-beta.11 — local control plane foundation
+## lai harness v0.4.0-beta.12 — asynchronous read-only control runs
 
-This beta creates the safe local API boundary needed for future smartphone access without turning lai harness into a network-exposed shell or embedding messaging platforms into the core.
+This beta turns the loopback control plane into a useful mobile-facing execution boundary without turning it into a remote shell. Authenticated clients can now submit bounded asynchronous `plan`, `review`, and `security` runs while repository writes and shell-capable modes remain outside the HTTP trust boundary.
 
 ### What changed
 
-- Added `lai control-token init|status` with a control-plane secret separate from the llama.cpp API key.
-- Token initialization uses cryptographically secure randomness, writes mode `0600`, refuses silent overwrite, and does not print the secret.
-- Added `lai serve`, implemented with Python's standard library only.
-- The server binds only to IPv4 loopback/`localhost` in beta.11; public, LAN, and tailnet bind addresses are rejected.
-- Every API endpoint requires bearer authentication.
-- Added `GET /v1/status`, `GET /v1/readiness`, `GET /v1/runs`, and `POST /v1/policy-check`.
-- Added bounded JSON request handling, content-type checks, structured errors, connection timeout, no-store responses, and suppressed default access logging.
-- Added explicit capability reporting that model execution, shell execution, and repository writes are disabled over HTTP.
-- Added focused server/token tests and an installed `lai serve` smoke test.
-
-### Why this matters
-
-The intended mobile architecture is no longer "expose llama.cpp" or "let Telegram run shell". The harness now has a narrow local control boundary that a separate gateway can consume. A private proxy such as Tailscale Serve can later forward to loopback while the harness itself remains bound to localhost.
-
-This separation also protects project scope: `lai-gateway` will own Telegram/PWA/mobile transport, while business/social automation remains a separate product that can be developed and dogfooded with lai harness.
+- Added `POST /v1/runs` for asynchronous `plan`, `review`, and `security` agent runs.
+- Added a single serialized worker and a queue of at most four waiting requests.
+- Added `GET /v1/runs/<control_run_id>` for queue/running/terminal lifecycle and bounded output.
+- Added scoped `DELETE /v1/runs/<control_run_id>` cancellation.
+- Child execution uses fixed argv, the current Python/local-agent, repository cwd, stdin disabled, `shell=False`, and a dedicated process group for scoped cancellation.
+- Full tasks are not persisted as new control-plane transcript records; public lifecycle records expose task length only.
+- Captured stdout/stderr is bounded and reports truncation explicitly.
+- Added deterministic fake-process coverage plus a real subprocess smoke against `FakeLlamaServer`.
 
 ### Safety boundary
 
-- No HTTP endpoint executes a model prompt.
-- No HTTP endpoint executes shell or Git commands.
-- No HTTP endpoint writes repository files.
-- `POST /v1/policy-check` classifies only and always returns `executed: false`.
-- Unsupported methods and endpoints fail with controlled JSON responses.
-- The control token is a separate trust domain from the model-server token.
-- `lai serve` refuses non-loopback binding in this beta.
+- HTTP model execution is limited to shell-free `plan`, `review`, and `security` modes.
+- `diagnose` and `release` remain excluded because their current `bash` surface is not a complete read-only sandbox; generic shell redirection can still mutate the filesystem.
+- No HTTP field can select an executable, arbitrary argv, cwd, environment variable, or shell command. Control-run children also refuse implicit model-server autostart.
+- No HTTP endpoint writes repository files, mutates Git, installs packages, administers the OS, or publishes releases.
+- Queueing is bounded and model work is serialized because the local model is a single scarce resource.
+- Loopback-only binding, bearer authentication, request-size limits, no-store responses, and structured JSON errors remain unchanged from beta.11.
+
+### Why this matters
+
+A future Telegram/PWA gateway can now request useful analysis from the PC and poll or cancel it without receiving terminal access. The next write-capable mobile step is not "enable implement"; it is to strengthen the shell boundary and design explicit `ASK` approval objects first.
 
 ### Validation gate
 
 ```bash
 lai control-token status --json
-lai release-check --target 0.4.0-beta.11 --json
-lai release-pack --target 0.4.0-beta.11 --with-vsix --json
+lai release-check --target 0.4.0-beta.12 --json
+lai release-pack --target 0.4.0-beta.12 --with-vsix --json
 make lint
 make check
 make test-dev
@@ -48,6 +44,6 @@ make validate
 
 ### Release body for GitHub
 
-lai harness v0.4.0-beta.11 adds an authenticated, loopback-only local control plane for future mobile integrations. `lai serve` exposes narrow JSON status/readiness/run-history/policy endpoints while explicitly disabling model execution, shell execution, and repository writes over HTTP.
+lai harness v0.4.0-beta.12 adds serialized asynchronous control runs for the shell-free `plan`, `review`, and `security` modes. `POST /v1/runs` returns a control-run ID immediately, while authenticated clients can inspect lifecycle/output or cancel that specific run through bounded endpoints.
 
-A separate `lai control-token` lifecycle keeps control-plane authentication independent from llama.cpp. The implementation uses Python's standard library, refuses non-loopback binds, limits request bodies, returns structured JSON errors, and includes installed-wrapper smoke coverage. Messaging/PWA adapters remain outside the harness core by design.
+The worker invokes only the current `local-agent` with fixed argv/cwd and `shell=False`; callers cannot provide a shell command, executable, cwd, environment override, or write-capable mode. `diagnose` and `release` remain intentionally excluded until the shell policy has a stronger structured read-only boundary. Telegram/PWA transport remains a separate gateway project.

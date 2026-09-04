@@ -25,7 +25,7 @@ lai harness has four runtime layers: the VS Code chat participant, the Python ha
 
 ### Local control plane
 
-`lai serve` is an optional loopback-only HTTP/JSON adapter implemented inside the Python harness with the standard library. It uses a bearer token separate from the llama.cpp key and exposes only status, readiness, public run summaries, and policy classification in beta.11. It has no shell, file-write, Git-mutation, model-run, or publication endpoint. A future `lai-gateway` may proxy this surface to mobile clients without making the harness itself bind to LAN, tailnet, or public interfaces.
+`lai serve` is an optional loopback-only HTTP/JSON adapter implemented inside the Python harness with the standard library. It uses a bearer token separate from the llama.cpp key. Beta.12 adds serialized asynchronous `plan`, `review`, and `security` model runs with bounded queueing, output, lifecycle inspection, and cancellation. These modes have no shell/write tools; generic shell, file-write, Git-mutation, shell-capable modes, and publication endpoints remain absent. A future `lai-gateway` may proxy this surface to mobile clients without making the harness itself bind to LAN, tailnet, or public interfaces.
 
 ### Skills and tool schemas
 

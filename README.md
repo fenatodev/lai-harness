@@ -30,7 +30,7 @@ local-agent (Python standard library)
                   user-supplied GGUF
 ```
 
-See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow, [Development harness](docs/DEVELOPMENT-HARNESS.md) for the repository feedback loop, [Local control plane](docs/CONTROL-PLANE.md) for the loopback mobile-integration boundary, [Branding](docs/BRANDING.md) for naming rules, [Semantic code contracts](docs/SEMANTIC-CODE-CONTRACTS.md) for subsystem navigation metadata, and [Beta readiness](docs/BETA-READINESS.md) for the beta.11 release posture.
+See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow, [Development harness](docs/DEVELOPMENT-HARNESS.md) for the repository feedback loop, [Local control plane](docs/CONTROL-PLANE.md) for the loopback mobile-integration boundary, [Branding](docs/BRANDING.md) for naming rules, [Semantic code contracts](docs/SEMANTIC-CODE-CONTRACTS.md) for subsystem navigation metadata, and [Beta readiness](docs/BETA-READINESS.md) for the beta.12 release posture.
 
 ## Features
 
@@ -58,7 +58,7 @@ See [Architecture](docs/ARCHITECTURE.md) for the detailed data flow, [Developmen
 - deterministic `lai semantics` subsystem map for model-friendly code navigation;
 - deterministic `lai runs` / `lai run show` browser and sanitized `lai run export` bundle for local run history;
 - deterministic `lai readiness` environment and repository health check;
-- authenticated loopback-only `lai serve` control plane for future mobile gateways, with a separate `lai control-token` secret and no HTTP model/shell/write execution;
+- authenticated loopback-only `lai serve` control plane with serialized asynchronous `plan`/`review`/`security` runs, bounded cancellation/output, and no HTTP shell/write execution;
 - focused `diagnose`, `ci-fix`, and `release` skills plus release preflight gates for safer beta operations;
 - deterministic `lai project-handoff` / `lai next-chat` for portable long-session migration;
 - no Python package dependencies in the current harness.
@@ -83,7 +83,7 @@ Configure `~/.config/lai/config.toml`, `LAI_*` environment variables, or leading
 @lai /debug reproduce why the timeout becomes NaN
 @lai /diagnose explain why the CI is failing
 @lai /ci-fix repair the failing publication gate
-@lai /release verify whether beta.11 is ready
+@lai /release verify whether beta.12 is ready
 @lai /implement add the requested test and minimal fix
 @lai /review review my current Git changes
 @lai /audit
@@ -99,10 +99,10 @@ lai control-token status --json
 # after one-time `lai control-token init`:
 lai serve --bind 127.0.0.1 --port 8765
 make harness-score-gate
-lai release-check --target 0.4.0-beta.11 --json
-lai release-pack --target 0.4.0-beta.11 --with-vsix --json
-lai release-governance --target 0.4.0-beta.11 --remote --json
-lai project-handoff --target 0.4.0-beta.11 --remote --json
+lai release-check --target 0.4.0-beta.12 --json
+lai release-pack --target 0.4.0-beta.12 --with-vsix --json
+lai release-governance --target 0.4.0-beta.12 --remote --json
+lai project-handoff --target 0.4.0-beta.12 --remote --json
 lai recovery
 # if recovery reports a compatible interrupted run:
 lai resume

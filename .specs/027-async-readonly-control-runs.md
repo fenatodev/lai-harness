@@ -1,0 +1,82 @@
+# Spec: Asynchronous read-only control runs
+
+## Metadata
+
+- Mode: `full`
+- Status: `complete`
+
+## Goal
+
+Allow authenticated mobile/private clients to submit bounded asynchronous lai agent runs through `lai serve` without exposing shell commands, write-capable modes, or repository mutation over HTTP.
+
+## Requirements
+
+### REQ-001
+
+Extend the control API with `POST /v1/runs` accepting only a JSON object containing `mode` and `task`. Allow only `plan`, `review`, and `security`; reject empty tasks and tasks above 4000 characters.
+
+### REQ-002
+
+Execute accepted work asynchronously through a fixed argv invocation of the current `local-agent`, with `shell=False`, repository cwd fixed to the server repository, and no caller-controlled executable, argv prefix, cwd, environment key, or shell command.
+
+### REQ-003
+
+Serialize model work through one worker with at most four queued requests. Return `202` with a control-run identifier for accepted work and `429` when the queue is full. Queued records must expose lifecycle state without echoing the full task.
+
+### REQ-004
+
+Add authenticated `GET /v1/runs/{control_run_id}` for lifecycle/result inspection and `DELETE /v1/runs/{control_run_id}` for cancellation only. Cancellation may stop a queued or running control run but must not delete repository files, Git refs, run history, or audit evidence.
+
+### REQ-005
+
+Capture stdout/stderr without writing them into the repository, return only bounded terminal output, mark truncation explicitly, and retain only a bounded number of in-memory control-run records. Do not persist bearer tokens or full submitted tasks in control-run records.
+
+### REQ-006
+
+Preserve the beta.11 trust boundary for all other routes: loopback-only bind, bearer authentication, request-size limits, deterministic policy-check, and no HTTP endpoint for arbitrary shell, Git mutation, file writes, package installation, OS administration, or write-capable agent modes.
+
+### REQ-007
+
+Add focused tests proving allowlisted/rejected modes, asynchronous lifecycle, serialized execution, queue limits, cancellation, output bounds, fixed subprocess argv/cwd, server shutdown cleanup, and non-mutation of the repository.
+
+## Acceptance Criteria
+
+- `POST /v1/runs` returns quickly with `202` while model work continues asynchronously.
+- Only the three shell-free read-only modes are accepted; `general`, `implement`, `fix`, `ci-fix`, `refactor`, `debug`, `diagnose`, `release`, and `test` are rejected over HTTP.
+- A second accepted run remains queued while one run is active; more than four queued runs return `429`.
+- `GET /v1/runs/<id>` reports `queued`, `running`, `succeeded`, `failed`, or `cancelled` plus bounded terminal output when available.
+- `DELETE /v1/runs/<id>` cancels only that control run and never acts as a generic DELETE endpoint.
+- The child process is launched from a fixed Python/local-agent argv with `shell=False` and `cwd=ROOT`.
+- Existing CLI behavior remains unchanged when `lai serve` is not running.
+
+## Validation
+
+- `REQ-001` / `REQ-006`: request validation and route allowlist tests.
+- `REQ-002`: mocked `subprocess.Popen` assertions plus installed/source smoke coverage.
+- `REQ-003`: queue/serialization tests using deterministic fake processes.
+- `REQ-004`: queued/running cancellation and unsupported DELETE tests.
+- `REQ-005`: output truncation and bounded record-retention tests.
+- `REQ-007`: focused tests, `make lint`, `make check`, `make test-dev`, `make test`, `make harness-score-gate`, and `make validate`.
+
+## Context and Constraints
+
+Beta.11 is released at `v0.4.0-beta.11` and provides an authenticated loopback-only control plane. This beta is the next trust-boundary increment toward a separate mobile gateway. The local model is a single scarce resource, so concurrent model generation is intentionally serialized. `diagnose` and `release` remain excluded because their current bash policy can still allow shell redirection; they require a stronger structured read-only shell boundary before remote exposure.
+
+## Non-Goals
+
+- Do not add Telegram, WhatsApp, Tailscale, PWA, or messaging credentials to this repository.
+- Do not expose `implement`, `fix`, `ci-fix`, `refactor`, `debug`, `diagnose`, `release`, `test`, or general mode through HTTP.
+- Do not add remote `ASK` approval objects or write-capable remote execution in this beta.
+- Do not add a generic command, shell, environment, cwd, executable, or arbitrary-argv field to the API.
+- Do not persist submitted tasks as a new long-term transcript store.
+
+## Implementation Notes
+
+Use one daemon worker thread owned by the control server, a lock-protected bounded queue, fixed subprocess argv based on the current Python interpreter and `local-agent` file, and temporary/unlinked output files or another bounded capture mechanism outside the repository. Cancellation should terminate the child, escalate to kill after a short grace period if required, and preserve existing audit/run-history evidence generated by the child process.
+
+## Traceability
+
+- `REQ-001` / `REQ-006` -> control request parser/routes and validation tests.
+- `REQ-002` / `REQ-003` -> control-run scheduler/worker and subprocess tests.
+- `REQ-004` / `REQ-005` -> lifecycle/result/cancellation helpers and tests.
+- `REQ-007` -> docs, install smoke, beta metadata, and full validation.
