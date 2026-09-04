@@ -159,6 +159,45 @@ class GuardIntegrationTest(unittest.TestCase):
             retry_messages[-1]["content"],
         )
 
+    def test_plan_early_completion_is_forced_through_finalizer(self):
+        draft = "DRAFT_PLAN_MUST_NOT_BE_RETURNED"
+
+        responder = SequenceResponder([
+            completion(draft),
+            completion("Goal: finalized plan"),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--plan",
+                "Produce a concise implementation plan.",
+            )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            result.stdout.strip(),
+            "Goal: finalized plan",
+        )
+        self.assertNotIn(draft, result.stdout)
+
+        self.assertEqual(
+            [payload["max_tokens"] for payload in responder.payloads],
+            [256, 1536],
+        )
+
+        final_payload = responder.payloads[1]
+
+        self.assertFalse(final_payload.get("tools"))
+        self.assertIn(
+            "[project snapshot]",
+            final_payload["messages"][-1]["content"],
+        )
+        self.assertNotIn(
+            draft,
+            str(final_payload["messages"]),
+        )
+
     def test_plan_final_synthesis_retries_truncation(self):
         partial = "PARTIAL_PLAN_MUST_NOT_BE_RETURNED"
 

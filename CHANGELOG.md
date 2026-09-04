@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.0-alpha.5] - 2026-09-03
+
+### Fixed
+- Route early `--plan` completions through the deterministic final synthesis instead of returning an intermediate draft.
+- Preserve the preloaded project snapshot as evidence during final plan synthesis.
+- Add regression coverage for plan-finalizer bypass and existing truncation recovery behavior.
+
 ## [0.4.0-alpha.4] - 2026-09-03
 
 ### Added
