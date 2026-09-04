@@ -139,7 +139,8 @@ class ControlPlaneTest(unittest.TestCase):
                 "repository_write": False,
                 "policy_classification": True,
                 "async_read_only_runs": True,
-                "allowed_run_modes": ["plan", "review", "security"],
+                "remote_tool_profile": "shell-free-read-only",
+                "allowed_run_modes": ["plan", "review", "security", "diagnose", "release"],
             },
         }
         fake_readiness = {"overall": "ready", "checks": []}
@@ -153,6 +154,7 @@ class ControlPlaneTest(unittest.TestCase):
             self.assertTrue(payload["capabilities"]["model_execution"])
             self.assertFalse(payload["capabilities"]["shell_execution"])
             self.assertTrue(payload["capabilities"]["async_read_only_runs"])
+            self.assertEqual(payload["capabilities"]["remote_tool_profile"], "shell-free-read-only")
 
             status_code, payload = self.request("/v1/readiness", token=self.token)
             self.assertEqual(status_code, 200)
@@ -240,7 +242,7 @@ class ControlPlaneTest(unittest.TestCase):
     def test_async_run_rejects_non_shell_free_modes_and_invalid_requests(self):
         for mode in (
             "general", "implement", "fix", "ci-fix", "refactor",
-            "debug", "diagnose", "release", "test",
+            "debug", "test",
         ):
             status, payload = self.request(
                 "/v1/runs",
@@ -262,6 +264,76 @@ class ControlPlaneTest(unittest.TestCase):
             )
             self.assertEqual(status, 400)
             self.assertEqual(payload["error"]["code"], "invalid_run_request")
+
+    def test_remote_capability_profiles_are_shell_free_and_preserve_local_modes(self):
+        self.assertIn("bash", agent.tool_names_for_mode("diagnose"))
+        self.assertIn("bash", agent.tool_names_for_mode("release"))
+
+        for mode in agent.CONTROL_RUN_ALLOWED_MODES:
+            names = agent.tool_names_for_mode(mode, remote_control_child=True)
+            self.assertTrue(names, mode)
+            self.assertFalse(names & agent.CONTROL_RUN_FORBIDDEN_TOOL_NAMES, mode)
+
+        self.assertEqual(
+            agent.tool_names_for_mode("diagnose", remote_control_child=True),
+            {"project", "read", "inspect", "search", "list", "git"},
+        )
+        self.assertEqual(
+            agent.tool_names_for_mode("release", remote_control_child=True),
+            {"project", "read", "inspect", "search", "list", "git"},
+        )
+        with self.assertRaisesRegex(ValueError, "no remote control capability profile"):
+            agent.tool_names_for_mode("implement", remote_control_child=True)
+
+    def test_remote_diagnose_and_release_model_schemas_exclude_shell_and_writes(self):
+        key_file = self.base / "profile-llama-key"
+        key_file.write_text("synthetic-test-key", encoding="utf-8")
+        forbidden = agent.CONTROL_RUN_FORBIDDEN_TOOL_NAMES
+
+        for mode in ("diagnose", "release"):
+            with self.subTest(mode=mode):
+                state_dir = self.base / f"{mode}-state"
+                metrics_dir = self.base / f"{mode}-metrics"
+                audit_dir = self.base / f"{mode}-audit"
+                with FakeLlamaServer() as llama, mock.patch.dict(
+                    os.environ,
+                    {
+                        "LAI_HOST": llama.host,
+                        "LAI_PORT": str(llama.port),
+                        "LAI_API_KEY_FILE": str(key_file),
+                        "LAI_STATE_DIR": str(state_dir),
+                        "LAI_METRICS_DIR": str(metrics_dir),
+                        "LAI_AUDIT_DIR": str(audit_dir),
+                    },
+                    clear=False,
+                ):
+                    status, payload = self.request(
+                        "/v1/runs",
+                        method="POST",
+                        token=self.token,
+                        body={"mode": mode, "task": f"give a concise {mode} assessment"},
+                    )
+                    self.assertEqual(status, 202)
+                    self.assertEqual(payload["run"]["tool_profile"], "shell-free-read-only")
+                    final = self.wait_run(
+                        payload["run"]["control_run_id"],
+                        {"succeeded", "failed"},
+                        timeout=8,
+                    )
+                    posts = [
+                        item for item in llama.requests
+                        if item[0] == "POST" and item[1] == "/v1/chat/completions"
+                    ]
+
+                self.assertEqual(final["status"], "succeeded", final["stderr"])
+                self.assertTrue(posts, mode)
+                tool_names = {
+                    tool["function"]["name"]
+                    for tool in (posts[0][3].get("tools") or [])
+                }
+                self.assertFalse(tool_names & forbidden, (mode, tool_names))
+                self.assertIn("git", tool_names)
+                self.assertIn("inspect", tool_names)
 
     def test_source_tree_control_child_uses_checked_in_skills_without_overriding_explicit_config(self):
         with mock.patch.dict(os.environ, {}, clear=True):

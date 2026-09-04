@@ -2,7 +2,7 @@
 
 `lai serve` exposes a small authenticated HTTP/JSON control surface for local integrations such as a future `lai-gateway`, mobile UI, or private Tailscale proxy.
 
-Beta.12 keeps the server loopback-only and adds bounded asynchronous model execution for three shell-free read-only modes: `plan`, `review`, and `security`. It is still not a remote shell and it does not expose llama.cpp directly.
+Beta.13 keeps the server loopback-only and exposes bounded asynchronous model execution for five read-only modes: `plan`, `review`, `security`, `diagnose`, and `release`. Every control child receives an explicit shell-free capability profile before the model sees tool schemas. It is still not a remote shell and it does not expose llama.cpp directly.
 
 ## Initialize authentication
 
@@ -38,7 +38,7 @@ Requests without a valid bearer token receive `401`. Responses use JSON, disable
 
 ### `GET /v1/status`
 
-Returns product/repository state, Git status, active spec summary, existing run-history summary, queue state, and explicit capabilities. In beta.12 `model_execution=true`, `shell_execution=false`, and `repository_write=false` for the HTTP surface.
+Returns product/repository state, Git status, active spec summary, existing run-history summary, queue state, and explicit capabilities. In beta.13 `model_execution=true`, `shell_execution=false`, and `repository_write=false` for the HTTP surface. The payload also reports `remote_tool_profile=shell-free-read-only` and the allowed remote modes.
 
 ### `GET /v1/readiness`
 
@@ -65,11 +65,13 @@ Accepts exactly:
 }
 ```
 
-Allowed modes in beta.12:
+Allowed modes in beta.13:
 
 - `plan`;
 - `review`;
-- `security`.
+- `security`;
+- `diagnose`;
+- `release`.
 
 The task must be non-empty and at most 4000 characters. Unknown fields are rejected. The client cannot supply an executable, shell command, cwd, argv prefix, or environment override.
 
@@ -93,11 +95,13 @@ The record includes task length, timestamps, queue position when applicable, exi
 
 Cancels only that queued/running control run. A queued run is cancelled before spawn; a running child is terminated and escalated to kill after a short grace period if needed. The route does not delete Git refs, files, run history, metrics, or audit evidence.
 
-## Why `diagnose` and `release` are not remote yet
+## Remote capability profiles
 
-Both modes can currently receive the `bash` tool. The central policy blocks known dangerous and Git-mutating commands, but the shell boundary is not a complete read-only sandbox: for example, generic shell redirection can still be classified `ALLOW`.
+Local `diagnose` and `release` still retain their existing `bash` tool. Control children do not. When the fixed internal control-child marker is present, the harness intersects the normal local mode tools with an explicit remote profile before building the model request.
 
-For that reason beta.12 does not expose `diagnose`, `release`, `debug`, `test`, or any write-capable mode over HTTP. A later cut must strengthen the structured shell boundary before those modes can cross the mobile trust boundary.
+For remote `diagnose` and `release`, the model receives only `project`, `read`, `inspect`, `search`, `list`, and `git`. `bash`, `edit`, `create`, `patch`, and `rewrite` are absent from the schema. `plan`, `review`, and `security` remain limited to their existing shell-free inspection tools.
+
+This is capability reduction, not a claim that the local `bash` policy is a sandbox. Shell-capable remote validation remains out of scope until a stronger structured executor is justified.
 
 ## Explicitly not exposed
 
@@ -105,7 +109,7 @@ Beta.12 has no HTTP endpoint for:
 
 - arbitrary shell or Git commands;
 - file create/patch/rewrite operations;
-- `general`, `implement`, `fix`, `ci-fix`, `refactor`, `debug`, `diagnose`, `release`, or `test` agent runs;
+- `general`, `implement`, `fix`, `ci-fix`, `refactor`, `debug`, or `test` agent runs;
 - approvals for `ASK` operations;
 - release/tag/push/publication actions;
 - package installation or OS administration.
