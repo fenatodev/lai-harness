@@ -15,13 +15,13 @@
 
 Small local models become much more useful when the agent architecture is optimized around them. lai harness combines compact mode-specific tools, batch inspection and patching, validation and evidence gates, local metrics, forensic audit, run history, sanitized run export, readiness checks, and Git-aware handoff in a VS Code workflow.
 
-## Release v0.4.0-beta.2
+## Release v0.4.0-beta.3
 
-Use the release notes in [Release notes](RELEASE-NOTES.md) as the GitHub Release body for `v0.4.0-beta.2`.
+Use the release notes in [Release notes](RELEASE-NOTES.md) as the GitHub Release body for `v0.4.0-beta.3`.
 
-**Title:** lai harness v0.4.0-beta.2 — release polish
+**Title:** lai harness v0.4.0-beta.3 — release polish
 
-Attach the inspected VSIX from `scripts/package-vsix.sh` only after `make validate`, `lai readiness`, `lai release-check --target 0.4.0-beta.2 --json`, and GitHub CI pass on both `main` and the tag.
+Attach the inspected VSIX from `scripts/package-vsix.sh` only after `make validate`, `lai readiness`, `lai release-check --target 0.4.0-beta.3 --json`, and GitHub CI pass on both `main` and the tag.
 
 ## LinkedIn project description
 

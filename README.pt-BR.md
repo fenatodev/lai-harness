@@ -59,8 +59,8 @@ lai runs
 lai run last
 lai run export --last
 lai readiness
-lai release-check --target 0.4.0-beta.2 --json
-lai release "verifique se beta.2 está pronto"
+lai release-check --target 0.4.0-beta.3 --json
+lai release "verifique se beta.3 está pronto"
 ```
 
 ## Segurança
@@ -76,3 +76,5 @@ As medições documentadas vieram de uma máquina e fixtures específicas. Elas 
 O código original do LAI usa MIT. VS Code, llama.cpp, modelos, GGUF e templates permanecem sob termos próprios e não são redistribuídos. Consulte [THIRD_PARTY.md](THIRD_PARTY.md).
 
 A documentação técnica principal está em inglês no diretório [`docs/`](docs/), incluindo [Beta readiness](docs/BETA-READINESS.md).
+
+See [Protected branch write guard](docs/PROTECTED-BRANCH-WRITES.md) before running write-capable modes on release-sensitive branches.

@@ -634,7 +634,7 @@ class LocalAgentTest(unittest.TestCase):
             check=True,
         )
         payload = json.loads(raw.stdout)
-        self.assertEqual(payload["version"], "0.4.0-beta.2")
+        self.assertEqual(payload["version"], "0.4.0-beta.3")
         self.assertEqual(payload["runs"][0]["run_id"], "run-1")
         self.assertEqual(payload["runs"][1]["run_id"], "run-2")
         self.assertIsNotNone(payload["runs"][1]["last_failure"])
@@ -726,7 +726,7 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("Authentication: OK", rendered)
         self.assertIn("mode_skills", rendered)
         payload = json.loads(raw)
-        self.assertEqual(payload["version"], "0.4.0-beta.2")
+        self.assertEqual(payload["version"], "0.4.0-beta.3")
         self.assertTrue(payload["server"]["authentication_ok"])
         self.assertIn(payload["overall"], {"ready", "attention"})
         self.assertTrue(
@@ -768,7 +768,7 @@ class LocalAgentTest(unittest.TestCase):
             agent.AUDIT_FILE = original_audit_file
 
         self.assertIn("RELEASE PREFLIGHT", context)
-        self.assertIn("Version: 0.4.0-beta.2", context)
+        self.assertIn("Version: 0.4.0-beta.3", context)
         self.assertIn("Readiness overall:", context)
         self.assertIn("- make check", context)
         self.assertIn("- make test-dev", context)
@@ -802,7 +802,7 @@ class LocalAgentTest(unittest.TestCase):
             stdout=subprocess.DEVNULL,
         )
         result = subprocess.run(
-            [str(SOURCE), "--release-check", "--target", "0.4.0-beta.2", "--json"],
+            [str(SOURCE), "--release-check", "--target", "0.4.0-beta.3", "--json"],
             cwd=self.root,
             env=env,
             text=True,
@@ -811,8 +811,8 @@ class LocalAgentTest(unittest.TestCase):
             check=True,
         )
         payload = json.loads(result.stdout)
-        self.assertEqual(payload["version"], "0.4.0-beta.2")
-        self.assertEqual(payload["expected_tag"], "v0.4.0-beta.2")
+        self.assertEqual(payload["version"], "0.4.0-beta.3")
+        self.assertEqual(payload["expected_tag"], "v0.4.0-beta.3")
         self.assertIn(payload["phase"], {"ready_to_tag", "released", "blocked"})
         self.assertIn("make validate", payload["validation_commands"])
         self.assertTrue(
@@ -845,7 +845,7 @@ class LocalAgentTest(unittest.TestCase):
         )
         payload = json.loads(result.stdout)
         self.assertEqual(payload["product"], "lai harness")
-        self.assertEqual(payload["version"], "0.4.0-beta.2")
+        self.assertEqual(payload["version"], "0.4.0-beta.3")
         self.assertEqual(payload["repository"], str(self.root.resolve()))
         self.assertIn("checks", payload)
 
@@ -865,10 +865,28 @@ class LocalAgentTest(unittest.TestCase):
             agent.evaluate_tool_policy("create", write_args, mode="release")["decision"],
             "DENY",
         )
-        self.assertEqual(
-            agent.evaluate_tool_policy("create", write_args, mode="ci-fix")["decision"],
-            "ALLOW",
-        )
+        with mock.patch.object(agent, "current_policy_git_branch", return_value="feature/test"):
+            self.assertEqual(
+                agent.evaluate_tool_policy("create", write_args, mode="ci-fix")["decision"],
+                "ALLOW",
+            )
+
+    def test_policy_blocks_write_tools_on_protected_branches_unless_overridden(self):
+        write_args = {"path": "sample.txt", "content": "x"}
+        with mock.patch.object(agent, "current_policy_git_branch", return_value="main"):
+            policy = agent.evaluate_tool_policy("patch", write_args, mode="implement")
+        self.assertEqual(policy["decision"], "DENY")
+        self.assertIn("protected branch main", policy["reason"])
+
+        with mock.patch.object(agent, "current_policy_git_branch", return_value="release/0.4"), \
+             mock.patch.dict(os.environ, {}, clear=True):
+            policy = agent.evaluate_tool_policy("rewrite", write_args, mode="fix")
+        self.assertEqual(policy["decision"], "DENY")
+
+        with mock.patch.object(agent, "current_policy_git_branch", return_value="main"), \
+             mock.patch.dict(os.environ, {agent.PROTECTED_WRITE_OVERRIDE_ENV: "1"}):
+            policy = agent.evaluate_tool_policy("patch", write_args, mode="implement")
+        self.assertEqual(policy["decision"], "ALLOW")
 
     def test_tool_signature_is_canonical_and_includes_tool_name(self):
         first = agent.canonical_tool_signature(
@@ -1010,9 +1028,10 @@ class LocalAgentTest(unittest.TestCase):
         agent.AUDIT_DIR = self.root / "audit"
         agent.AUDIT_FILE = agent.AUDIT_DIR / "events.jsonl"
         agent.METRICS_PRUNED = False
-        result = agent.run_tool("patch", {"changes": [
-            {"path": "sample.txt", "old": "before", "new": "after"},
-        ]})
+        with mock.patch.object(agent, "current_policy_git_branch", return_value="feature/test"):
+            result = agent.run_tool("patch", {"changes": [
+                {"path": "sample.txt", "old": "before", "new": "after"},
+            ]})
         self.assertTrue(result.startswith("OK:"))
         audit = json.loads(agent.AUDIT_FILE.read_text())
         self.assertNotEqual(audit["before_hashes"], audit["after_hashes"])
@@ -1664,7 +1683,7 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "lai harness 0.4.0-beta.2")
+        self.assertEqual(result.stdout.strip(), "lai harness 0.4.0-beta.3")
 
     def test_deterministic_model_eval_plan_needs_no_server(self):
         result = subprocess.run(
@@ -1715,7 +1734,7 @@ class LocalAgentTest(unittest.TestCase):
         )
         payload = json.loads(result.stdout)
         self.assertEqual(payload["product"], "lai harness")
-        self.assertEqual(payload["version"], "0.4.0-beta.2")
+        self.assertEqual(payload["version"], "0.4.0-beta.3")
         scenario_ids = {item["id"] for item in payload["scenarios"]}
         self.assertIn("context-ranking", scenario_ids)
 
@@ -1832,9 +1851,9 @@ class LocalAgentTest(unittest.TestCase):
         validate_script = (repo / "scripts" / "validate.sh").read_text(encoding="utf-8")
 
         self.assertIn("**Name:** `lai-harness`", publishing)
-        self.assertIn("lai harness v0.4.0-beta.2", publishing)
-        self.assertIn("lai harness v0.4.0-beta.2", release_notes)
-        self.assertIn("v0.4.0-beta.2", release_checklist)
+        self.assertIn("lai harness v0.4.0-beta.3", publishing)
+        self.assertIn("lai harness v0.4.0-beta.3", release_notes)
+        self.assertIn("v0.4.0-beta.3", release_checklist)
         self.assertNotIn("Release v0.3.0", publishing)
         self.assertNotIn("**Name:** `lai-local-agent`", publishing)
         self.assertIn("/tmp/lai-harness-${version}.vsix", package_script)

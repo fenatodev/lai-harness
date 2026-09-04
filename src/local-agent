@@ -12,7 +12,7 @@ import urllib.request
 import unicodedata
 from pathlib import Path
 
-VERSION = "0.4.0-beta.2"
+VERSION = "0.4.0-beta.3"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -623,6 +623,9 @@ MAX_TOOL_OUTPUT = 24000
 PRE_WRITE_EXPLORATION_BUDGET = 6
 
 WRITE_TOOLS = {"edit", "create", "patch", "rewrite"}
+PROTECTED_WRITE_BRANCHES = {"main", "master"}
+PROTECTED_WRITE_BRANCH_PREFIXES = ("release/",)
+PROTECTED_WRITE_OVERRIDE_ENV = "LAI_ALLOW_PROTECTED_BRANCH_WRITES"
 READ_ONLY_TOOLS = {
     "read",
     "inspect",
@@ -1019,6 +1022,39 @@ def git_mutation_in_shell(command):
     return None
 
 
+def protected_branch_write_override_enabled():
+    return os.environ.get(PROTECTED_WRITE_OVERRIDE_ENV, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def current_policy_git_branch():
+    try:
+        proc = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=5,
+        )
+        if proc.returncode != 0:
+            return "[unavailable]"
+        return proc.stdout.strip() or "[detached HEAD]"
+    except Exception:
+        return "[unavailable]"
+
+
+def is_protected_write_branch(branch):
+    branch = str(branch or "").strip()
+    return (
+        branch in PROTECTED_WRITE_BRANCHES
+        or any(branch.startswith(prefix) for prefix in PROTECTED_WRITE_BRANCH_PREFIXES)
+    )
+
+
 def evaluate_tool_policy(name, args, mode=None):
     mode = mode or globals().get("ACTIVE_MODE", "unknown")
     known_tools = {item["function"]["name"] for item in TOOLS}
@@ -1031,6 +1067,17 @@ def evaluate_tool_policy(name, args, mode=None):
             "decision": "DENY",
             "reason": f"tool {name} is not permitted in read-only mode {mode}",
         }
+
+    if name in WRITE_TOOLS and not protected_branch_write_override_enabled():
+        branch = current_policy_git_branch()
+        if is_protected_write_branch(branch):
+            return {
+                "decision": "DENY",
+                "reason": (
+                    f"tool {name} is not permitted on protected branch {branch}; "
+                    f"create a feature/test branch or set {PROTECTED_WRITE_OVERRIDE_ENV}=1"
+                ),
+            }
 
     if name != "bash":
         return {"decision": "ALLOW", "reason": "builtin tool allowed by policy"}

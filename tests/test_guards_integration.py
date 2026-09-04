@@ -79,11 +79,12 @@ class GuardIntegrationTest(unittest.TestCase):
         self.key = self.base / "key"
         self.key.write_text("synthetic-test-key")
         subprocess.run(["git", "init", "-q"], cwd=self.repo, check=True)
+        subprocess.run(["git", "branch", "-M", "main"], cwd=self.repo, check=True)
 
     def tearDown(self):
         self.temp.cleanup()
 
-    def run_agent(self, server, *args, check=True):
+    def run_agent(self, server, *args, check=True, allow_protected_writes=True):
         env = {
             **os.environ,
             "LAI_HOST": server.host,
@@ -92,6 +93,10 @@ class GuardIntegrationTest(unittest.TestCase):
             "LAI_DATA_DIR": str(self.data),
             "LAI_MODEL": "fake-local-model",
         }
+        if allow_protected_writes:
+            env["LAI_ALLOW_PROTECTED_BRANCH_WRITES"] = "1"
+        else:
+            env.pop("LAI_ALLOW_PROTECTED_BRANCH_WRITES", None)
         return subprocess.run(
             [str(AGENT), *args],
             cwd=self.repo,
@@ -100,6 +105,32 @@ class GuardIntegrationTest(unittest.TestCase):
             capture_output=True,
             timeout=20,
             check=check,
+        )
+
+    def test_protected_branch_write_guard_blocks_main_without_override(self):
+        responder = SequenceResponder([
+            tool_call(
+                "create",
+                "create",
+                {"path": "blocked.py", "content": "VALUE = 1\n"},
+            ),
+            completion("blocked by protected branch guard"),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--implement",
+                "create blocked.py",
+                allow_protected_writes=False,
+            )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertFalse((self.repo / "blocked.py").exists())
+        self.assertEqual(result.stdout.strip(), "blocked by protected branch guard")
+        self.assertIn(
+            "protected branch main",
+            responder.payloads[1]["messages"][-1]["content"],
         )
 
     def test_policy_ask_stops_run_and_records_user_action_outcome(self):

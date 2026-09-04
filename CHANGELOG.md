@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.0-beta.3] - 2026-09-04
+
+### Added
+- Add a protected-branch write guard that blocks `edit`, `create`, `patch`, and `rewrite` on `main`, `master`, and `release/*` unless explicitly overridden.
+- Document safe disposable-branch smoke testing for write-capable modes.
+
+### Changed
+- Keep beta release posture focused on manual publication and deterministic safety gates.
+
+### Tests
+- Added regression coverage for protected branch write denial and explicit local override behavior.
+
+
 ## [0.4.0-beta.2] - 2026-09-04
 
 ### Changed
