@@ -23,7 +23,7 @@ import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "0.4.0-beta.18"
+VERSION = "0.4.0-beta.19"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -7093,16 +7093,27 @@ def release_pack_read(path):
     return full.read_text(encoding="utf-8", errors="replace")
 
 
-def release_pack_body(target_version, expected_tag):
+def release_pack_notes_section(target_version):
     notes = release_pack_read("docs/RELEASE-NOTES.md")
-    marker = "### Release body for GitHub"
-    if marker in notes:
-        body = notes.split(marker, 1)[1].strip()
-        next_section = body.find("\n### ")
-        if next_section >= 0:
-            body = body[:next_section].strip()
-        if body:
-            return body + "\n"
+    heading_prefix = f"## {PRODUCT_NAME} v{target_version}"
+    lines = notes.splitlines()
+    start = next((
+        index for index, line in enumerate(lines)
+        if line == heading_prefix or line.startswith(heading_prefix + " —")
+    ), None)
+    if start is None:
+        return ""
+    end = next((
+        index for index in range(start + 1, len(lines))
+        if lines[index].startswith("## ")
+    ), len(lines))
+    return "\n".join(lines[start:end]).strip()
+
+
+def release_pack_body(target_version, expected_tag):
+    section = release_pack_notes_section(target_version)
+    if section:
+        return section + "\n"
 
     return "\n".join([
         f"{PRODUCT_NAME} {expected_tag} is a beta release of the local coding harness.",
@@ -7147,8 +7158,14 @@ def release_pack_publish_commands(release_payload):
 
 
 def release_pack_title(target_version):
-    if target_version == VERSION:
-        return f"v{target_version} — remote capability profiles"
+    section = release_pack_notes_section(target_version)
+    if section:
+        heading = section.splitlines()[0].removeprefix("## ").strip()
+        product_prefix = f"{PRODUCT_NAME} "
+        if heading.startswith(product_prefix):
+            heading = heading[len(product_prefix):].strip()
+        if heading:
+            return heading
     return f"v{target_version} — lai harness release"
 
 

@@ -36,6 +36,7 @@ Roadmap items are intentions, not commitments. Model redistribution and automati
 - v0.4.0-alpha.21: release preflight and public mode aliases before beta readiness.
 - v0.4.0-beta.1: first beta readiness cut with deterministic release gates and documented stabilization posture.
 - v0.4.0-beta.2: release polish with current GitHub metadata, release notes, checklist, and public VSIX artifact naming.
+- v0.4.0-beta.19: target-version-bound release metadata generation and stale-release-note prevention.
 - v0.4.0-beta.18: versioned runtime-record schemas plus configurable bounded state/metrics/audit retention.
 - v0.4.0-beta.17: Node 24 GitHub Actions supply-chain hardening with reviewed full-SHA pins and Dependabot updates.
 - v0.4.0-beta.16: reproducible development quality sensors with a generated pinned lock, strict mypy guardrail ratchet, and CI/publication enforcement.

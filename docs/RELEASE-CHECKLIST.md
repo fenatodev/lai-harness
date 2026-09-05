@@ -8,8 +8,8 @@ Use this checklist for beta releases with protected `main`.
 cd ~/dev/projects/lai-local-agent
 lai readiness
 lai workspace status --json
-lai release-check --target 0.4.0-beta.18 --json
-lai release-pack --target 0.4.0-beta.18 --with-vsix --json
+lai release-check --target 0.4.0-beta.19 --json
+lai release-pack --target 0.4.0-beta.19 --with-vsix --json
 make typecheck
 make lint
 make check
@@ -19,41 +19,41 @@ make harness-score-gate
 make validate
 ```
 
-Expected: version/target aligned, validation and VSIX inspection green, Harness Score L4 satisfied, and a clean tree after the release commit.
+Expected: version/target aligned, generated release title/body aligned with beta.19, validation and VSIX inspection green, Harness Score L4 satisfied, and a clean tree after the release commit.
+
+## Release metadata review
+
+- Confirm `release-body.md` begins with the exact beta.19 level-2 heading from `docs/RELEASE-NOTES.md`.
+- Confirm it contains no content from older release sections.
+- Confirm `human-release-commands.sh` uses the same beta.19 heading for the annotated-tag message.
+- Treat the neutral generic fallback as a review signal, not as preferred release copy.
 
 ## Visual documentation review
 
-Every product version bump must review `docs/assets/visual-assets.json`. Its `reviewed_for_version` must equal the runtime version or CI fails.
-
-- If core architecture, mobile/control boundaries, or release flow changed, regenerate the affected diagrams and review their labels against current code/docs.
-- If architecture did not change, update the marker only after explicitly confirming the existing diagrams remain accurate.
-- Treat diagrams as explanatory artifacts; security claims must still be supported by tests and `docs/SECURITY-MODEL.md`.
+Every product version bump must review `docs/assets/visual-assets.json`. Regenerate diagrams only if their architecture changed; otherwise update the version marker after explicit review.
 
 ## Protected-main integration
 
-1. Push the current versioned feature branch (for beta.17: `feature/v0.4.0-beta.18-actions-supply-chain`).
+1. Push `feature/v0.4.0-beta.19-release-notes-correctness`.
 2. Open a PR into `main`.
-3. Confirm all required checks are present; `Harness Score L4` is already part of protected `main`.
-4. Require `Python 3.11`, `Python 3.12`, `Publication gates`, and `Harness Score L4` with the branch up to date.
-5. Merge through GitHub; do not bypass branch protection or push the release commit directly to `main`.
-6. Fast-forward local `main` to `origin/main` and verify GitHub Actions on the merged commit.
+3. Require `Python 3.11`, `Python 3.12`, `Publication gates`, and `Harness Score L4` with the branch up to date.
+4. Merge through GitHub without bypassing branch protection.
+5. Fast-forward local `main` to `origin/main` and verify merged-main CI.
 
 ## Tag after merge
 
-Only after merged `main` is green and `lai release-check --target 0.4.0-beta.18 --json` reports `ready_to_tag`:
+Only after `lai release-check --target 0.4.0-beta.19 --json` reports `ready_to_tag`, use the generated `human-release-commands.sh`. The expected annotated message is:
 
-```bash
-git tag -a v0.4.0-beta.18 \
-  -m "v0.4.0-beta.18 — Node 24 CI supply-chain hardening"
-git push origin v0.4.0-beta.18
+```text
+v0.4.0-beta.19 — release metadata correctness
 ```
 
 Then verify tag CI is green.
 
 ## GitHub pre-release
 
-1. Create the GitHub Release from `v0.4.0-beta.18`.
-2. Use the title/body from the release pack.
+1. Create the Release from `v0.4.0-beta.19`.
+2. Use title/body from the validated release pack.
 3. Keep it marked as pre-release.
-4. Optionally attach the inspected `lai-harness-0.4.0-beta.18.vsix`.
-5. Run `lai release-governance --target 0.4.0-beta.18 --remote --json` and `lai project-handoff --target 0.4.0-beta.18 --remote --json`; published governance should be fully verified.
+4. Attach only the inspected `lai-harness-0.4.0-beta.19.vsix` when publishing the extension artifact.
+5. Verify remote governance and the VSIX digest before declaring the cut complete.
