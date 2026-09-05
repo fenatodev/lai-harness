@@ -1,5 +1,46 @@
 # Release notes
 
+## lai harness v0.4.0-beta.17 — Node 24 CI supply-chain hardening
+
+This beta responds to a live GitHub Actions deprecation warning rather than a maturity-score target. CI dependencies move to reviewed Node 24-compatible action releases, immutable SHA pins, and reviewable Dependabot updates.
+
+### What changed
+
+- `actions/checkout` → v7.0.1 at full SHA `3d3c42e5aac5ba805825da76410c181273ba90b1`.
+- `actions/setup-python` → v7.0.0 at full SHA `5fda3b95a4ea91299a34e894583c3862153e4b97`.
+- `actions/setup-node` → v7.0.0 at full SHA `820762786026740c76f36085b0efc47a31fe5020`.
+- Publication packaging now selects Node.js 24 explicitly and disables automatic package-manager caching.
+- `.github/dependabot.yml` tracks GitHub Actions weekly so immutable pins can move through normal review.
+- A workflow regression sensor rejects floating official-action tags and unreviewed official action dependencies.
+
+### Why this matters
+
+The previous workflow was already being force-run on Node 24 by GitHub while declaring older Node 20 action runtimes. This cut removes that hidden compatibility dependency and makes the external CI toolchain explicit and auditable.
+
+LAI runtime authority, model behavior, remote capability profiles, promotion boundaries, and Python runtime dependencies do not change.
+
+### Validation evidence
+
+- Ruff: green;
+- strict mypy: 0 issues on the declared ratchet;
+- pytest: 209 passed + 68 subtests;
+- unittest publication path: 209 passed;
+- publication scan: clean;
+- VSIX inspection: passed.
+
+### Validation gate
+
+```bash
+lai release-check --target 0.4.0-beta.17 --json
+make lint
+make typecheck
+make check
+make test-dev
+make test
+make harness-score-gate
+make validate
+```
+
 ## lai harness v0.4.0-beta.16 — reproducible quality sensors
 
 This beta hardens the development harness rather than expanding runtime authority. Python quality sensors are now version-locked, strict static type checking is enforced on the first typed guardrail boundary, and CI/publication gates consume the same canonical sensor set.

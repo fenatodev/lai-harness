@@ -62,3 +62,8 @@ For beta.9 and later, protected `main` should require all four checks:
 - `Harness Score L4`
 
 `lai release-governance --remote` verifies the same required-check set so repository policy and release verification cannot silently diverge.
+## GitHub Actions supply-chain policy
+
+Official GitHub Actions used by CI are pinned to reviewed full commit SHAs with the upstream release version recorded in an inline comment. Do not replace them with floating `@vN` references. `.github/dependabot.yml` may propose GitHub Actions pin updates, but those updates still pass the normal PR and protected-main validation path.
+
+Publication setup-node uses Node.js 24 explicitly and disables package-manager caching when no npm dependency cache is required.
