@@ -139,8 +139,16 @@ class ControlPlaneTest(unittest.TestCase):
                 "repository_write": False,
                 "policy_classification": True,
                 "async_read_only_runs": True,
-                "remote_tool_profile": "shell-free-read-only",
-                "allowed_run_modes": ["plan", "review", "security", "diagnose", "release"],
+                "async_work_runs": True,
+                "remote_tool_profile": "capability-scoped",
+                "remote_tool_profiles": {
+                    "read_only": "shell-free-read-only",
+                    "work": "repository-work-no-shell",
+                },
+                "allowed_run_modes": [
+                    "plan", "review", "security", "diagnose", "release",
+                    "implement", "fix", "refactor", "ci-fix",
+                ],
             },
         }
         fake_readiness = {"overall": "ready", "checks": []}
@@ -154,7 +162,9 @@ class ControlPlaneTest(unittest.TestCase):
             self.assertTrue(payload["capabilities"]["model_execution"])
             self.assertFalse(payload["capabilities"]["shell_execution"])
             self.assertTrue(payload["capabilities"]["async_read_only_runs"])
-            self.assertEqual(payload["capabilities"]["remote_tool_profile"], "shell-free-read-only")
+            self.assertTrue(payload["capabilities"]["async_work_runs"])
+            self.assertFalse(payload["capabilities"]["repository_write"])
+            self.assertEqual(payload["capabilities"]["remote_tool_profile"], "capability-scoped")
 
             status_code, payload = self.request("/v1/readiness", token=self.token)
             self.assertEqual(status_code, 200)
@@ -239,11 +249,8 @@ class ControlPlaneTest(unittest.TestCase):
             time.sleep(0.02)
         self.fail(f"control run did not reach {sorted(wanted)}; last={last}")
 
-    def test_async_run_rejects_non_shell_free_modes_and_invalid_requests(self):
-        for mode in (
-            "general", "implement", "fix", "ci-fix", "refactor",
-            "debug", "test",
-        ):
+    def test_async_run_rejects_unsupported_modes_and_invalid_requests(self):
+        for mode in ("general", "debug", "test"):
             status, payload = self.request(
                 "/v1/runs",
                 method="POST",
@@ -282,8 +289,93 @@ class ControlPlaneTest(unittest.TestCase):
             agent.tool_names_for_mode("release", remote_control_child=True),
             {"project", "read", "inspect", "search", "list", "git"},
         )
-        with self.assertRaisesRegex(ValueError, "no remote control capability profile"):
-            agent.tool_names_for_mode("implement", remote_control_child=True)
+        self.assertEqual(
+            agent.tool_names_for_mode("implement", remote_control_child=True),
+            {"inspect", "search", "git", "patch", "rewrite", "create", "validate"},
+        )
+        self.assertEqual(
+            agent.tool_names_for_mode("fix", remote_control_child=True),
+            {"project", "read", "search", "list", "git", "edit", "validate"},
+        )
+        for mode in agent.CONTROL_RUN_WORK_MODES:
+            names = agent.tool_names_for_mode(mode, remote_control_child=True)
+            self.assertIn("validate", names, mode)
+            self.assertNotIn("bash", names, mode)
+
+    def test_structured_validation_uses_fixed_argv_without_shell(self):
+        (self.root / "Makefile").write_text(
+            "test:\n\t@echo ok\n", encoding="utf-8"
+        )
+        completed = subprocess.CompletedProcess(
+            ["make", "test"], 0, stdout="ok\n", stderr=""
+        )
+        with mock.patch.object(agent.subprocess, "run", return_value=completed) as run:
+            result = agent.tool_validate({"profile": "test"})
+        self.assertTrue(result.startswith("exit_code=0"), result)
+        self.assertIn('argv=["make", "test"]', result)
+        argv = run.call_args.args[0]
+        kwargs = run.call_args.kwargs
+        self.assertEqual(argv, ["make", "test"])
+        self.assertEqual(kwargs["cwd"], self.root.resolve())
+        self.assertFalse(kwargs["shell"])
+
+        with mock.patch.object(agent.subprocess, "run") as forbidden:
+            self.assertIn(
+                "requires exactly one profile",
+                agent.tool_validate({"profile": "test", "command": "rm -rf /"}),
+            )
+            forbidden.assert_not_called()
+
+    def test_remote_validation_sandbox_is_fixed_isolated_and_never_pulls(self):
+        argv = agent.remote_validation_docker_argv(
+            ("make", "test"),
+            workspace=self.root,
+            source_root=self.root,
+        )
+        rendered = " ".join(argv)
+        self.assertEqual(argv[:4], ["docker", "run", "--rm", "--pull=never"])
+        self.assertIn("--network=none", argv)
+        self.assertIn("--read-only", argv)
+        self.assertIn("--cap-drop=ALL", argv)
+        workspace_mounts = [
+            item for item in argv
+            if item.startswith("type=bind,src=") and "dst=/workspace" in item
+        ]
+        self.assertEqual(len(workspace_mounts), 1)
+        self.assertNotIn(",rw", workspace_mounts[0])
+        self.assertIn("--security-opt=no-new-privileges", argv)
+        self.assertNotIn("/var/run/docker.sock", rendered)
+        self.assertNotIn(str(Path.home()), rendered)
+        self.assertEqual(argv[-3:], [agent.REMOTE_VALIDATION_SANDBOX_IMAGE, "make", "test"])
+
+    def test_remote_validate_fails_closed_without_local_sandbox_image(self):
+        (self.root / "Makefile").write_text(
+            "test:\n\t@echo ok\n", encoding="utf-8"
+        )
+        with mock.patch.dict(os.environ, {agent.CONTROL_RUN_CHILD_ENV: "1"}, clear=False), \
+                mock.patch.object(agent, "remote_validation_sandbox_available", return_value=False), \
+                mock.patch.object(agent.subprocess, "run") as run:
+            result = agent.tool_validate({"profile": "test"})
+        self.assertIn("sandbox image is unavailable", result)
+        run.assert_not_called()
+
+    def test_work_run_requires_sandbox_and_records_work_profile(self):
+        with mock.patch.object(agent, "remote_validation_sandbox_available", return_value=False):
+            status, payload = self.request(
+                "/v1/runs", method="POST", token=self.token,
+                body={"mode": "implement", "task": "create a safe file"},
+            )
+        self.assertEqual(status, 503)
+        self.assertEqual(payload["error"]["code"], "run_unavailable")
+
+        with mock.patch.object(agent, "remote_validation_sandbox_available", return_value=True):
+            status, payload = self.request(
+                "/v1/runs", method="POST", token=self.token,
+                body={"mode": "implement", "task": "create a safe file"},
+            )
+        self.assertEqual(status, 202)
+        self.assertEqual(payload["run"]["tool_profile"], agent.CONTROL_RUN_WORK_PROFILE)
+        agent.control_cancel_run(self.server, payload["run"]["control_run_id"])
 
     def test_remote_diagnose_and_release_model_schemas_exclude_shell_and_writes(self):
         key_file = self.base / "profile-llama-key"
@@ -332,6 +424,8 @@ class ControlPlaneTest(unittest.TestCase):
                     for tool in (posts[0][3].get("tools") or [])
                 }
                 self.assertFalse(tool_names & forbidden, (mode, tool_names))
+                self.assertFalse(tool_names & agent.WRITE_TOOLS, (mode, tool_names))
+                self.assertNotIn("validate", tool_names)
                 self.assertIn("git", tool_names)
                 self.assertIn("inspect", tool_names)
 
@@ -684,6 +778,135 @@ class ControlPlaneTest(unittest.TestCase):
                 agent.CONTROL_RUN_RETAIN_LIMIT,
             )
         self.assertIsNone(agent.control_run_public_record(self.server, ids[0]))
+
+    def test_remote_implement_real_child_writes_only_isolated_workspace(self):
+        (self.root / "Makefile").write_text(
+            "test:\n\t@test -f hello.txt\n\t@grep -qx hello hello.txt\n",
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "add", "Makefile"], cwd=self.root, check=True)
+        subprocess.run(
+            [
+                "git", "-c", "user.name=test", "-c", "user.email=test@example.invalid",
+                "commit", "-q", "-m", "seed",
+            ],
+            cwd=self.root,
+            check=True,
+        )
+        subprocess.run(["git", "branch", "-M", "main"], cwd=self.root, check=True)
+        source_head = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=self.root, text=True
+        ).strip()
+
+        fake_bin = self.base / "bin"
+        fake_bin.mkdir()
+        docker_log = self.base / "docker.log"
+        fake_docker = fake_bin / "docker"
+        fake_docker.write_text(
+            "#!/bin/sh\n"
+            "printf '%s\\n' \"$*\" >> \"$FAKE_DOCKER_LOG\"\n"
+            "if [ \"$1\" = image ] && [ \"$2\" = inspect ]; then exit 0; fi\n"
+            "while [ \"$#\" -gt 0 ] && [ \"$1\" != alpine:latest ]; do shift; done\n"
+            "[ \"$#\" -gt 0 ] || exit 2\n"
+            "shift\n"
+            "exec \"$@\"\n",
+            encoding="utf-8",
+        )
+        fake_docker.chmod(0o755)
+
+        key_file = self.base / "work-llama-key"
+        key_file.write_text("synthetic-test-key", encoding="utf-8")
+        call_index = {"value": 0}
+
+        def responder(payload, requests):
+            index = call_index["value"]
+            call_index["value"] += 1
+            if index == 0:
+                message = {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "create-1",
+                        "type": "function",
+                        "function": {
+                            "name": "create",
+                            "arguments": json.dumps({"path": "hello.txt", "content": "hello\n"}),
+                        },
+                    }],
+                }
+            elif index == 1:
+                message = {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "validate-1",
+                        "type": "function",
+                        "function": {
+                            "name": "validate",
+                            "arguments": json.dumps({"profile": "test"}),
+                        },
+                    }],
+                }
+            else:
+                message = {
+                    "role": "assistant",
+                    "content": (
+                        "Implemented: created hello.txt\\nFiles: hello.txt\\n"
+                        "Validation: test passed\\nUncertainty: none"
+                    ),
+                }
+            return {
+                "choices": [{"message": message}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13},
+            }
+
+        safe_base = self.base / "safe-workspaces"
+        with FakeLlamaServer(responder=responder) as llama, mock.patch.dict(
+            os.environ,
+            {
+                "PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
+                "FAKE_DOCKER_LOG": str(docker_log),
+                "LAI_HOST": llama.host,
+                "LAI_PORT": str(llama.port),
+                "LAI_API_KEY_FILE": str(key_file),
+                "LAI_STATE_DIR": str(self.base / "work-state"),
+                "LAI_METRICS_DIR": str(self.base / "work-metrics"),
+                "LAI_AUDIT_DIR": str(self.base / "work-audit"),
+                "LAI_SAFE_WORKSPACE_DIR": str(safe_base),
+            },
+            clear=False,
+        ):
+            status, payload = self.request(
+                "/v1/runs",
+                method="POST",
+                token=self.token,
+                body={"mode": "implement", "task": "Create hello.txt containing hello and validate it."},
+            )
+            self.assertEqual(status, 202, payload)
+            final = self.wait_run(
+                payload["run"]["control_run_id"],
+                {"succeeded", "failed"},
+                timeout=12,
+            )
+
+        self.assertEqual(final["status"], "succeeded", final["stderr"])
+        self.assertEqual(final["tool_profile"], agent.CONTROL_RUN_WORK_PROFILE)
+        self.assertIsNotNone(final["workspace"])
+        workspace = Path(final["workspace"]["path"])
+        self.assertTrue((workspace / "hello.txt").is_file())
+        self.assertEqual((workspace / "hello.txt").read_text(), "hello\n")
+        self.assertIn("hello.txt", final["workspace"]["changed_paths"])
+        self.assertIn("hello.txt", final["workspace"]["diff"])
+        self.assertFalse((self.root / "hello.txt").exists())
+        self.assertEqual(
+            subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.root, text=True).strip(),
+            source_head,
+        )
+        log = docker_log.read_text(encoding="utf-8")
+        self.assertIn("image inspect alpine:latest", log)
+        self.assertIn("--network=none", log)
+        self.assertIn("--pull=never", log)
+        self.assertIn("alpine:latest make test", log)
 
     def test_control_server_close_terminates_active_child(self):
         started = threading.Event()

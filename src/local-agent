@@ -23,7 +23,7 @@ import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "0.4.0-beta.13"
+VERSION = "0.4.0-beta.14"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -55,10 +55,10 @@ SEMANTIC_CODE_CONTRACT = {
         },
         {
             "id": "tool-runtime",
-            "intent": "execute bounded repository tools for read, search, patch, shell, and git inspection",
-            "paths": ["src/local-agent", "docs/ARCHITECTURE.md", "docs/MODES.md"],
-            "entrypoints": ["run_tool", "tool_read", "tool_search", "tool_patch", "tool_bash", "tool_git"],
-            "terms": ["tool", "runtime", "read", "search", "inspect", "patch", "rewrite", "bash", "git", "validation"],
+            "intent": "execute bounded repository tools for read, write, structured validation, shell, and git inspection",
+            "paths": ["src/local-agent", "docs/ARCHITECTURE.md", "docs/MODES.md", "docs/CONTROL-PLANE.md"],
+            "entrypoints": ["run_tool", "tool_read", "tool_search", "tool_patch", "tool_validate", "tool_bash", "tool_git", "remote_validation_docker_argv"],
+            "terms": ["tool", "runtime", "read", "search", "inspect", "patch", "rewrite", "validate", "sandbox", "workspace", "bash", "git", "validation"],
         },
         {
             "id": "context-intelligence",
@@ -961,6 +961,29 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "validate",
+            "description": (
+                "Run one recognized project validation profile without "
+                "accepting an arbitrary shell command."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "profile": {
+                        "type": "string",
+                        "enum": [
+                            "test", "check", "lint", "build",
+                            "typecheck", "full"
+                        ],
+                    }
+                },
+                "required": ["profile"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "bash",
             "description": "Run repository tests, builds, checks, or narrow diagnostics",
             "parameters": {
@@ -976,17 +999,17 @@ TOOLS = [
 
 LOCAL_TOOL_NAMES_BY_MODE = {
     "general": frozenset({"project", "read", "search", "list", "git", "edit", "create", "bash"}),
-    "fix": frozenset({"project", "read", "search", "list", "git", "edit", "bash"}),
+    "fix": frozenset({"project", "read", "search", "list", "git", "edit", "validate", "bash"}),
     "test": frozenset({"project", "read", "search", "list", "git", "bash"}),
     "review": frozenset({"read", "search", "list", "git"}),
     "debug": frozenset({"inspect", "search", "git", "bash"}),
     "diagnose": frozenset({"project", "read", "inspect", "search", "list", "git", "bash"}),
-    "refactor": frozenset({"project", "read", "search", "list", "git", "edit", "create", "bash"}),
+    "refactor": frozenset({"project", "read", "search", "list", "git", "edit", "create", "validate", "bash"}),
     "security": frozenset({"read", "search", "list", "git"}),
     "plan": frozenset({"inspect", "search"}),
     "release": frozenset({"project", "read", "inspect", "search", "list", "git", "bash"}),
-    "ci-fix": frozenset({"inspect", "search", "git", "patch", "rewrite", "create", "bash"}),
-    "implement": frozenset({"inspect", "search", "git", "patch", "rewrite", "create", "bash"}),
+    "ci-fix": frozenset({"inspect", "search", "git", "patch", "rewrite", "create", "validate", "bash"}),
+    "implement": frozenset({"inspect", "search", "git", "patch", "rewrite", "create", "validate", "bash"}),
 }
 
 
@@ -1762,6 +1785,245 @@ def tool_edit(args):
 
     p.write_text(text.replace(old, new, 1))
     return f"OK: edited {p.relative_to(ROOT)}"
+
+
+VALIDATION_PROFILES = ("test", "check", "lint", "build", "typecheck", "full")
+VALIDATION_TIMEOUT_SECONDS = 180
+REMOTE_VALIDATION_SANDBOX_IMAGE = "alpine:latest"
+REMOTE_VALIDATION_SOURCE_ROOT_ENV = "LAI_CONTROL_SOURCE_ROOT"
+
+
+def makefile_targets(root=None):
+    root = ROOT if root is None else Path(root)
+    path = root / "Makefile"
+    if not path.is_file():
+        return []
+    targets = []
+    for line in path.read_text(errors="replace").splitlines():
+        match = re.match(r"^([A-Za-z0-9_.-]+):(?:\s|$)", line)
+        if match and not match.group(1).startswith("."):
+            targets.append(match.group(1))
+    return sorted(dict.fromkeys(targets))
+
+
+def _project_python(root):
+    candidate = Path(root) / ".venv" / "bin" / "python"
+    if candidate.is_file() and os.access(candidate, os.X_OK):
+        return str(candidate)
+    return sys.executable
+
+
+def validation_command_candidates(root=None):
+    root = ROOT if root is None else Path(root)
+    candidates = {profile: [] for profile in VALIDATION_PROFILES}
+
+    def add(profile, argv):
+        command = tuple(str(item) for item in argv)
+        if command and command not in candidates[profile]:
+            candidates[profile].append(command)
+
+    targets = set(makefile_targets(root))
+    make_profiles = {
+        "test": ("test-dev", "test"),
+        "check": ("check",),
+        "lint": ("lint",),
+        "build": ("build",),
+        "typecheck": ("typecheck",),
+        "full": ("validate",),
+    }
+    for profile, names in make_profiles.items():
+        for name in names:
+            if name in targets:
+                add(profile, ("make", name))
+
+    package_json = root / "package.json"
+    if package_json.is_file():
+        try:
+            data = json.loads(package_json.read_text(errors="replace"))
+        except Exception:
+            data = {}
+        scripts = data.get("scripts") if isinstance(data, dict) else {}
+        scripts = scripts if isinstance(scripts, dict) else {}
+        package_manager = str(data.get("packageManager") or "").split("@", 1)[0]
+        if package_manager not in {"npm", "pnpm", "yarn", "bun"}:
+            if (root / "pnpm-lock.yaml").is_file():
+                package_manager = "pnpm"
+            elif (root / "yarn.lock").is_file():
+                package_manager = "yarn"
+            elif (root / "bun.lock").is_file() or (root / "bun.lockb").is_file():
+                package_manager = "bun"
+            else:
+                package_manager = "npm"
+        script_profiles = {
+            "test": ("test",),
+            "check": ("check",),
+            "lint": ("lint",),
+            "build": ("build",),
+            "typecheck": ("typecheck",),
+            "full": ("validate", "ci"),
+        }
+        for profile, names in script_profiles.items():
+            for name in names:
+                if name in scripts:
+                    add(profile, (package_manager, "run", name))
+
+    pyproject = root / "pyproject.toml"
+    pytest_configured = (root / "pytest.ini").is_file() or (root / "conftest.py").is_file()
+    if pyproject.is_file():
+        try:
+            data = tomllib.loads(pyproject.read_text(errors="replace"))
+            pytest_configured = pytest_configured or "pytest" in (data.get("tool") or {})
+        except Exception:
+            pass
+    if pytest_configured:
+        add("test", (_project_python(root), "-m", "pytest", "-q"))
+
+    if (root / "go.mod").is_file():
+        add("test", ("go", "test", "./..."))
+        add("check", ("go", "test", "./..."))
+    if (root / "Cargo.toml").is_file():
+        add("test", ("cargo", "test"))
+        add("check", ("cargo", "check"))
+
+    if not candidates["full"]:
+        for fallback in ("check", "test"):
+            if candidates[fallback]:
+                candidates["full"].append(candidates[fallback][0])
+                break
+    return candidates
+
+
+def select_validation_command(profile, root=None):
+    if profile not in VALIDATION_PROFILES:
+        raise ValueError("unknown validation profile")
+    commands = validation_command_candidates(root).get(profile) or []
+    return commands[0] if commands else None
+
+
+def remote_validation_sandbox_available(image=REMOTE_VALIDATION_SANDBOX_IMAGE):
+    try:
+        proc = subprocess.run(
+            ["docker", "image", "inspect", image],
+            text=True,
+            capture_output=True,
+            timeout=10,
+            shell=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return False
+    return proc.returncode == 0
+
+
+def _remote_dependency_mounts(source_root):
+    mounts = []
+    source_root = Path(source_root).resolve()
+    for name in (".venv", "node_modules"):
+        source = source_root / name
+        if source.is_dir() and not source.is_symlink():
+            mounts.extend([
+                "--mount",
+                f"type=bind,src={source},dst=/workspace/{name},readonly",
+            ])
+    return mounts
+
+
+def remote_validation_docker_argv(argv, *, workspace=None, source_root=None):
+    workspace = Path(workspace or ROOT).resolve()
+    source_root = Path(
+        source_root
+        or os.environ.get(REMOTE_VALIDATION_SOURCE_ROOT_ENV)
+        or workspace
+    ).resolve()
+    if not workspace.is_dir():
+        raise RuntimeError("remote validation workspace is unavailable")
+    uid = os.getuid() if hasattr(os, "getuid") else 1000
+    gid = os.getgid() if hasattr(os, "getgid") else 1000
+    command = [
+        "docker", "run", "--rm", "--pull=never",
+        "--network=none", "--read-only", "--cap-drop=ALL",
+        "--security-opt=no-new-privileges", "--pids-limit=128",
+        "--memory=1g", "--cpus=2", "--user", f"{uid}:{gid}",
+        "--tmpfs", "/tmp:rw,nosuid,nodev,size=128m",
+        "--env", "HOME=/tmp", "--env", "CI=1",
+        "--workdir", "/workspace",
+        "--mount", f"type=bind,src={workspace},dst=/workspace",
+    ]
+    for runtime_path in ("/usr", "/bin", "/lib", "/lib64", "/usr/local"):
+        path = Path(runtime_path)
+        if path.exists():
+            command.extend([
+                "--mount",
+                f"type=bind,src={path},dst={path},readonly",
+            ])
+
+    executable = shutil.which(str(argv[0]))
+    if executable:
+        resolved = Path(executable).resolve()
+        nvm_parts = resolved.parts
+        if ".nvm" in nvm_parts and "versions" in nvm_parts and "node" in nvm_parts:
+            try:
+                node_index = nvm_parts.index("node")
+                version_root = Path(*nvm_parts[: node_index + 2])
+                if version_root.is_dir() and not version_root.is_symlink():
+                    command.extend([
+                        "--mount",
+                        f"type=bind,src={version_root},dst=/opt/lai-node,readonly",
+                    ])
+                    command.extend([
+                        "--env",
+                        "PATH=/opt/lai-node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                    ])
+            except (ValueError, IndexError):
+                pass
+
+    command.extend(_remote_dependency_mounts(source_root))
+    command.append(REMOTE_VALIDATION_SANDBOX_IMAGE)
+    command.extend(str(item) for item in argv)
+    return command
+
+
+def _run_validation_argv(argv, profile, *, remote=False):
+    command = list(argv)
+    if remote:
+        if not remote_validation_sandbox_available():
+            return "ERROR: remote validation sandbox image is unavailable; no image was pulled"
+        command = remote_validation_docker_argv(command)
+    try:
+        proc = subprocess.run(
+            command,
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=VALIDATION_TIMEOUT_SECONDS,
+            shell=False,
+        )
+    except FileNotFoundError:
+        return f"ERROR: validation executable unavailable for profile={profile}"
+    except subprocess.TimeoutExpired:
+        return f"ERROR: validation timed out after {VALIDATION_TIMEOUT_SECONDS} seconds"
+    output = proc.stdout
+    if proc.stderr:
+        output += ("\n" if output else "") + proc.stderr
+    return trim(
+        f"exit_code={proc.returncode}\n"
+        f"validation_profile={profile}\n"
+        "argv=" + json.dumps(list(argv), ensure_ascii=False) + "\n"
+        + (output if output else "[no output]")
+    )
+
+
+def tool_validate(args):
+    if not isinstance(args, dict) or set(args) != {"profile"}:
+        return "ERROR: validate requires exactly one profile"
+    profile = args.get("profile")
+    if profile not in VALIDATION_PROFILES:
+        return "ERROR: unknown validation profile"
+    argv = select_validation_command(profile)
+    if argv is None:
+        return f"ERROR: no recognized validation command for profile={profile}"
+    remote = os.environ.get("LAI_CONTROL_RUN_CHILD") == "1"
+    return _run_validation_argv(argv, profile, remote=remote)
+
 
 
 def tool_bash(args):
@@ -2999,20 +3261,37 @@ CONTROL_API_DEFAULT_BIND = "127.0.0.1"
 CONTROL_API_DEFAULT_PORT = 8765
 CONTROL_API_MAX_BODY_BYTES = 64 * 1024
 CONTROL_API_TOKEN_BYTES = 32
-CONTROL_RUN_TOOL_PROFILE = "shell-free-read-only"
+CONTROL_RUN_TOOL_PROFILE = "capability-scoped"
+CONTROL_RUN_READ_ONLY_PROFILE = "shell-free-read-only"
+CONTROL_RUN_WORK_PROFILE = "repository-work-no-shell"
+CONTROL_RUN_READ_ONLY_MODES = frozenset({"plan", "review", "security", "diagnose", "release"})
+CONTROL_RUN_WORK_MODES = frozenset({"implement", "fix", "refactor", "ci-fix"})
 CONTROL_RUN_TOOL_NAMES_BY_MODE = {
     "plan": frozenset({"inspect", "search"}),
     "review": frozenset({"read", "search", "list", "git"}),
     "security": frozenset({"read", "search", "list", "git"}),
     "diagnose": frozenset({"project", "read", "inspect", "search", "list", "git"}),
     "release": frozenset({"project", "read", "inspect", "search", "list", "git"}),
+    "implement": frozenset({"inspect", "search", "git", "patch", "rewrite", "create", "validate"}),
+    "fix": frozenset({"project", "read", "search", "list", "git", "edit", "validate"}),
+    "refactor": frozenset({"project", "read", "search", "list", "git", "edit", "create", "validate"}),
+    "ci-fix": frozenset({"inspect", "search", "git", "patch", "rewrite", "create", "validate"}),
 }
 CONTROL_RUN_ALLOWED_MODES = tuple(CONTROL_RUN_TOOL_NAMES_BY_MODE)
-CONTROL_RUN_FORBIDDEN_TOOL_NAMES = frozenset({"bash", "edit", "create", "patch", "rewrite"})
+CONTROL_RUN_FORBIDDEN_TOOL_NAMES = frozenset({"bash"})
+
+
+def control_run_tool_profile(mode):
+    if mode in CONTROL_RUN_WORK_MODES:
+        return CONTROL_RUN_WORK_PROFILE
+    if mode in CONTROL_RUN_READ_ONLY_MODES:
+        return CONTROL_RUN_READ_ONLY_PROFILE
+    raise ValueError(f"mode {mode} has no control-run profile")
 CONTROL_RUN_TASK_MAX_CHARS = 4000
 CONTROL_RUN_QUEUE_LIMIT = 4
 CONTROL_RUN_RETAIN_LIMIT = 20
 CONTROL_RUN_OUTPUT_LIMIT_BYTES = 64 * 1024
+CONTROL_RUN_DIFF_LIMIT_BYTES = 32 * 1024
 CONTROL_RUN_CANCEL_GRACE_SECONDS = 2.0
 CONTROL_RUN_POLL_SECONDS = 0.05
 CONTROL_RUN_CHILD_ENV = "LAI_CONTROL_RUN_CHILD"
@@ -3198,7 +3477,20 @@ def control_status_payload(server=None):
             "repository_write": False,
             "policy_classification": True,
             "async_read_only_runs": True,
+            "async_work_runs": True,
             "remote_tool_profile": CONTROL_RUN_TOOL_PROFILE,
+            "remote_tool_profiles": {
+                "read_only": CONTROL_RUN_READ_ONLY_PROFILE,
+                "work": CONTROL_RUN_WORK_PROFILE,
+            },
+            "source_repository_write": False,
+            "sandbox_workspace_write": True,
+            "validation_sandbox": {
+                "backend": "docker",
+                "image": REMOTE_VALIDATION_SANDBOX_IMAGE,
+                "ready": remote_validation_sandbox_available(),
+                "network": "none",
+            },
             "allowed_run_modes": list(CONTROL_RUN_ALLOWED_MODES),
         },
         "control_runs": control_run_queue_summary(server) if server is not None else None,
@@ -3256,9 +3548,12 @@ def control_run_command(mode, task):
     return [sys.executable, str(Path(__file__).resolve()), f"--{mode}", task]
 
 
-def control_run_child_env():
+def control_run_child_env(source_root=None):
     child_env = os.environ.copy()
     child_env[CONTROL_RUN_CHILD_ENV] = "1"
+    child_env[REMOTE_VALIDATION_SOURCE_ROOT_ENV] = str(
+        Path(source_root or ROOT).resolve()
+    )
     executable = Path(__file__).resolve()
     source_skills = executable.parent.parent / "skills"
     if (
@@ -3298,6 +3593,18 @@ def _control_run_public_record_locked(server, record):
         "stderr_truncated": bool(record.get("stderr_truncated")),
         "cancel_requested": bool(record.get("cancel_requested")),
         "tool_profile": record.get("tool_profile", CONTROL_RUN_TOOL_PROFILE),
+        "workspace": (
+            {
+                "isolated": True,
+                "path": record.get("workspace_path"),
+                "git_status": record.get("workspace_git_status", ""),
+                "changed_paths": list(record.get("workspace_changed_paths") or []),
+                "diff": record.get("workspace_diff", ""),
+                "diff_truncated": bool(record.get("workspace_diff_truncated")),
+            }
+            if record.get("workspace_path")
+            else None
+        ),
     }
 
 
@@ -3338,8 +3645,10 @@ def _control_prune_records_locked(server):
                 break
         if victim is None:
             break
-        server.control_run_records.pop(victim, None)
+        victim_record = server.control_run_records.pop(victim, None)
         server.control_run_tasks.pop(victim, None)
+        if victim_record is not None:
+            remove_control_work_workspace(victim_record.get("workspace_path"))
 
 
 def control_submit_run(server, request):
@@ -3353,6 +3662,12 @@ def control_submit_run(server, request):
     if not isinstance(mode, str) or mode not in CONTROL_RUN_ALLOWED_MODES:
         raise ValueError(
             "mode must be one of: " + ", ".join(CONTROL_RUN_ALLOWED_MODES)
+        )
+    if mode in CONTROL_RUN_WORK_MODES and not remote_validation_sandbox_available():
+        raise RuntimeError(
+            "remote work sandbox is unavailable; required local image "
+            + REMOTE_VALIDATION_SANDBOX_IMAGE
+            + " was not pulled automatically"
         )
     if not isinstance(task, str):
         raise ValueError("task must be a string")
@@ -3390,7 +3705,12 @@ def control_submit_run(server, request):
             "stdout_truncated": False,
             "stderr_truncated": False,
             "cancel_requested": False,
-            "tool_profile": CONTROL_RUN_TOOL_PROFILE,
+            "tool_profile": control_run_tool_profile(mode),
+            "workspace_path": None,
+            "workspace_git_status": "",
+            "workspace_changed_paths": [],
+            "workspace_diff": "",
+            "workspace_diff_truncated": False,
         }
         server.control_run_records[control_run_id] = record
         server.control_run_tasks[control_run_id] = task
@@ -3426,6 +3746,97 @@ def control_terminate_process(process, force=False):
         pass
 
 
+def _bounded_utf8_text(text, limit_bytes):
+    raw = str(text or "").encode("utf-8", errors="replace")
+    if len(raw) <= limit_bytes:
+        return raw.decode("utf-8", errors="replace"), False
+    clipped = raw[:limit_bytes]
+    return clipped.decode("utf-8", errors="replace") + "\n[diff truncated]", True
+
+
+def collect_control_workspace_result(path):
+    path = Path(path).resolve()
+    status = workspace_git_text(path, ["status", "--short"], default="[unavailable]")
+    changed_paths = []
+    if status not in {"[unavailable]", "[clean]", ""}:
+        for line in status.splitlines():
+            value = line[3:].strip() if len(line) > 3 else ""
+            if value and value not in changed_paths:
+                changed_paths.append(value)
+
+    chunks = []
+    try:
+        proc = subprocess.run(
+            ["git", "diff", "--no-color", "HEAD", "--"],
+            cwd=path,
+            text=True,
+            capture_output=True,
+            timeout=15,
+            shell=False,
+        )
+        if proc.returncode == 0 and proc.stdout:
+            chunks.append(proc.stdout)
+    except Exception:
+        pass
+
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+            cwd=path,
+            text=False,
+            capture_output=True,
+            timeout=10,
+            shell=False,
+        )
+        if proc.returncode == 0:
+            for raw in proc.stdout.split(b"\0")[:8]:
+                if not raw:
+                    continue
+                rel = raw.decode("utf-8", errors="replace")
+                target = (path / rel).resolve(strict=False)
+                if path not in target.parents or not target.is_file() or target.is_symlink():
+                    continue
+                diff = subprocess.run(
+                    ["git", "diff", "--no-index", "--no-color", "--", "/dev/null", rel],
+                    cwd=path,
+                    text=True,
+                    capture_output=True,
+                    timeout=10,
+                    shell=False,
+                )
+                if diff.stdout:
+                    chunks.append(diff.stdout)
+    except Exception:
+        pass
+
+    diff_text, truncated = _bounded_utf8_text(
+        "\n".join(chunks), CONTROL_RUN_DIFF_LIMIT_BYTES
+    )
+    return {
+        "git_status": status,
+        "changed_paths": changed_paths[:50],
+        "diff": diff_text,
+        "diff_truncated": truncated,
+    }
+
+
+def create_control_work_workspace(control_run_id):
+    name = "control-" + slugify_safe_workspace_name(control_run_id)
+    return create_safe_workspace(["--name", name, "--force"])
+
+
+def remove_control_work_workspace(path):
+    if not path:
+        return
+    try:
+        base = safe_workspace_base()
+        target = ensure_safe_workspace_child(base, Path(path))
+    except (SystemExit, ValueError, OSError):
+        return
+    if target.is_dir():
+        shutil.rmtree(target, ignore_errors=True)
+
+
 def _control_run_worker(server):
     while True:
         with server.control_run_condition:
@@ -3454,11 +3865,17 @@ def _control_run_worker(server):
         stderr_handle = tempfile.TemporaryFile(mode="w+b")
         process = None
         exit_code = None
+        workspace_path = ROOT
         try:
-            child_env = control_run_child_env()
+            if mode in CONTROL_RUN_WORK_MODES:
+                workspace = create_control_work_workspace(control_run_id)
+                workspace_path = Path(workspace["path"]).resolve()
+                with server.control_run_condition:
+                    record["workspace_path"] = str(workspace_path)
+            child_env = control_run_child_env(source_root=ROOT)
             process = subprocess.Popen(
                 control_run_command(mode, task),
-                cwd=str(ROOT),
+                cwd=str(workspace_path),
                 env=child_env,
                 stdin=subprocess.DEVNULL,
                 stdout=stdout_handle,
@@ -3489,8 +3906,18 @@ def _control_run_worker(server):
             exit_code = process.wait()
             stdout_text, stdout_truncated = _read_bounded_control_output(stdout_handle)
             stderr_text, stderr_truncated = _read_bounded_control_output(stderr_handle)
+            workspace_result = (
+                collect_control_workspace_result(workspace_path)
+                if mode in CONTROL_RUN_WORK_MODES and workspace_path != ROOT
+                else None
+            )
             with server.control_run_condition:
                 record["exit_code"] = exit_code
+                if workspace_result is not None:
+                    record["workspace_git_status"] = workspace_result["git_status"]
+                    record["workspace_changed_paths"] = workspace_result["changed_paths"]
+                    record["workspace_diff"] = workspace_result["diff"]
+                    record["workspace_diff_truncated"] = workspace_result["diff_truncated"]
                 record["stdout"] = stdout_text
                 record["stderr"] = stderr_text
                 record["stdout_truncated"] = stdout_truncated
@@ -5743,18 +6170,6 @@ def git_command_text(args, default="[unavailable]", timeout=10):
     return proc.stdout.strip() or default
 
 
-def makefile_targets():
-    path = ROOT / "Makefile"
-    if not path.is_file():
-        return []
-    targets = []
-    for line in path.read_text(errors="replace").splitlines():
-        match = re.match(r"^([A-Za-z0-9_.-]+):(?:\s|$)", line)
-        if match and not match.group(1).startswith("."):
-            targets.append(match.group(1))
-    return sorted(dict.fromkeys(targets))
-
-
 def release_validation_commands():
     targets = set(makefile_targets())
     preferred = []
@@ -6903,6 +7318,8 @@ def run_tool(name, args):
             result = tool_create(args)
         elif name == "rewrite":
             result = tool_rewrite(args)
+        elif name == "validate":
+            result = tool_validate(args)
         elif name == "bash":
             result = tool_bash(args)
         else:
@@ -8333,9 +8750,11 @@ def record_workspace_tool(
                     str(changed_path)
                 )
 
-    if name == "bash":
-        command = str(
-            args.get("command", "")
+    if name in {"bash", "validate"}:
+        command = (
+            str(args.get("command", ""))
+            if name == "bash"
+            else "validate profile=" + str(args.get("profile", ""))
         )[:500]
 
         state["last_command"] = command
@@ -8346,15 +8765,15 @@ def record_workspace_tool(
                 "result": str(result)[:700],
             }
 
-    if (
-        name == "bash"
-        and is_validation
-    ):
+    if name in {"bash", "validate"} and is_validation:
+        command = (
+            str(args.get("command", ""))
+            if name == "bash"
+            else "validate profile=" + str(args.get("profile", ""))
+        )[:500]
         record_audit_event({
             "type": "validation",
-            "command": str(
-                args.get("command", "")
-            )[:500],
+            "command": command,
             "result": str(result)[:900],
             "current_hashes": (
                 hash_repository_paths(
@@ -9986,17 +10405,17 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
         if last_validation_failure or patch_sanity_issue:
             return (
                 "repair",
-                set(WRITE_TOOLS) | {"bash"},
+                set(WRITE_TOOLS) | {"bash", "validate"},
             )
 
         if needs_validation and required_test_change_pending:
             return (
                 "complete_or_validate",
-                set(WRITE_TOOLS) | {"bash"},
+                set(WRITE_TOOLS) | {"bash", "validate"},
             )
 
         if needs_validation:
-            return "validate", {"bash"}
+            return "validate", {"bash", "validate"}
 
         if required_test_change_pending:
             return (
@@ -10735,11 +11154,16 @@ KEEP: 1,3"""
 
                 elif (
                     mode in {"fix", "ci-fix", "refactor", "implement"}
-                    and name == "bash"
                     and needs_validation
                     and tool_result.startswith("exit_code=")
-                    and command_satisfies_validation(
-                        args.get("command", "")
+                    and (
+                        name == "validate"
+                        or (
+                            name == "bash"
+                            and command_satisfies_validation(
+                                args.get("command", "")
+                            )
+                        )
                     )
                 ):
                     if tool_result.startswith("exit_code=0"):
@@ -10865,9 +11289,12 @@ KEEP: 1,3"""
                         )
 
                 is_validation_call = (
-                    name == "bash"
-                    and command_satisfies_validation(
-                        args.get("command", "")
+                    name == "validate"
+                    or (
+                        name == "bash"
+                        and command_satisfies_validation(
+                            args.get("command", "")
+                        )
                     )
                 )
                 record_workspace_tool(

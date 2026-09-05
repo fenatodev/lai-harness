@@ -8,8 +8,8 @@ Use this checklist for beta releases with protected `main`.
 cd ~/dev/projects/lai-local-agent
 lai readiness
 lai workspace status --json
-lai release-check --target 0.4.0-beta.13 --json
-lai release-pack --target 0.4.0-beta.13 --with-vsix --json
+lai release-check --target 0.4.0-beta.14 --json
+lai release-pack --target 0.4.0-beta.14 --with-vsix --json
 make lint
 make check
 make test-dev
@@ -30,7 +30,7 @@ Every product version bump must review `docs/assets/visual-assets.json`. Its `re
 
 ## Protected-main integration
 
-1. Push `feature/v0.4.0-beta.13-remote-capability-profiles`.
+1. Push `feature/remote-work-profile`.
 2. Open a PR into `main`.
 3. Confirm all required checks are present; `Harness Score L4` is already part of protected `main`.
 4. Require `Python 3.11`, `Python 3.12`, `Publication gates`, and `Harness Score L4` with the branch up to date.
@@ -39,20 +39,20 @@ Every product version bump must review `docs/assets/visual-assets.json`. Its `re
 
 ## Tag after merge
 
-Only after merged `main` is green and `lai release-check --target 0.4.0-beta.13 --json` reports `ready_to_tag`:
+Only after merged `main` is green and `lai release-check --target 0.4.0-beta.14 --json` reports `ready_to_tag`:
 
 ```bash
-git tag -a v0.4.0-beta.13 \
-  -m "v0.4.0-beta.13 — remote capability profiles"
-git push origin v0.4.0-beta.13
+git tag -a v0.4.0-beta.14 \
+  -m "v0.4.0-beta.14 — isolated remote work runs"
+git push origin v0.4.0-beta.14
 ```
 
 Then verify tag CI is green.
 
 ## GitHub pre-release
 
-1. Create the GitHub Release from `v0.4.0-beta.13`.
+1. Create the GitHub Release from `v0.4.0-beta.14`.
 2. Use the title/body from the release pack.
 3. Keep it marked as pre-release.
-4. Optionally attach the inspected `lai-harness-0.4.0-beta.13.vsix`.
-5. Run `lai release-governance --target 0.4.0-beta.13 --remote --json` and `lai project-handoff --target 0.4.0-beta.13 --remote --json`; published governance should be fully verified.
+4. Optionally attach the inspected `lai-harness-0.4.0-beta.14.vsix`.
+5. Run `lai release-governance --target 0.4.0-beta.14 --remote --json` and `lai project-handoff --target 0.4.0-beta.14 --remote --json`; published governance should be fully verified.

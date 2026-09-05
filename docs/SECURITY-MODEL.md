@@ -2,46 +2,56 @@
 
 ## Assets and trust boundaries
 
-Protected assets include repository content, credentials accessible to the user, local model API keys, private prompts, logs, state, and Git history. Inputs cross boundaries from the VS Code user into the extension, from model output into tool arguments, and from the harness into the operating system and model server.
+Protected assets include repository content, credentials accessible to the user, local model API keys, private prompts, logs, state, Git history, and the host operating system. Inputs cross boundaries from the user/gateway into the control plane, from model output into tool arguments, and from the harness into repositories, Docker, the operating system, and the model server.
 
-The user, opened repository, installed LAI code, and local endpoint are assumed trusted. Model output is not trusted to choose unrestricted actions correctly.
+The user, installed LAI code, configured source repository, local model endpoint, and explicitly configured local sandbox image are assumed trusted. Model output and repository content are not trusted to choose unrestricted actions correctly.
 
 ## Implemented controls
 
 - The llama.cpp API key is read from a private external file and sent as a Bearer header.
-- The optional `lai serve` control plane uses a separate bearer token, restrictive token-file permissions, loopback-only binding, bounded JSON bodies, and fixed asynchronous execution for `plan`/`review`/`security` only. Control-run children use a dedicated process group, do not auto-start llama.cpp, and expose no generic shell or repository-write endpoint.
-- Configuration parsing rejects unknown TOML keys and invalid value types before runtime; diagnostics report secret file status without printing secret contents.
-- The reference server launcher refuses builds without API-key support and requests `--no-webui` when available.
-- File tools resolve targets against the repository root; parent and escaping-symlink paths are rejected.
-- Batch patch additionally refuses every symlink component and validates all replacements before any write.
-- The dedicated Git tool exposes status and diff operations only.
+- `lai serve` uses a separate bearer token, restrictive token-file permissions, loopback-only binding, bounded JSON bodies, serialized asynchronous runs, bounded queue/output, and fixed child process groups.
+- Read-only control profiles never receive generic `bash` or file-write tools.
+- Beta.14 work profiles (`implement`, `fix`, `refactor`, `ci-fix`) execute only in unique disposable safe workspaces copied from tracked source-repository contents; the source checkout is not their working tree.
+- Work profiles never receive generic `bash` or Git mutation tools. They receive repository-confined file tools plus the structured `validate` capability.
+- Remote `validate` accepts a small profile rather than a shell command. The harness discovers recognized existing project validation argv and runs it with `shell=False`.
+- Remote validation uses a fixed Docker sandbox with `--pull=never`, no network, read-only container root, dropped capabilities, `no-new-privileges`, bounded CPU/memory/PIDs, no host home, no Docker socket, and only the disposable work workspace writable.
+- The harness never automatically pulls the sandbox image. Missing Docker/image readiness fails a work run before model execution.
+- File tools resolve targets against the active repository/workspace root; parent and escaping-symlink paths are rejected. Batch patch also validates every replacement before any write.
+- The dedicated Git model tool exposes inspection operations only.
 - `AGENTS.md` must be read before file edits when present.
-- Mode-specific schemas keep write tools away from review/security/plan/debug/test modes.
-- A centralized policy classifies every builtin tool action as `ALLOW`, `ASK`, or `DENY`. Known Git mutations and dependency installs are `ASK` and never auto-execute; selected destructive filesystem/Docker/database/system commands and privilege escalation are `DENY`.
-- Validation, acceptance, evidence, debug-evidence, and sanity gates constrain conclusions.
+- A centralized policy classifies builtin tool actions as `ALLOW`, `ASK`, or `DENY`. Known local Git mutations and dependency installs are `ASK`; selected destructive filesystem/Docker/database/system commands and privilege escalation are `DENY`.
+- Validation, acceptance, evidence, debug-evidence, post-patch sanity, stale-write, active-spec, and progress gates constrain write-capable conclusions.
 - Recovery checkpoints are stored outside the repository and explicit resume fails closed on branch, Git-status, or tracked-hash drift; prior tool arguments are not replayed.
-- Context ranking reads only bounded repository samples and injects candidate metadata, not sampled file contents; ranked candidates never bypass normal inspection or policy.
-- Output sizes, file counts, tool rounds, and command durations are bounded.
+- Context ranking injects candidate metadata rather than sampled file contents and never bypasses normal inspection/policy.
+- Output sizes, file counts, tool rounds, validation duration, control queue length, work diff size, and command durations are bounded.
+
+## What the remote work sandbox does and does not mean
+
+Beta.14 materially isolates remote work execution, but it does not claim complete hostile-code containment. The Docker validation boundary removes network access and ordinary host-secret/daemon exposure and prevents the work child from validating directly in the source checkout. Work results are returned as bounded evidence/diffs rather than automatically promoted.
+
+The configured Docker daemon, container runtime, kernel, mounted runtime/dependency directories, and sandbox image remain part of the trusted computing base. Container/kernel escape vulnerabilities, malicious behavior in explicitly mounted dependencies/runtimes, resource-exhaustion bugs outside configured limits, and Docker daemon compromise are outside the guarantees of this project.
+
+The source checkout is still readable by the parent control server when it creates the tracked safe-workspace copy and collects state. Beta.14 does not implement multi-tenant isolation.
 
 ## Residual risks
 
-The local `bash` tool is not sandboxed. Beta.13 therefore never includes `bash` in a control-child model schema; remote `diagnose` and `release` receive shell-free capability profiles even though their local CLI forms retain `bash`. The local tool uses command inspection to feed the central policy and executes `ALLOW` commands with the LAI user's permissions. Known Git mutations and dependency installs stop at `ASK`; selected destructive patterns stop at `DENY`. Aliases, wrapper scripts, alternate executables, interpreters, shell features, or unlisted commands can still bypass intent. Its working directory is the repository root, but OS-level reads and writes are not confined there.
+The local interactive `bash` tool remains unsandboxed and runs accepted commands with the LAI user's OS permissions. Command inspection is governance, not complete shell containment: aliases, wrappers, alternate interpreters/executables, shell features, or unlisted commands can bypass intent. This local limitation is why generic `bash` remains absent from all remote control profiles.
 
-Model prompt injection from repository files, malicious dependencies invoked by tests, symlink races, endpoint interception on an untrusted network, extension-host compromise, and sensitive content in state/audit/checkpoint output remain possible. Repository filenames and sampled text can also bias context ranking, so rankings remain advisory and require normal evidence inspection. Recovery hashes establish content identity at a checkpoint, not benign behavior or safe intent.
+Prompt injection from repository files, malicious tracked project code, malicious dependencies invoked by validation, symlink races, endpoint interception on an untrusted network, extension-host compromise, model hallucination, and sensitive content in state/audit/checkpoint/diff output remain possible. Repository filenames/text can bias context ranking; rankings are advisory only. Passing validation proves only the executed checks, not general correctness or security.
 
 ## Safe deployment guidance
 
-- Use a dedicated least-privilege account or disposable VM/container.
-- Keep secrets outside the workspace and restrict their filesystem permissions.
-- Bind to loopback when server and client share a network namespace. For WSL-to-Windows access, enforce host firewall scope and API authentication.
-- Never treat a port binding or API key as proof of internet safety.
-- Use only trusted repositories and review commands/diffs.
-- Rotate or delete local logs according to their sensitivity.
-- Keep `lai serve` on loopback. Put any smartphone/private-network transport behind a separate authenticated gateway/proxy; do not switch the harness to a public bind.
+- Use a dedicated least-privilege account or disposable VM for stronger host isolation.
+- Keep secrets outside repositories/workspaces and restrict their filesystem permissions.
+- Keep `lai serve` on loopback. Put smartphone/private-network transport behind a separate authenticated gateway/proxy such as the companion gateway + Tailscale Serve.
+- Never expose llama.cpp or the control plane directly to the public internet.
+- Keep Docker and the configured sandbox image updated and trusted. Do not mount additional host paths casually.
+- Review work diffs before promotion to the source checkout. Beta.14 deliberately does not auto-apply them.
+- Rotate or delete local state/audit/log data according to sensitivity.
 - Do not expose LAI as a remote multi-user service without a separate authorization and isolation design.
 
 ## Security claims deliberately not made
 
-lai harness does not claim complete shell containment, prompt-injection resistance, tenant isolation, deterministic model behavior, or proof that passing tests imply a secure program.
+lai harness does not claim complete shell/container containment, prompt-injection resistance, tenant isolation, deterministic model behavior, proof that passing tests imply safe code, or protection against kernel/container-runtime compromise.
 
-The implemented Git-mutation policy and its residual limits are documented separately in [Git shell hardening](GIT-SHELL-HARDENING.md).
+The local Git-mutation policy and its residual limits are documented separately in [Git shell hardening](GIT-SHELL-HARDENING.md).

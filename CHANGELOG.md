@@ -1,3 +1,27 @@
+## [0.4.0-beta.14] - 2026-09-04
+
+### Added
+- Added isolated remote `implement`, `fix`, `refactor`, and `ci-fix` control runs.
+- Added structured `validate` profiles (`test`, `check`, `lint`, `build`, `typecheck`, `full`) that select recognized project validation argv rather than caller/model shell text.
+- Added per-run disposable safe workspaces and bounded Git status/changed-path/diff evidence.
+- Added Docker validation sandboxing with no network, read-only root, dropped capabilities, `no-new-privileges`, bounded resources, no host home, and no Docker socket.
+- Added sandbox-readiness reporting and fail-closed work scheduling without automatic image pulls.
+
+### Safety
+- Remote work never writes directly to the source checkout and never receives generic `bash` or Git mutation tools.
+- Work runs are rejected before model execution when the validation sandbox is unavailable.
+- Remote callers cannot choose executable, cwd, environment, Docker image/mount/network options, or arbitrary validation commands.
+- Applying/promoting a returned work diff remains intentionally outside beta.14.
+
+### Validation
+- Full suites: 193 tests + 68 pytest subtests before release-documentation gates.
+- Real Docker smoke verified blocked network, hidden host secrets, hidden Docker socket, and successful structured validation.
+- End-to-end remote `implement` smoke verified isolated workspace mutation while the source checkout SHA/files stayed unchanged.
+
+### Architecture
+- The control plane now distinguishes source-repository write posture from disposable-workspace write capability.
+- Private mobile clients can request meaningful implementation work while irreversible promotion remains a separate future approval boundary.
+
 ## [0.4.0-beta.13] - 2026-09-04
 
 ### Added

@@ -26,20 +26,20 @@ The approved diagrams are versioned under `docs/assets/`:
 
 `docs/assets/visual-assets.json` must be reviewed on every version bump. Regenerate a diagram when the architecture it describes changes; otherwise explicitly confirm it remains current before updating the review marker.
 
-## Release v0.4.0-beta.13
+## Release v0.4.0-beta.14
 
-Use `lai release-pack --target 0.4.0-beta.13 --with-vsix --json` to generate local release files.
+Use `lai release-pack --target 0.4.0-beta.14 --with-vsix --json` to generate local release files.
 
-**Title:** lai harness v0.4.0-beta.13 — remote capability profiles
+**Title:** lai harness v0.4.0-beta.14 — isolated remote work runs
 
 The GitHub Release body should come from generated `release-body.md` or [Release notes](RELEASE-NOTES.md). Keep the release marked as a pre-release while the project remains beta.
 
 Before merge, protected `main` must require `Python 3.11`, `Python 3.12`, `Publication gates`, and `Harness Score L4`.
 
-After publication, run `lai release-governance --target 0.4.0-beta.13 --remote --json` to verify branch protection, pre-release metadata, and the VSIX digest when attached.
+After publication, run `lai release-governance --target 0.4.0-beta.14 --remote --json` to verify branch protection, pre-release metadata, and the VSIX digest when attached.
 
 ## Publication hygiene
 
 Do not upload model weights, API keys, control tokens, local logs, audit state, metrics, handoffs, recovery checkpoints, safe workspaces, or machine-specific operational state.
 
-Keep public claims consistent with [Security model](SECURITY-MODEL.md): local `bash` is not sandboxed; the current HTTP control profile is shell-free and write-free; `lai-gateway` is a separate companion project rather than part of the harness runtime.
+Keep public claims consistent with [Security model](SECURITY-MODEL.md): local interactive `bash` is not sandboxed; remote read-only profiles are shell-free; remote work writes only to disposable safe workspaces and validates inside the Docker sandbox; work-result promotion is not implemented; `lai-gateway` remains a separate companion project.

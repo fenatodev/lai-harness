@@ -1172,7 +1172,7 @@ class GuardIntegrationTest(unittest.TestCase):
             tool["function"]["name"]
             for tool in responder.payloads[2].get("tools", [])
         }
-        self.assertEqual(post_write_tools, {"bash"})
+        self.assertEqual(post_write_tools, {"bash", "validate"})
 
         blocked_messages = responder.payloads[3]["messages"]
         self.assertTrue(any(
@@ -1304,6 +1304,38 @@ class GuardIntegrationTest(unittest.TestCase):
         )
         self.assertEqual(checkpoint["phase"], "failed")
         self.assertTrue(checkpoint["terminal"])
+
+    def test_structured_validate_satisfies_implement_post_write_gate(self):
+        (self.repo / "Makefile").write_text(
+            "test:\n\t@test -f hello.txt\n\t@grep -qx hello hello.txt\n",
+            encoding="utf-8",
+        )
+        responder = SequenceResponder([
+            tool_call("create", "create", {"path": "hello.txt", "content": "hello\n"}),
+            tool_call("validate", "validate", {"profile": "test"}),
+            completion(
+                "Implemented: hello file\nFiles: hello.txt\n"
+                "Validation: make test passed\nUncertainty: none"
+            ),
+        ])
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--implement",
+                "Create hello.txt containing hello and validate it.",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Implemented: hello file", result.stdout)
+        self.assertEqual((self.repo / "hello.txt").read_text(), "hello\n")
+        self.assertTrue(
+            any(
+                message.get("name") == "validate"
+                and "exit_code=0" in message.get("content", "")
+                for payload in responder.payloads
+                for message in payload.get("messages", [])
+                if isinstance(message, dict)
+            )
+        )
 
     def test_simple_implement_still_creates_and_validates(self):
         responder = SequenceResponder([
