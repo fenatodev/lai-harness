@@ -70,7 +70,7 @@ Close the stale textual status in spec 021 as completed so repository traceabili
 
 - Focused update-intelligence suite: 23 passed + 13 pytest subtests.
 - High-risk update/core/install group: 150 passed + 79 pytest subtests.
-- Full pytest: 248 passed + 85 subtests.
+- Full pytest after final spec closure and active-spec gate: 249 passed + 85 subtests.
 - Final publication validation after spec closure: 249 dependency-free unittest tests passed.
 - Ruff and strict mypy are green; deterministic compile/static/Git-diff checks are green.
 - Harness Score 1.6.4 remains L4 Self-correcting at 100/108 (93%).
