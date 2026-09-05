@@ -23,7 +23,7 @@ import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "0.4.0-beta.14"
+VERSION = "0.4.0-beta.15"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -3292,6 +3292,10 @@ CONTROL_RUN_QUEUE_LIMIT = 4
 CONTROL_RUN_RETAIN_LIMIT = 20
 CONTROL_RUN_OUTPUT_LIMIT_BYTES = 64 * 1024
 CONTROL_RUN_DIFF_LIMIT_BYTES = 32 * 1024
+CONTROL_PROMOTION_PATCH_LIMIT_BYTES = 512 * 1024
+CONTROL_PROMOTION_MAX_PATHS = 100
+CONTROL_PROMOTION_VALIDATION_OUTPUT_LIMIT_BYTES = 16 * 1024
+CONTROL_PROMOTION_BRANCH_PREFIX = "lai/promotion-"
 CONTROL_RUN_CANCEL_GRACE_SECONDS = 2.0
 CONTROL_RUN_POLL_SECONDS = 0.05
 CONTROL_RUN_CHILD_ENV = "LAI_CONTROL_RUN_CHILD"
@@ -3485,6 +3489,8 @@ def control_status_payload(server=None):
             },
             "source_repository_write": False,
             "sandbox_workspace_write": True,
+            "approved_workspace_promotion": True,
+            "promotion_target": "dedicated-feature-worktree",
             "validation_sandbox": {
                 "backend": "docker",
                 "image": REMOTE_VALIDATION_SANDBOX_IMAGE,
@@ -3533,6 +3539,16 @@ def control_policy_payload(request):
 
 class ControlRunQueueFull(RuntimeError):
     pass
+
+
+class ControlPromotionConflict(RuntimeError):
+    pass
+
+
+class ControlPromotionRejected(RuntimeError):
+    def __init__(self, message, *, detail=None):
+        super().__init__(message)
+        self.detail = detail
 
 
 CONTROL_RUN_TERMINAL_STATES = {"succeeded", "failed", "cancelled"}
@@ -3640,7 +3656,10 @@ def _control_prune_records_locked(server):
     while len(server.control_run_records) > CONTROL_RUN_RETAIN_LIMIT:
         victim = None
         for run_id, record in server.control_run_records.items():
-            if record.get("status") in CONTROL_RUN_TERMINAL_STATES:
+            if (
+                record.get("status") in CONTROL_RUN_TERMINAL_STATES
+                and record.get("promotion_status") != "in_progress"
+            ):
                 victim = run_id
                 break
         if victim is None:
@@ -3711,6 +3730,15 @@ def control_submit_run(server, request):
             "workspace_changed_paths": [],
             "workspace_diff": "",
             "workspace_diff_truncated": False,
+            "workspace_source_sha": None,
+            "workspace_source_branch": None,
+            "workspace_source_clean": None,
+            "promotion_status": "none",
+            "promotion_patch_sha256": None,
+            "promotion_branch": None,
+            "promotion_path": None,
+            "promoted_at": None,
+            "promotion_validation": None,
         }
         server.control_run_records[control_run_id] = record
         server.control_run_tasks[control_run_id] = task
@@ -3754,15 +3782,145 @@ def _bounded_utf8_text(text, limit_bytes):
     return clipped.decode("utf-8", errors="replace") + "\n[diff truncated]", True
 
 
+def _git_z_paths(path, args):
+    proc = subprocess.run(
+        ["git", *args],
+        cwd=path,
+        text=False,
+        capture_output=True,
+        timeout=15,
+        shell=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError("git path inventory failed")
+    values = []
+    for raw in proc.stdout.split(b"\0"):
+        if not raw:
+            continue
+        try:
+            rel = raw.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as exc:
+            raise RuntimeError("workspace path is not valid UTF-8") from exc
+        values.append(rel)
+    return values
+
+
+def _safe_control_relpath(root, rel):
+    root = Path(root).resolve()
+    if not isinstance(rel, str) or not rel or any(ord(ch) < 32 or ord(ch) == 127 for ch in rel):
+        raise ValueError("unsafe workspace path")
+    value = Path(rel)
+    if value.is_absolute() or ".." in value.parts or ".git" in value.parts:
+        raise ValueError("unsafe workspace path")
+    target = (root / value).resolve(strict=False)
+    if target != root and root not in target.parents:
+        raise ValueError("workspace path escapes root")
+    return rel
+
+
+def control_workspace_changed_paths(path, *, max_paths=None):
+    path = Path(path).resolve()
+    tracked = _git_z_paths(path, ["diff", "--name-only", "-z", "HEAD", "--"])
+    untracked = _git_z_paths(path, ["ls-files", "--others", "--exclude-standard", "-z"])
+    values = []
+    for rel in [*tracked, *untracked]:
+        rel = _safe_control_relpath(path, rel)
+        if rel not in values:
+            values.append(rel)
+    if max_paths is not None and len(values) > max_paths:
+        raise ValueError("promotion changed-path limit exceeded")
+    return values
+
+
+def control_workspace_patch_bytes(path, *, max_bytes=CONTROL_PROMOTION_PATCH_LIMIT_BYTES):
+    path = Path(path).resolve()
+    changed_paths = control_workspace_changed_paths(path, max_paths=CONTROL_PROMOTION_MAX_PATHS)
+    tracked = subprocess.run(
+        ["git", "diff", "--binary", "--full-index", "--no-color", "HEAD", "--"],
+        cwd=path,
+        text=False,
+        capture_output=True,
+        timeout=20,
+        shell=False,
+    )
+    if tracked.returncode != 0:
+        raise RuntimeError("workspace patch generation failed")
+    chunks = [tracked.stdout] if tracked.stdout else []
+    untracked = _git_z_paths(path, ["ls-files", "--others", "--exclude-standard", "-z"])
+    for rel in untracked:
+        rel = _safe_control_relpath(path, rel)
+        target = (path / rel).resolve(strict=False)
+        if not target.is_file() or target.is_symlink():
+            raise ValueError("promotion only supports regular untracked files")
+        diff = subprocess.run(
+            ["git", "diff", "--binary", "--full-index", "--no-index", "--no-color", "--", "/dev/null", rel],
+            cwd=path,
+            text=False,
+            capture_output=True,
+            timeout=20,
+            shell=False,
+        )
+        if diff.returncode not in {0, 1}:
+            raise RuntimeError("untracked patch generation failed")
+        if diff.stdout:
+            chunks.append(diff.stdout)
+    patch = b"\n".join(chunks)
+    if len(patch) > max_bytes:
+        raise ValueError("promotion patch is too large")
+    return patch, changed_paths
+
+
+def load_control_workspace_metadata(path):
+    target = Path(path).resolve() / SAFE_WORKSPACE_METADATA
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError("safe workspace metadata is unavailable") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("safe workspace metadata is invalid")
+    return payload
+
+
+def control_promotion_branch_name(control_run_id):
+    value = str(control_run_id or "")
+    if not re.fullmatch(r"cr-[0-9a-f]{16}", value):
+        raise ValueError("invalid control run id")
+    return CONTROL_PROMOTION_BRANCH_PREFIX + value[3:]
+
+
+def control_promotion_worktree_path(control_run_id):
+    repo_key = hashlib.sha256(str(ROOT).encode("utf-8")).hexdigest()[:12]
+    target = (Path(DATA_BASE) / "promotions" / repo_key / str(control_run_id)).resolve()
+    source_root = Path(ROOT).resolve()
+    if target == source_root or source_root in target.parents:
+        raise ValueError("promotion worktree must be outside the source checkout")
+    return target
+
+
+def control_workspace_status_text(path):
+    try:
+        proc = subprocess.run(
+            ["git", "status", "--short"],
+            cwd=path,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            shell=False,
+        )
+    except Exception:
+        return "[unavailable]"
+    if proc.returncode != 0:
+        return "[unavailable]"
+    return proc.stdout.rstrip("\n") or "[clean]"
+
+
 def collect_control_workspace_result(path):
     path = Path(path).resolve()
-    status = workspace_git_text(path, ["status", "--short"], default="[unavailable]")
-    changed_paths = []
-    if status not in {"[unavailable]", "[clean]", ""}:
-        for line in status.splitlines():
-            value = line[3:].strip() if len(line) > 3 else ""
-            if value and value not in changed_paths:
-                changed_paths.append(value)
+    status = control_workspace_status_text(path)
+    try:
+        changed_paths = control_workspace_changed_paths(path)[:50]
+    except Exception:
+        changed_paths = []
 
     chunks = []
     try:
@@ -3820,6 +3978,338 @@ def collect_control_workspace_result(path):
     }
 
 
+def _control_promotion_record_snapshot(server, control_run_id):
+    with server.control_run_lock:
+        record = server.control_run_records.get(str(control_run_id))
+        return dict(record) if record is not None else None
+
+
+def _control_git_branch_exists(branch):
+    proc = subprocess.run(
+        ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
+        cwd=ROOT,
+        text=False,
+        capture_output=True,
+        timeout=10,
+        shell=False,
+    )
+    return proc.returncode == 0
+
+
+def _control_promotion_summary(record):
+    return {
+        "status": record.get("promotion_status", "none"),
+        "patch_sha256": record.get("promotion_patch_sha256"),
+        "branch": record.get("promotion_branch"),
+        "path": record.get("promotion_path"),
+        "promoted_at": record.get("promoted_at"),
+        "validation": record.get("promotion_validation"),
+    }
+
+
+def control_promotion_proposal(server, control_run_id):
+    record = _control_promotion_record_snapshot(server, control_run_id)
+    if record is None:
+        return None
+    if record.get("promotion_status") == "promoted":
+        return {
+            "control_run_id": control_run_id,
+            "status": "promoted",
+            "promotable": False,
+            "reasons": [],
+            "promotion": _control_promotion_summary(record),
+        }
+
+    reasons = []
+    if record.get("mode") not in CONTROL_RUN_WORK_MODES:
+        reasons.append("run_is_not_write_capable")
+    if record.get("status") != "succeeded":
+        reasons.append("run_did_not_succeed")
+    workspace_raw = record.get("workspace_path")
+    workspace = None
+    metadata = {}
+    patch = b""
+    changed_paths = []
+    if workspace_raw:
+        try:
+            workspace = ensure_safe_workspace_child(safe_workspace_base(), Path(workspace_raw))
+            metadata = load_control_workspace_metadata(workspace)
+        except Exception:
+            reasons.append("workspace_unavailable")
+    else:
+        reasons.append("workspace_unavailable")
+
+    source_sha = record.get("workspace_source_sha")
+    source_branch = record.get("workspace_source_branch")
+    source_clean = record.get("workspace_source_clean") is True
+    if metadata:
+        metadata_matches = (
+            metadata.get("source_repository") == str(ROOT)
+            and metadata.get("source_sha") == source_sha
+            and metadata.get("source_branch") == source_branch
+            and (metadata.get("source_clean") is True) == source_clean
+        )
+        if not metadata_matches:
+            reasons.append("workspace_metadata_changed")
+    if not isinstance(source_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", source_sha):
+        reasons.append("source_sha_unavailable")
+    if not isinstance(source_branch, str) or not source_branch or source_branch.startswith("["):
+        reasons.append("source_branch_unavailable")
+    if not source_clean:
+        reasons.append("source_was_not_clean")
+
+    if workspace is not None and record.get("status") == "succeeded":
+        try:
+            patch, changed_paths = control_workspace_patch_bytes(workspace)
+            if not patch:
+                reasons.append("workspace_has_no_changes")
+        except ValueError as exc:
+            reasons.append(str(exc).replace(" ", "_"))
+        except Exception:
+            reasons.append("workspace_patch_unavailable")
+
+    current_sha = current_git_sha(short=False)
+    current_branch = workspace_git_branch()
+    current_status = workspace_git_status()
+    if source_sha and current_sha != source_sha:
+        reasons.append("source_sha_changed")
+    if source_branch and current_branch != source_branch:
+        reasons.append("source_branch_changed")
+    if current_status != "[clean]":
+        reasons.append("source_checkout_not_clean")
+
+    branch = None
+    target = None
+    try:
+        branch = control_promotion_branch_name(control_run_id)
+        target = control_promotion_worktree_path(control_run_id)
+        if _control_git_branch_exists(branch):
+            reasons.append("promotion_branch_exists")
+        if target.exists():
+            reasons.append("promotion_worktree_exists")
+    except Exception:
+        reasons.append("promotion_target_invalid")
+
+    if workspace is not None:
+        if select_validation_command("full", root=workspace) is None:
+            reasons.append("validation_command_unavailable")
+        if not remote_validation_sandbox_available():
+            reasons.append("validation_sandbox_unavailable")
+
+    patch_sha256 = hashlib.sha256(patch).hexdigest() if patch else None
+    unique_reasons = list(dict.fromkeys(reasons))
+    return {
+        "control_run_id": control_run_id,
+        "status": "ready" if not unique_reasons else "blocked",
+        "promotable": not unique_reasons,
+        "reasons": unique_reasons,
+        "attempt_status": record.get("promotion_status", "none"),
+        "source": {
+            "branch": source_branch,
+            "sha": source_sha,
+            "clean": source_clean,
+        },
+        "changed_paths": changed_paths,
+        "patch_sha256": patch_sha256,
+        "patch_bytes": len(patch),
+        "target_branch": branch,
+    }
+
+
+def _run_control_promotion_validation(workspace):
+    workspace = Path(workspace).resolve()
+    argv = select_validation_command("full", root=workspace)
+    if argv is None:
+        raise ControlPromotionRejected("promotion validation command is unavailable")
+    if not remote_validation_sandbox_available():
+        raise ControlPromotionRejected("promotion validation sandbox is unavailable")
+    command = remote_validation_docker_argv(argv, workspace=workspace, source_root=ROOT)
+    try:
+        proc = subprocess.run(
+            command,
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=VALIDATION_TIMEOUT_SECONDS,
+            shell=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ControlPromotionRejected("promotion validation timed out") from exc
+    stdout, stdout_truncated = _bounded_utf8_text(
+        proc.stdout, CONTROL_PROMOTION_VALIDATION_OUTPUT_LIMIT_BYTES
+    )
+    stderr, stderr_truncated = _bounded_utf8_text(
+        proc.stderr, CONTROL_PROMOTION_VALIDATION_OUTPUT_LIMIT_BYTES
+    )
+    result = {
+        "profile": "full",
+        "argv": list(argv),
+        "exit_code": proc.returncode,
+        "stdout": stdout,
+        "stderr": stderr,
+        "stdout_truncated": stdout_truncated,
+        "stderr_truncated": stderr_truncated,
+    }
+    if proc.returncode != 0:
+        raise ControlPromotionRejected("promotion validation failed", detail=result)
+    return result
+
+
+def _cleanup_control_promotion_worktree(branch, target):
+    target = Path(target).resolve()
+    try:
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", str(target)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=30,
+            shell=False,
+        )
+    except Exception:
+        pass
+    if isinstance(branch, str) and branch.startswith(CONTROL_PROMOTION_BRANCH_PREFIX):
+        try:
+            subprocess.run(
+                ["git", "branch", "-D", branch],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                timeout=20,
+                shell=False,
+            )
+        except Exception:
+            pass
+    if target.is_dir():
+        shutil.rmtree(target, ignore_errors=True)
+
+
+def control_promote_run(server, control_run_id, request):
+    if not isinstance(request, dict) or set(request) != {"patch_sha256"}:
+        raise ValueError("exactly patch_sha256 is required")
+    approved_hash = request.get("patch_sha256")
+    if not isinstance(approved_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", approved_hash):
+        raise ValueError("patch_sha256 must be 64 lowercase hexadecimal characters")
+
+    with server.control_run_lock:
+        record = server.control_run_records.get(str(control_run_id))
+        if record is None:
+            return None
+        if record.get("promotion_status") == "promoted":
+            if hmac.compare_digest(str(record.get("promotion_patch_sha256") or ""), approved_hash):
+                return _control_promotion_summary(record)
+            raise ControlPromotionConflict("run was already promoted with a different patch hash")
+        if record.get("promotion_status") == "in_progress":
+            raise ControlPromotionConflict("promotion is already in progress")
+
+    proposal = control_promotion_proposal(server, control_run_id)
+    if proposal is None:
+        return None
+    if not proposal.get("promotable"):
+        raise ControlPromotionRejected("run is not promotable", detail=proposal)
+    if not hmac.compare_digest(str(proposal.get("patch_sha256") or ""), approved_hash):
+        raise ControlPromotionConflict("approved patch hash does not match current workspace")
+
+    with server.control_run_lock:
+        record = server.control_run_records.get(str(control_run_id))
+        if record is None:
+            return None
+        record["promotion_status"] = "in_progress"
+
+    workspace = ensure_safe_workspace_child(safe_workspace_base(), Path(record["workspace_path"]))
+    branch = control_promotion_branch_name(control_run_id)
+    target = control_promotion_worktree_path(control_run_id)
+    created = False
+    try:
+        validation = _run_control_promotion_validation(workspace)
+        refreshed = control_promotion_proposal(server, control_run_id)
+        if refreshed is None or not refreshed.get("promotable"):
+            raise ControlPromotionConflict("promotion proposal changed during validation")
+        if not hmac.compare_digest(str(refreshed.get("patch_sha256") or ""), approved_hash):
+            raise ControlPromotionConflict("workspace patch changed during validation")
+
+        patch, changed_paths = control_workspace_patch_bytes(workspace)
+        source_sha = refreshed["source"]["sha"]
+        source_branch = refreshed["source"]["branch"]
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            target.parent.chmod(0o700)
+        except OSError:
+            pass
+        if target.exists() or _control_git_branch_exists(branch):
+            raise ControlPromotionConflict("promotion target already exists")
+
+        add = subprocess.run(
+            ["git", "worktree", "add", "-b", branch, str(target), source_sha],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=30,
+            shell=False,
+        )
+        if add.returncode != 0:
+            raise ControlPromotionRejected("could not create promotion worktree")
+        created = True
+
+        for check_only in (True, False):
+            argv = ["git", "apply"]
+            if check_only:
+                argv.append("--check")
+            argv.extend(["--whitespace=nowarn", "-"])
+            applied = subprocess.run(
+                argv,
+                cwd=target,
+                input=patch,
+                text=False,
+                capture_output=True,
+                timeout=30,
+                shell=False,
+            )
+            if applied.returncode != 0:
+                raise ControlPromotionRejected(
+                    "promotion patch could not be applied" if check_only else "promotion patch apply failed"
+                )
+
+        promoted_patch, promoted_paths = control_workspace_patch_bytes(target)
+        promoted_hash = hashlib.sha256(promoted_patch).hexdigest()
+        if not hmac.compare_digest(promoted_hash, approved_hash) or promoted_paths != changed_paths:
+            raise ControlPromotionConflict("promoted worktree does not match approved patch")
+        if current_git_sha(short=False) != source_sha:
+            raise ControlPromotionConflict("source SHA changed during promotion")
+        if workspace_git_branch() != source_branch or workspace_git_status() != "[clean]":
+            raise ControlPromotionConflict("source checkout changed during promotion")
+
+        with server.control_run_lock:
+            live = server.control_run_records.get(str(control_run_id))
+            if live is None:
+                raise ControlPromotionConflict("control run record was pruned during promotion")
+            live["promotion_status"] = "promoted"
+            live["promotion_patch_sha256"] = approved_hash
+            live["promotion_branch"] = branch
+            live["promotion_path"] = str(target)
+            live["promoted_at"] = control_run_now()
+            live["promotion_validation"] = validation
+            return _control_promotion_summary(live)
+    except ControlPromotionRejected as exc:
+        if created:
+            _cleanup_control_promotion_worktree(branch, target)
+        with server.control_run_lock:
+            live = server.control_run_records.get(str(control_run_id))
+            if live is not None:
+                live["promotion_status"] = "validation_failed" if exc.detail else "failed"
+                if exc.detail:
+                    live["promotion_validation"] = exc.detail
+        raise
+    except BaseException:
+        if created:
+            _cleanup_control_promotion_worktree(branch, target)
+        with server.control_run_lock:
+            live = server.control_run_records.get(str(control_run_id))
+            if live is not None and live.get("promotion_status") == "in_progress":
+                live["promotion_status"] = "failed"
+        raise
+
+
 def create_control_work_workspace(control_run_id):
     name = "control-" + slugify_safe_workspace_name(control_run_id)
     return create_safe_workspace(["--name", name, "--force"])
@@ -3872,6 +4362,9 @@ def _control_run_worker(server):
                 workspace_path = Path(workspace["path"]).resolve()
                 with server.control_run_condition:
                     record["workspace_path"] = str(workspace_path)
+                    record["workspace_source_sha"] = workspace.get("source_sha")
+                    record["workspace_source_branch"] = workspace.get("source_branch")
+                    record["workspace_source_clean"] = workspace.get("source_clean")
             child_env = control_run_child_env(source_root=ROOT)
             process = subprocess.Popen(
                 control_run_command(mode, task),
@@ -4135,6 +4628,19 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
                 return
             self._json(200, payload)
             return
+        promotion_match = re.fullmatch(r"/v1/runs/(cr-[0-9a-f]{16})/promotion", parsed.path)
+        if promotion_match and not parsed.query:
+            proposal = control_promotion_proposal(self.server, promotion_match.group(1))
+            if proposal is None:
+                self._json(404, {"error": {"code": "run_not_found", "message": "control run not found"}})
+                return
+            self._json(200, {
+                "product": PRODUCT_NAME,
+                "version": VERSION,
+                "repository": str(ROOT),
+                "promotion": proposal,
+            })
+            return
         if parsed.path.startswith("/v1/runs/"):
             control_run_id = parsed.path[len("/v1/runs/"):]
             if not control_run_id or "/" in control_run_id:
@@ -4162,7 +4668,8 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
         if not self._require_auth():
             return
         parsed = urllib.parse.urlsplit(self.path)
-        if parsed.path not in {"/v1/policy-check", "/v1/runs"}:
+        promotion_match = re.fullmatch(r"/v1/runs/(cr-[0-9a-f]{16})/promotion", parsed.path)
+        if parsed.path not in {"/v1/policy-check", "/v1/runs"} and not promotion_match:
             if parsed.path in {"/v1/status", "/v1/readiness"} or parsed.path.startswith("/v1/runs/"):
                 self._json(405, {"error": {"code": "method_not_allowed", "message": "method not allowed"}})
             else:
@@ -4181,6 +4688,34 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
             return
         except ValueError as exc:
             self._json(400, {"error": {"code": "invalid_request", "message": str(exc)}})
+            return
+        if promotion_match:
+            if parsed.query:
+                self._json(400, {"error": {"code": "invalid_request", "message": "promotion endpoint does not accept query parameters"}})
+                return
+            try:
+                promotion = control_promote_run(self.server, promotion_match.group(1), request)
+            except ControlPromotionConflict as exc:
+                self._json(409, {"error": {"code": "promotion_conflict", "message": str(exc)}})
+                return
+            except ControlPromotionRejected as exc:
+                payload = {"error": {"code": "promotion_rejected", "message": str(exc)}}
+                if exc.detail is not None:
+                    payload["detail"] = exc.detail
+                self._json(422, payload)
+                return
+            except ValueError as exc:
+                self._json(400, {"error": {"code": "invalid_promotion_request", "message": str(exc)}})
+                return
+            if promotion is None:
+                self._json(404, {"error": {"code": "run_not_found", "message": "control run not found"}})
+                return
+            self._json(200, {
+                "product": PRODUCT_NAME,
+                "version": VERSION,
+                "repository": str(ROOT),
+                "promotion": promotion,
+            })
             return
         if parsed.path == "/v1/runs":
             try:
@@ -4212,6 +4747,9 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
         if not self._require_auth():
             return
         parsed = urllib.parse.urlsplit(self.path)
+        if re.fullmatch(r"/v1/runs/cr-[0-9a-f]{16}/promotion", parsed.path):
+            self._json(405, {"error": {"code": "method_not_allowed", "message": "method not allowed"}})
+            return
         if not parsed.path.startswith("/v1/runs/"):
             self._json(405, {"error": {"code": "method_not_allowed", "message": "method not allowed"}})
             return
@@ -8910,6 +9448,8 @@ def create_safe_workspace(raw, json_mode=False):
     source_sha = current_git_sha(short=False)
     source_short_sha = current_git_sha(short=True)
     source_branch = workspace_git_branch()
+    source_status = workspace_git_status()
+    source_clean = source_status == "[clean]"
 
     if target.exists():
         if not options["force"]:
@@ -8927,6 +9467,8 @@ def create_safe_workspace(raw, json_mode=False):
         "source_repository": str(ROOT),
         "source_branch": source_branch,
         "source_sha": source_sha,
+        "source_clean": source_clean,
+        "source_status": source_status,
         "safe_branch": SAFE_WORKSPACE_BRANCH,
         "copied_files": copied,
     }
@@ -8960,6 +9502,8 @@ def create_safe_workspace(raw, json_mode=False):
         "source_repository": str(ROOT),
         "source_branch": source_branch,
         "source_sha": source_sha,
+        "source_clean": source_clean,
+        "source_status": source_status,
         "copied_files": copied,
         "next_commands": [
             f"cd {target}",

@@ -39,6 +39,13 @@ class ControlPlaneTest(unittest.TestCase):
         agent.METRICS_FILE = agent.METRICS_DIR / "events.jsonl"
         agent.AUDIT_DIR = self.base / "data" / "audit"
         agent.AUDIT_FILE = agent.AUDIT_DIR / "events.jsonl"
+        agent.DATA_BASE = self.base / "data"
+        self.safe_base = self.base / "safe-workspaces"
+        self.safe_env = mock.patch.dict(
+            os.environ, {"LAI_SAFE_WORKSPACE_DIR": str(self.safe_base)}, clear=False
+        )
+        self.safe_env.start()
+        self.addCleanup(self.safe_env.stop)
         self.token = "synthetic-control-token"
         self.server = agent.create_control_server("127.0.0.1", 0, token=self.token)
         self.port = self.server.server_address[1]
@@ -73,6 +80,55 @@ class ControlPlaneTest(unittest.TestCase):
             status = exc.code
             payload = json.loads(exc.read().decode("utf-8"))
         return status, payload
+
+
+    def seed_promotable_run(self, *, run_id="cr-1111111111111111", status="succeeded"):
+        (self.root / "Makefile").write_text("check:\n\t@true\n", encoding="utf-8")
+        subprocess.run(["git", "add", "Makefile"], cwd=self.root, check=True)
+        subprocess.run(
+            ["git", "-c", "user.name=test", "-c", "user.email=test@example.invalid",
+             "commit", "-q", "-m", "seed promotion"],
+            cwd=self.root,
+            check=True,
+        )
+        subprocess.run(["git", "branch", "-M", "main"], cwd=self.root, check=True)
+        workspace_info = agent.create_control_work_workspace(run_id)
+        workspace = Path(workspace_info["path"])
+        (workspace / "hello.txt").write_text("hello promotion\n", encoding="utf-8")
+        result = agent.collect_control_workspace_result(workspace)
+        record = {
+            "control_run_id": run_id,
+            "mode": "implement",
+            "status": status,
+            "task_chars": 10,
+            "created_at": agent.control_run_now(),
+            "started_at": agent.control_run_now(),
+            "finished_at": agent.control_run_now(),
+            "exit_code": 0 if status == "succeeded" else 1,
+            "stdout": "",
+            "stderr": "",
+            "stdout_truncated": False,
+            "stderr_truncated": False,
+            "cancel_requested": False,
+            "tool_profile": agent.CONTROL_RUN_WORK_PROFILE,
+            "workspace_path": str(workspace),
+            "workspace_git_status": result["git_status"],
+            "workspace_changed_paths": result["changed_paths"],
+            "workspace_diff": result["diff"],
+            "workspace_diff_truncated": result["diff_truncated"],
+            "workspace_source_sha": workspace_info["source_sha"],
+            "workspace_source_branch": workspace_info["source_branch"],
+            "workspace_source_clean": workspace_info["source_clean"],
+            "promotion_status": "none",
+            "promotion_patch_sha256": None,
+            "promotion_branch": None,
+            "promotion_path": None,
+            "promoted_at": None,
+            "promotion_validation": None,
+        }
+        with self.server.control_run_lock:
+            self.server.control_run_records[run_id] = record
+        return run_id, workspace, workspace_info
 
     def test_control_token_init_is_separate_secret_and_restrictive(self):
         path = Path(agent.CONFIG["control_api_key_file"])
@@ -946,6 +1002,179 @@ class ControlPlaneTest(unittest.TestCase):
                 self.assertFalse(extra.control_run_worker.is_alive())
         finally:
             extra.server_close()
+
+    def test_promotion_path_inventory_preserves_first_filename(self):
+        _, workspace, _ = self.seed_promotable_run()
+        (workspace / "Makefile").write_text("check:\n\t@true\n# changed\n", encoding="utf-8")
+        paths = agent.control_workspace_changed_paths(workspace)
+        self.assertIn("Makefile", paths)
+        self.assertNotIn("akefile", paths)
+        self.assertIn("hello.txt", paths)
+
+    def test_failed_work_run_has_no_promotion_proposal(self):
+        run_id, _, _ = self.seed_promotable_run(status="failed")
+        with mock.patch.object(agent, "remote_validation_sandbox_available", return_value=True):
+            status, payload = self.request(
+                f"/v1/runs/{run_id}/promotion", token=self.token
+            )
+        self.assertEqual(status, 200)
+        self.assertFalse(payload["promotion"]["promotable"])
+        self.assertIn("run_did_not_succeed", payload["promotion"]["reasons"])
+
+    def test_promotion_does_not_trust_mutable_workspace_metadata(self):
+        run_id, workspace, _ = self.seed_promotable_run()
+        metadata_path = workspace / agent.SAFE_WORKSPACE_METADATA
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["source_sha"] = "0" * 40
+        metadata["source_clean"] = True
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        with mock.patch.object(agent, "remote_validation_sandbox_available", return_value=True):
+            proposal = agent.control_promotion_proposal(self.server, run_id)
+        self.assertFalse(proposal["promotable"])
+        self.assertIn("workspace_metadata_changed", proposal["reasons"])
+
+        original_data = agent.DATA_BASE
+        try:
+            agent.DATA_BASE = self.root / "data"
+            with self.assertRaisesRegex(ValueError, "outside"):
+                agent.control_promotion_worktree_path(run_id)
+        finally:
+            agent.DATA_BASE = original_data
+
+    def test_promotion_rejects_source_drift_and_dirty_checkout(self):
+        run_id, _, _ = self.seed_promotable_run()
+        (self.root / "Makefile").write_text("check:\n\t@true\n# dirty\n", encoding="utf-8")
+        with mock.patch.object(agent, "remote_validation_sandbox_available", return_value=True):
+            proposal = agent.control_promotion_proposal(self.server, run_id)
+        self.assertFalse(proposal["promotable"])
+        self.assertIn("source_checkout_not_clean", proposal["reasons"])
+
+        subprocess.run(["git", "add", "Makefile"], cwd=self.root, check=True)
+        subprocess.run(
+            ["git", "-c", "user.name=test", "-c", "user.email=test@example.invalid",
+             "commit", "-q", "-m", "source drift"],
+            cwd=self.root,
+            check=True,
+        )
+        with mock.patch.object(agent, "remote_validation_sandbox_available", return_value=True):
+            proposal = agent.control_promotion_proposal(self.server, run_id)
+        self.assertFalse(proposal["promotable"])
+        self.assertIn("source_sha_changed", proposal["reasons"])
+
+    def test_promotion_hash_mismatch_and_validation_failure_do_not_mutate_git(self):
+        run_id, _, _ = self.seed_promotable_run()
+        with mock.patch.object(agent, "remote_validation_sandbox_available", return_value=True):
+            status, payload = self.request(
+                f"/v1/runs/{run_id}/promotion", token=self.token
+            )
+            self.assertEqual(status, 200)
+            approved = payload["promotion"]["patch_sha256"]
+            status, payload = self.request(
+                f"/v1/runs/{run_id}/promotion",
+                method="POST", token=self.token,
+                body={"patch_sha256": "0" * 64},
+            )
+        self.assertEqual(status, 409)
+        branch = agent.control_promotion_branch_name(run_id)
+        target = agent.control_promotion_worktree_path(run_id)
+        self.assertFalse(agent._control_git_branch_exists(branch))
+        self.assertFalse(target.exists())
+
+        failure = agent.ControlPromotionRejected(
+            "promotion validation failed", detail={"profile": "full", "exit_code": 1}
+        )
+        with mock.patch.object(agent, "remote_validation_sandbox_available", return_value=True), \
+             mock.patch.object(agent, "_run_control_promotion_validation", side_effect=failure):
+            status, payload = self.request(
+                f"/v1/runs/{run_id}/promotion",
+                method="POST", token=self.token,
+                body={"patch_sha256": approved},
+            )
+        self.assertEqual(status, 422)
+        self.assertEqual(payload["error"]["code"], "promotion_rejected")
+        self.assertFalse(agent._control_git_branch_exists(branch))
+        self.assertFalse(target.exists())
+
+    def test_successful_promotion_creates_exact_feature_worktree_and_is_idempotent(self):
+        run_id, workspace, info = self.seed_promotable_run()
+        source_head = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=self.root, text=True
+        ).strip()
+        source_branch = subprocess.check_output(
+            ["git", "branch", "--show-current"], cwd=self.root, text=True
+        ).strip()
+        validation = {"profile": "full", "argv": ["make", "check"], "exit_code": 0,
+                      "stdout": "ok", "stderr": "", "stdout_truncated": False,
+                      "stderr_truncated": False}
+        with mock.patch.object(agent, "remote_validation_sandbox_available", return_value=True), \
+             mock.patch.object(agent, "_run_control_promotion_validation", return_value=validation) as validate:
+            status, payload = self.request(
+                f"/v1/runs/{run_id}/promotion", token=self.token
+            )
+            self.assertEqual(status, 200, payload)
+            proposal = payload["promotion"]
+            self.assertTrue(proposal["promotable"], proposal)
+            self.assertEqual(proposal["changed_paths"], ["hello.txt"])
+            approved = proposal["patch_sha256"]
+            status, payload = self.request(
+                f"/v1/runs/{run_id}/promotion",
+                method="POST", token=self.token,
+                body={"patch_sha256": approved},
+            )
+            self.assertEqual(status, 200, payload)
+            promoted = payload["promotion"]
+            self.assertEqual(promoted["status"], "promoted")
+            self.assertEqual(promoted["patch_sha256"], approved)
+            validate.assert_called_once()
+
+            status2, payload2 = self.request(
+                f"/v1/runs/{run_id}/promotion",
+                method="POST", token=self.token,
+                body={"patch_sha256": approved},
+            )
+            self.assertEqual(status2, 200, payload2)
+            self.assertEqual(payload2["promotion"]["path"], promoted["path"])
+            validate.assert_called_once()
+
+        target = Path(promoted["path"])
+        self.assertTrue(target.is_dir())
+        self.assertEqual((target / "hello.txt").read_text(encoding="utf-8"), "hello promotion\n")
+        target_patch, target_paths = agent.control_workspace_patch_bytes(target)
+        workspace_patch, workspace_paths = agent.control_workspace_patch_bytes(workspace)
+        self.assertEqual(target_paths, workspace_paths)
+        self.assertEqual(target_patch, workspace_patch)
+        self.assertEqual(agent.hashlib.sha256(target_patch).hexdigest(), approved)
+        self.assertEqual(
+            subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.root, text=True).strip(),
+            source_head,
+        )
+        self.assertEqual(
+            subprocess.check_output(["git", "branch", "--show-current"], cwd=self.root, text=True).strip(),
+            source_branch,
+        )
+        self.assertEqual(subprocess.check_output(["git", "status", "--porcelain"], cwd=self.root, text=True), "")
+        self.assertFalse((self.root / "hello.txt").exists())
+        self.assertEqual(info["source_sha"], source_head)
+
+    def test_promotion_route_restricts_body_and_methods(self):
+        run_id, _, _ = self.seed_promotable_run()
+        with mock.patch.object(agent, "remote_validation_sandbox_available", return_value=True):
+            status, payload = self.request(
+                f"/v1/runs/{run_id}/promotion", token=self.token
+            )
+            self.assertEqual(status, 200)
+            approved = payload["promotion"]["patch_sha256"]
+            status, payload = self.request(
+                f"/v1/runs/{run_id}/promotion",
+                method="POST", token=self.token,
+                body={"patch_sha256": approved, "command": "git push"},
+            )
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"]["code"], "invalid_promotion_request")
+        status, payload = self.request(
+            f"/v1/runs/{run_id}/promotion", method="DELETE", token=self.token
+        )
+        self.assertEqual(status, 405)
 
     def test_serve_cli_fails_cleanly_when_token_is_missing(self):
         env = {

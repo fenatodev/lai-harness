@@ -11,11 +11,15 @@ The user, installed LAI code, configured source repository, local model endpoint
 - The llama.cpp API key is read from a private external file and sent as a Bearer header.
 - `lai serve` uses a separate bearer token, restrictive token-file permissions, loopback-only binding, bounded JSON bodies, serialized asynchronous runs, bounded queue/output, and fixed child process groups.
 - Read-only control profiles never receive generic `bash` or file-write tools.
-- Beta.14 work profiles (`implement`, `fix`, `refactor`, `ci-fix`) execute only in unique disposable safe workspaces copied from tracked source-repository contents; the source checkout is not their working tree.
+- Beta.15 work profiles (`implement`, `fix`, `refactor`, `ci-fix`) execute only in unique disposable safe workspaces copied from tracked source-repository contents; the source checkout is not their working tree.
 - Work profiles never receive generic `bash` or Git mutation tools. They receive repository-confined file tools plus the structured `validate` capability.
 - Remote `validate` accepts a small profile rather than a shell command. The harness discovers recognized existing project validation argv and runs it with `shell=False`.
 - Remote validation uses a fixed Docker sandbox with `--pull=never`, no network, read-only container root, dropped capabilities, `no-new-privileges`, bounded CPU/memory/PIDs, no host home, no Docker socket, and only the disposable work workspace writable.
 - The harness never automatically pulls the sandbox image. Missing Docker/image readiness fails a work run before model execution.
+- Promotion is separate from model execution. Only a successful work run may expose a proposal; approval is bound to the SHA-256 of complete patch bytes, not the bounded UI diff.
+- Promotion trusts the source baseline captured by the control server before the model starts; mutable workspace metadata must still match that baseline but is never authoritative.
+- Before Git mutation, promotion repeats `full` validation in the fixed Docker sandbox and rechecks source SHA, branch, clean status, patch hash, path limits, and target nonexistence.
+- Approved patches are applied only to deterministic `lai/promotion-*` feature worktrees. The active source checkout is not switched or edited, and promotion does not commit, push, merge, tag, publish, or call the model.
 - File tools resolve targets against the active repository/workspace root; parent and escaping-symlink paths are rejected. Batch patch also validates every replacement before any write.
 - The dedicated Git model tool exposes inspection operations only.
 - `AGENTS.md` must be read before file edits when present.
@@ -27,11 +31,11 @@ The user, installed LAI code, configured source repository, local model endpoint
 
 ## What the remote work sandbox does and does not mean
 
-Beta.14 materially isolates remote work execution, but it does not claim complete hostile-code containment. The Docker validation boundary removes network access and ordinary host-secret/daemon exposure and prevents the work child from validating directly in the source checkout. Work results are returned as bounded evidence/diffs rather than automatically promoted.
+Beta.15 materially isolates remote work execution and adds a hash-bound promotion boundary, but it does not claim complete hostile-code containment. The Docker validation boundary removes network access and ordinary host-secret/daemon exposure and prevents the work child from validating directly in the source checkout. Work results are returned as bounded evidence. Promotion requires an explicit exact hash, repeated sandbox validation, and creates a separate feature worktree rather than modifying the active checkout.
 
 The configured Docker daemon, container runtime, kernel, mounted runtime/dependency directories, and sandbox image remain part of the trusted computing base. Container/kernel escape vulnerabilities, malicious behavior in explicitly mounted dependencies/runtimes, resource-exhaustion bugs outside configured limits, and Docker daemon compromise are outside the guarantees of this project.
 
-The source checkout is still readable by the parent control server when it creates the tracked safe-workspace copy and collects state. Beta.14 does not implement multi-tenant isolation.
+The source checkout is still readable by the parent control server when it creates the tracked safe-workspace copy and collects state. Beta.15 does not implement multi-tenant isolation.
 
 ## Residual risks
 
@@ -46,7 +50,7 @@ Prompt injection from repository files, malicious tracked project code, maliciou
 - Keep `lai serve` on loopback. Put smartphone/private-network transport behind a separate authenticated gateway/proxy such as the companion gateway + Tailscale Serve.
 - Never expose llama.cpp or the control plane directly to the public internet.
 - Keep Docker and the configured sandbox image updated and trusted. Do not mount additional host paths casually.
-- Review work diffs before promotion to the source checkout. Beta.14 deliberately does not auto-apply them.
+- Review the proposal and exact patch hash before promotion. Promotion creates a dedicated local feature worktree; commit/push/PR remain separate future capabilities.
 - Rotate or delete local state/audit/log data according to sensitivity.
 - Do not expose LAI as a remote multi-user service without a separate authorization and isolation design.
 

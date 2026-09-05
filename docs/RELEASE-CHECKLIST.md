@@ -8,8 +8,8 @@ Use this checklist for beta releases with protected `main`.
 cd ~/dev/projects/lai-local-agent
 lai readiness
 lai workspace status --json
-lai release-check --target 0.4.0-beta.14 --json
-lai release-pack --target 0.4.0-beta.14 --with-vsix --json
+lai release-check --target 0.4.0-beta.15 --json
+lai release-pack --target 0.4.0-beta.15 --with-vsix --json
 make lint
 make check
 make test-dev
@@ -39,20 +39,20 @@ Every product version bump must review `docs/assets/visual-assets.json`. Its `re
 
 ## Tag after merge
 
-Only after merged `main` is green and `lai release-check --target 0.4.0-beta.14 --json` reports `ready_to_tag`:
+Only after merged `main` is green and `lai release-check --target 0.4.0-beta.15 --json` reports `ready_to_tag`:
 
 ```bash
-git tag -a v0.4.0-beta.14 \
-  -m "v0.4.0-beta.14 — isolated remote work runs"
-git push origin v0.4.0-beta.14
+git tag -a v0.4.0-beta.15 \
+  -m "v0.4.0-beta.15 — approved workspace promotion"
+git push origin v0.4.0-beta.15
 ```
 
 Then verify tag CI is green.
 
 ## GitHub pre-release
 
-1. Create the GitHub Release from `v0.4.0-beta.14`.
+1. Create the GitHub Release from `v0.4.0-beta.15`.
 2. Use the title/body from the release pack.
 3. Keep it marked as pre-release.
-4. Optionally attach the inspected `lai-harness-0.4.0-beta.14.vsix`.
-5. Run `lai release-governance --target 0.4.0-beta.14 --remote --json` and `lai project-handoff --target 0.4.0-beta.14 --remote --json`; published governance should be fully verified.
+4. Optionally attach the inspected `lai-harness-0.4.0-beta.15.vsix`.
+5. Run `lai release-governance --target 0.4.0-beta.15 --remote --json` and `lai project-handoff --target 0.4.0-beta.15 --remote --json`; published governance should be fully verified.

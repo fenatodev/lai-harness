@@ -41,6 +41,17 @@ class VisualAssetsTest(unittest.TestCase):
             self.assertGreaterEqual(width, 1200)
             self.assertGreaterEqual(height, 675)
 
+    def test_declared_visual_sources_exist(self):
+        manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        for item in manifest["assets"]:
+            source = item.get("source")
+            if source is None:
+                continue
+            path = ROOT / "docs" / "assets" / source
+            self.assertTrue(path.is_file(), source)
+            self.assertEqual(path.suffix.lower(), ".svg")
+            self.assertIn("<svg", path.read_text(encoding="utf-8")[:500])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,9 +5,9 @@
 ```bash
 lai project-handoff
 lai project-handoff --json
-lai project-handoff --target 0.4.0-beta.14
-lai project-handoff --target 0.4.0-beta.14 --remote --json
-lai project-handoff --target 0.4.0-beta.14 --remote --out /tmp/lai-harness-project-handoff-v0.4.0-beta.14 --force --json
+lai project-handoff --target 0.4.0-beta.15
+lai project-handoff --target 0.4.0-beta.15 --remote --json
+lai project-handoff --target 0.4.0-beta.15 --remote --out /tmp/lai-harness-project-handoff-v0.4.0-beta.15 --force --json
 lai next-chat --remote --json
 ```
 
@@ -43,10 +43,10 @@ When `--out DIR` is provided, the output directory receives `PROJECT-HANDOFF.md`
 ## Suggested migration flow
 
 ```bash
-lai release-check --target 0.4.0-beta.14 --json
-lai release-governance --target 0.4.0-beta.14 --remote --json
-lai project-handoff --target 0.4.0-beta.14 --remote \
-  --out /tmp/lai-harness-project-handoff-v0.4.0-beta.14 --force --json
+lai release-check --target 0.4.0-beta.15 --json
+lai release-governance --target 0.4.0-beta.15 --remote --json
+lai project-handoff --target 0.4.0-beta.15 --remote \
+  --out /tmp/lai-harness-project-handoff-v0.4.0-beta.15 --force --json
 ```
 
 Use the default offline handoff when live GitHub state is irrelevant or credentials are unavailable. Use `--remote` when branch protection, Release publication, or artifact digest state affects the next action.

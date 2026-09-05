@@ -13,7 +13,7 @@
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-0f766e"></a>
 </p>
 
-> **Current release:** `v0.4.0-beta.14` · experimental beta · Linux/WSL-first · local inference through an OpenAI-compatible endpoint such as llama.cpp.
+> **Current release:** `v0.4.0-beta.15` · experimental beta · Linux/WSL-first · local inference through an OpenAI-compatible endpoint such as llama.cpp.
 
 lai harness makes constrained local models more useful by giving them a smaller, more deterministic operating environment. Instead of relying on a huge prompt and a generic shell, it combines mode-specific tools, repository-aware context, explicit policy decisions, validation gates, persistent state, and a release workflow that can be audited from feature branch to GitHub pre-release.
 
@@ -23,12 +23,12 @@ It complements high-context cloud agents rather than trying to replace them: loc
 
 | Area | Current posture |
 | --- | --- |
-| Product version | `0.4.0-beta.14` |
+| Product version | `0.4.0-beta.15` |
 | Harness maturity | L4 · Self-correcting · 93/108 (86%) |
 | Runtime | Python standard library; no Python package dependencies in the harness |
 | Primary surfaces | CLI (`lai`) + VS Code extension |
 | Local model path | OpenAI-compatible HTTP; developed with llama.cpp + user-supplied GGUF |
-| Remote control | Authenticated loopback control plane; read-only profiles plus isolated work runs; no remote shell or direct source write |
+| Remote control | Authenticated loopback control plane; isolated work runs plus hash-bound promotion into dedicated feature worktrees; no remote shell or direct active-checkout write |
 | Release discipline | Protected `main`, required CI, annotated tag, tag CI, prerelease digest verification |
 
 Harness Score is used as an external repository-maturity ratchet, not as a security certification.
@@ -69,7 +69,8 @@ See [Architecture](docs/ARCHITECTURE.md), [Development harness](docs/DEVELOPMENT
 - deterministic `lai policy-check` and repository shell-hook reuse;
 - repository confinement and symlink checks for file mutations;
 - isolated per-run workspaces for remote `implement` / `fix` / `refactor` / `ci-fix`;
-- structured `validate` profiles with Docker sandboxing for remote work validation;
+- SHA-256-bound promotion proposals that revalidate work before creating a dedicated `lai/promotion-*` Git worktree/feature branch;
+- structured `validate` profiles with Docker sandboxing for remote work and promotion revalidation;
 - validation guard after writes and acceptance guard for requested test changes;
 - evidence-driven debug/review/security modes and model-assisted post-patch sanity checks;
 - development hooks plus a separate Harness Score L4 CI ratchet.
@@ -151,7 +152,7 @@ Detailed contracts are in [Modes](docs/MODES.md).
 
 ## Local control plane and private mobile access
 
-`lai serve` adds an authenticated loopback-only HTTP boundary for asynchronous control runs. Read-only modes remain shell-free; beta.14 also allows isolated `implement`, `fix`, `refactor`, and `ci-fix` runs that write only to a disposable safe workspace and validate inside a constrained Docker sandbox. It still does **not** expose a generic remote shell, direct writes to the source checkout, Git mutation, release publication, or the llama.cpp port directly.
+`lai serve` adds an authenticated loopback-only HTTP boundary for asynchronous control runs. Read-only modes remain shell-free; isolated `implement`, `fix`, `refactor`, and `ci-fix` runs write only to disposable safe workspaces and validate inside a constrained Docker sandbox. Beta.15 adds an explicit promotion boundary: only a successful work run with an unchanged clean source baseline can expose a SHA-256-bound proposal, and an approved hash is revalidated before the exact patch is applied to a dedicated `lai/promotion-*` feature worktree. The active source checkout remains unchanged. The control plane still does **not** expose a generic remote shell, commit, push, merge, release publication, or the llama.cpp port directly.
 
 ```bash
 lai control-token init
@@ -180,10 +181,10 @@ The release process is intentionally stricter than a normal local package build:
 8. require a converged project handoff with no remaining manual actions.
 
 ```bash
-lai release-check --target 0.4.0-beta.14 --json
-lai release-pack --target 0.4.0-beta.14 --with-vsix --json
-lai release-governance --target 0.4.0-beta.14 --remote --json
-lai project-handoff --target 0.4.0-beta.14 --remote --json
+lai release-check --target 0.4.0-beta.15 --json
+lai release-pack --target 0.4.0-beta.15 --with-vsix --json
+lai release-governance --target 0.4.0-beta.15 --remote --json
+lai project-handoff --target 0.4.0-beta.15 --remote --json
 ```
 
 See [Release governance](docs/RELEASE-GOVERNANCE.md), [Release checklist](docs/RELEASE-CHECKLIST.md), and [Release notes](docs/RELEASE-NOTES.md).
@@ -192,7 +193,7 @@ See [Release governance](docs/RELEASE-GOVERNANCE.md), [Release checklist](docs/R
 
 lai harness is **not a sandbox**. File tools are repository-confined and dedicated Git inspection is read-only, but allowed local `bash` still runs with the user's OS permissions. Command classification cannot enumerate every equivalent spelling, interpreter, or indirect effect.
 
-Remote control is narrower by design. Read-only children receive shell-free inspection profiles. Work children receive repository-confined file tools plus structured `validate`, run in a disposable safe workspace, and return a bounded diff. Validation executes in a Docker sandbox with no network, no host home, no Docker socket, dropped capabilities, and a read-only container root. This isolates the work path, but local `bash` outside control runs is still not an OS sandbox.
+Remote control is narrower by design. Read-only children receive shell-free inspection profiles. Work children receive repository-confined file tools plus structured `validate`, run in a disposable safe workspace, and return bounded evidence. Promotion is a separate deterministic action: the server binds approval to exact patch bytes, repeats `full` validation in the Docker sandbox, checks source SHA/branch/clean state, creates a dedicated feature worktree, applies with `git apply --check` + `git apply`, and verifies the resulting patch hash. The active checkout is not edited. Local `bash` outside control runs is still not an OS sandbox.
 
 Use write-capable modes only in trusted, backed-up or disposable workspaces under a least-privilege account. Never commit API keys, control tokens, state, audit logs, model files, or real handoffs. Read [Security model](docs/SECURITY-MODEL.md) and [Safe workspaces](docs/SAFE-WORKSPACES.md).
 

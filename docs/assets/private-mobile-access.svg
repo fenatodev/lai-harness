@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#081426"/><stop offset="1" stop-color="#101a33"/></linearGradient>
+  <linearGradient id="card" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#18243d"/><stop offset="1" stop-color="#111b30"/></linearGradient>
+  <filter id="shadow"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity=".25"/></filter>
+  <marker id="arrow" markerWidth="11" markerHeight="11" refX="9" refY="5.5" orient="auto"><path d="M0,0 L11,5.5 L0,11 z" fill="#69d4ff"/></marker>
+  <style>
+    .title{font:700 42px Inter,Segoe UI,Arial,sans-serif;fill:#f7fbff}.sub{font:400 19px Inter,Segoe UI,Arial,sans-serif;fill:#9fb2ce}
+    .h{font:700 22px Inter,Segoe UI,Arial,sans-serif;fill:#fff}.b{font:500 17px Inter,Segoe UI,Arial,sans-serif;fill:#c9d7ea}.small{font:500 15px Inter,Segoe UI,Arial,sans-serif;fill:#9fb2ce}
+    .box{fill:url(#card);stroke:#31466b;stroke-width:2}.safe{stroke:#34d399}.approval{stroke:#a78bfa}.source{stroke:#f59e0b}.line{stroke:#69d4ff;stroke-width:3;fill:none;marker-end:url(#arrow)}
+    .dash{stroke:#526783;stroke-width:2;stroke-dasharray:7 7;fill:none}.pill{fill:#0d2740;stroke:#2f6f9e;stroke-width:1.5}.green{fill:#0e302a;stroke:#2f8b70}.purple{fill:#241d45;stroke:#6d5acb}.amber{fill:#352514;stroke:#a56d20}
+  </style>
+</defs>
+<rect width="1600" height="900" fill="url(#bg)"/>
+<text x="80" y="72" class="title">LAI Gateway — Private Mobile Work &amp; Approved Promotion</text>
+<text x="80" y="108" class="sub">beta.15 · capability-scoped work · exact patch approval · active checkout stays unchanged</text>
+
+<!-- top flow -->
+<g filter="url(#shadow)">
+<rect x="80" y="170" width="225" height="145" rx="20" class="box"/>
+<text x="110" y="210" class="h">Private clients</text><text x="110" y="247" class="b">Smartphone PWA</text><text x="110" y="277" class="b">Telegram</text><text x="110" y="302" class="small">Desktop PWA optional</text>
+<rect x="380" y="170" width="225" height="145" rx="20" class="box safe"/>
+<text x="410" y="210" class="h">Tailscale</text><text x="410" y="247" class="b">Private tailnet</text><text x="410" y="277" class="b">HTTPS Serve</text><text x="410" y="302" class="small">identity allowlist</text>
+<rect x="680" y="170" width="235" height="145" rx="20" class="box"/>
+<text x="710" y="210" class="h">lai-gateway</text><text x="710" y="247" class="b">127.0.0.1:8780</text><text x="710" y="277" class="small">PWA · Telegram bridge</text><text x="710" y="302" class="small">server-side bearer</text>
+<rect x="990" y="170" width="225" height="145" rx="20" class="box"/>
+<text x="1020" y="210" class="h">lai serve</text><text x="1020" y="247" class="b">127.0.0.1:8765</text><text x="1020" y="277" class="small">fixed HTTP/JSON API</text><text x="1020" y="302" class="small">no generic proxy</text>
+<rect x="1290" y="170" width="230" height="145" rx="20" class="box safe"/>
+<text x="1320" y="210" class="h">lai harness</text><text x="1320" y="247" class="b">beta.15</text><text x="1320" y="277" class="small">policy · tools · gates</text><text x="1320" y="302" class="small">local model control</text>
+</g>
+<path d="M305 242 H365" class="line"/><path d="M605 242 H665" class="line"/><path d="M915 242 H975" class="line"/><path d="M1215 242 H1275" class="line"/>
+
+<!-- run lanes -->
+<text x="80" y="390" class="h">Capability-scoped execution</text>
+<rect x="80" y="425" width="290" height="120" rx="18" class="box"/><text x="110" y="465" class="h">Read-only run</text><text x="110" y="500" class="b">plan · review · security</text><text x="110" y="528" class="small">diagnose · release · no shell</text>
+<rect x="435" y="425" width="290" height="120" rx="18" class="box safe"/><text x="465" y="465" class="h">Isolated work run</text><text x="465" y="500" class="b">implement · fix · refactor</text><text x="465" y="528" class="small">ci-fix · repository-confined tools</text>
+<rect x="790" y="425" width="275" height="120" rx="18" class="box safe"/><text x="820" y="465" class="h">Safe workspace</text><text x="820" y="500" class="b">tracked source copy</text><text x="820" y="528" class="small">source baseline captured pre-model</text>
+<rect x="1130" y="425" width="390" height="120" rx="18" class="box safe"/><text x="1160" y="465" class="h">Docker validation sandbox</text><text x="1160" y="500" class="b">network=none · no host HOME/socket</text><text x="1160" y="528" class="small">structured full/test/check profiles</text>
+<path d="M725 485 H775" class="line"/><path d="M1065 485 H1115" class="line"/>
+<path d="M1400 315 V390 H580 V410" class="dash"/>
+
+<!-- promotion lane -->
+<text x="80" y="620" class="h">Approved promotion boundary</text>
+<rect x="80" y="655" width="275" height="120" rx="18" class="box purple"/><text x="110" y="695" class="h">Patch proposal</text><text x="110" y="730" class="b">complete bounded patch</text><text x="110" y="758" class="small">SHA-256 · paths · source SHA</text>
+<rect x="420" y="655" width="275" height="120" rx="18" class="box approval"/><text x="450" y="695" class="h">Explicit approval</text><text x="450" y="730" class="b">exact patch_sha256</text><text x="450" y="758" class="small">stale/mismatch → fail closed</text>
+<rect x="760" y="655" width="305" height="120" rx="18" class="box safe"/><text x="790" y="695" class="h">Revalidate + apply</text><text x="790" y="730" class="b">full sandbox validation</text><text x="790" y="758" class="small">git apply --check → apply → rehash</text>
+<rect x="1130" y="655" width="390" height="120" rx="18" class="box approval"/><text x="1160" y="695" class="h">Durable feature worktree</text><text x="1160" y="730" class="b">lai/promotion-&lt;run-id&gt;</text><text x="1160" y="758" class="small">ready for later commit / push / PR governance</text>
+<path d="M355 715 H405" class="line"/><path d="M695 715 H745" class="line"/><path d="M1065 715 H1115" class="line"/>
+<path d="M1325 545 V620 H218 V640" class="dash"/>
+
+<!-- source checkout invariant -->
+<rect x="80" y="815" width="1440" height="55" rx="16" class="box source"/>
+<text x="110" y="849" class="h">Active source checkout: unchanged HEAD · unchanged tree/status · no direct remote write · no branch switch · no commit/push/merge</text>
+</svg>

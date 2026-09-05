@@ -1,3 +1,24 @@
+## [0.4.0-beta.15] - 2026-09-05
+
+### Added
+- Added read-only promotion proposals for successful isolated work runs with complete patch SHA-256, changed paths, source baseline, and deterministic target branch.
+- Added explicit hash-bound promotion into durable `lai/promotion-*` Git worktrees under the LAI data directory.
+- Added repeated `full` Docker-sandbox validation immediately before promotion and exact post-apply patch-hash verification.
+- Added idempotent same-hash promotion and structured promotion state/evidence on control-run records.
+
+### Safety
+- Failed/cancelled runs, dirty or drifted source checkouts, mutable workspace-metadata drift, hash mismatch, validation failure, unsafe/oversized patches, and pre-existing targets fail closed.
+- The control server's pre-model source SHA/branch/clean baseline is authoritative; workspace metadata is only consistency evidence.
+- Promotion never edits or switches the active checkout and does not commit, push, merge, tag, publish, run a shell command supplied by the caller, or call the model.
+- Promotion worktrees are forced outside the active source checkout.
+
+### Fixed
+- Replaced human-formatted `git status --short` first-line parsing with structured NUL-delimited path inventory, fixing `Makefile` being reported as `akefile` during mobile work-run dogfooding.
+
+### Validation
+- Full local suites: 200 tests + 68 pytest subtests.
+- Real Docker + Git smoke verified validation exit 0, exact hash equality before/after promotion, a durable feature worktree, and unchanged source HEAD/tree/status.
+
 ## [0.4.0-beta.14] - 2026-09-04
 
 ### Added

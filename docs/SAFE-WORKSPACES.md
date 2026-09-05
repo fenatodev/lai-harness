@@ -85,3 +85,12 @@ Starting with beta.14, remote `implement`, `fix`, `refactor`, and `ci-fix` contr
 Remote validation runs against the safe workspace through the configured Docker sandbox. At completion, the control-run record returns bounded Git status, changed paths, and diff evidence. The workspace path is operational evidence, not an approval to copy changes into the source repository.
 
 Work-result promotion is intentionally a separate future capability. Until that protocol exists, review the returned diff and apply equivalent changes through the normal protected feature-branch workflow rather than treating a control-run workspace as authoritative source state.
+
+
+## Approved promotion
+
+Starting with beta.15, a successful control-run workspace may expose a promotion proposal. The proposal is based on the source SHA/branch/clean state captured by the control server before the model starts and on a complete bounded patch reconstructed from Git, not on mutable workspace metadata or the display diff.
+
+Approval supplies the exact patch SHA-256. The server recomputes that patch, repeats `full` validation in the fixed Docker sandbox, rechecks source drift, and creates a deterministic `lai/promotion-<run-id>` branch in a worktree under `$LAI_DATA_DIR/promotions`. It applies with `git apply --check` followed by `git apply` and verifies the resulting patch hash. The active source checkout is never switched or edited.
+
+Promotion is intentionally not commit/push/merge. The resulting worktree is the durable integration boundary for later review and future Git-governance cuts.
