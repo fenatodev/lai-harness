@@ -23,7 +23,7 @@ import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "0.4.0-beta.17"
+VERSION = "0.4.0-beta.18"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -181,6 +181,11 @@ CONFIG_OPTIONS = {
     "--state-dir": "state_dir",
     "--metrics-dir": "metrics_dir",
     "--audit-dir": "audit_dir",
+    "--state-retention-days": "state_retention_days",
+    "--metrics-max-bytes": "metrics_max_bytes",
+    "--metrics-keep-lines": "metrics_keep_lines",
+    "--audit-max-bytes": "audit_max_bytes",
+    "--audit-keep-lines": "audit_keep_lines",
     "--llama-server": "llama_server",
     "--server-launcher": "server_launcher",
     "--chat-template": "chat_template",
@@ -201,6 +206,11 @@ CONFIG_VALUE_KEYS = {
     "state_dir",
     "metrics_dir",
     "audit_dir",
+    "state_retention_days",
+    "metrics_max_bytes",
+    "metrics_keep_lines",
+    "audit_max_bytes",
+    "audit_keep_lines",
     "llama_server",
     "server_launcher",
     "chat_template",
@@ -221,6 +231,13 @@ CONFIG_PATH_KEYS = {
 }
 CONFIG_OPTIONAL_STRING_KEYS = {"host"}
 CONFIG_REQUIRED_STRING_KEYS = {"model", "server_launcher"}
+CONFIG_INTEGER_LIMITS = {
+    "state_retention_days": (1, 3650),
+    "metrics_max_bytes": (1, 1_000_000_000),
+    "metrics_keep_lines": (1, 1_000_000),
+    "audit_max_bytes": (1, 1_000_000_000),
+    "audit_keep_lines": (1, 1_000_000),
+}
 CONFIG_DIRECTORY_KEYS = {
     "config_dir",
     "data_dir",
@@ -284,6 +301,19 @@ def normalize_config_values(values, *, config_file=None, file_scope=False):
             config_error("port must be an integer from 1 to 65535", config_file)
         if not 1 <= normalized["port"] <= 65535:
             config_error("port must be an integer from 1 to 65535", config_file)
+
+    for key, (minimum, maximum) in CONFIG_INTEGER_LIMITS.items():
+        if key not in normalized:
+            continue
+        raw_value = normalized[key]
+        if isinstance(raw_value, bool):
+            config_error(f"{key} must be an integer from {minimum} to {maximum}", config_file)
+        try:
+            normalized[key] = int(raw_value)
+        except (TypeError, ValueError):
+            config_error(f"{key} must be an integer from {minimum} to {maximum}", config_file)
+        if not minimum <= normalized[key] <= maximum:
+            config_error(f"{key} must be an integer from {minimum} to {maximum}", config_file)
 
     for key in CONFIG_REQUIRED_STRING_KEYS:
         if key in normalized:
@@ -373,6 +403,11 @@ def load_configuration(argv, environ=None, home=None):
         "state_dir": None,
         "metrics_dir": None,
         "audit_dir": None,
+        "state_retention_days": 45,
+        "metrics_max_bytes": 5_000_000,
+        "metrics_keep_lines": 3000,
+        "audit_max_bytes": 5_000_000,
+        "audit_keep_lines": 4000,
         "llama_server": None,
         "server_launcher": "lai-server-start",
         "chat_template": None,
@@ -3225,8 +3260,15 @@ def tool_rewrite(args):
     return f"OK: rewritten {rel}"
 
 
+RUNTIME_RECORD_SCHEMA_VERSION = 1
+
 METRICS_DIR = CONFIG["metrics_dir"]
 METRICS_FILE = METRICS_DIR / "events.jsonl"
+METRICS_MAX_BYTES = CONFIG["metrics_max_bytes"]
+METRICS_KEEP_LINES = CONFIG["metrics_keep_lines"]
+AUDIT_MAX_BYTES = CONFIG["audit_max_bytes"]
+AUDIT_KEEP_LINES = CONFIG["audit_keep_lines"]
+STATE_RETENTION_DAYS = CONFIG["state_retention_days"]
 
 _metrics_time = __import__("time")
 _metrics_os = __import__("os")
@@ -3238,7 +3280,35 @@ RUN_ID = (
 
 ACTIVE_MODE = "unknown"
 ACTIVE_TASK = ""
-METRICS_PRUNED = False
+
+
+def runtime_record_schema_supported(payload):
+    if not isinstance(payload, dict):
+        return False
+    version = payload.get("schema_version")
+    return version in {None, RUNTIME_RECORD_SCHEMA_VERSION}
+
+
+def prune_jsonl_tail(path, max_bytes, keep_lines):
+    try:
+        if not path.is_file() or path.stat().st_size <= max_bytes:
+            return False
+        lines = path.read_text(errors="replace").splitlines()[-keep_lines:]
+        text = "\n".join(lines)
+        if text:
+            text += "\n"
+        temp = path.with_name(f".{path.name}.{os.getpid()}.{RUN_ID}.retention.tmp")
+        try:
+            with temp.open("w", encoding="utf-8") as fh:
+                fh.write(text)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(temp, path)
+        finally:
+            temp.unlink(missing_ok=True)
+        return True
+    except Exception:
+        return False
 
 
 def llama_api_key():
@@ -4881,30 +4951,16 @@ def doctor_status(host):
 
 
 def record_metric_event(event):
-    global METRICS_PRUNED
-
     METRICS_DIR.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    if (
-        not METRICS_PRUNED
-        and METRICS_FILE.is_file()
-        and METRICS_FILE.stat().st_size > 5_000_000
-    ):
-        try:
-            lines = METRICS_FILE.read_text(
-                errors="replace"
-            ).splitlines()
-
-            METRICS_FILE.write_text(
-                "\n".join(lines[-3000:]) + "\n"
-            )
-        except Exception:
-            pass
-
-        METRICS_PRUNED = True
+    prune_jsonl_tail(
+        METRICS_FILE,
+        METRICS_MAX_BYTES,
+        METRICS_KEEP_LINES,
+    )
 
     payload = {
         "ts": _metrics_time.strftime(
@@ -4915,6 +4971,7 @@ def record_metric_event(event):
         "repo": str(ROOT),
         "mode": ACTIVE_MODE,
         **event,
+        "schema_version": RUNTIME_RECORD_SCHEMA_VERSION,
     }
 
     try:
@@ -4949,9 +5006,11 @@ def print_lai_metrics():
 
         for line in lines:
             try:
-                events.append(json.loads(line))
+                payload = json.loads(line)
             except Exception:
-                pass
+                continue
+            if runtime_record_schema_supported(payload):
+                events.append(payload)
     except Exception as e:
         print(f"ERROR reading metrics: {e}")
         return
@@ -5176,22 +5235,11 @@ def record_audit_event(event):
         exist_ok=True,
     )
 
-    try:
-        if (
-            AUDIT_FILE.is_file()
-            and AUDIT_FILE.stat().st_size
-            > 5_000_000
-        ):
-            lines = AUDIT_FILE.read_text(
-                errors="replace"
-            ).splitlines()
-
-            AUDIT_FILE.write_text(
-                "\n".join(lines[-4000:])
-                + "\n"
-            )
-    except Exception:
-        pass
+    prune_jsonl_tail(
+        AUDIT_FILE,
+        AUDIT_MAX_BYTES,
+        AUDIT_KEEP_LINES,
+    )
 
     payload = {
         "ts": _metrics_time.strftime(
@@ -5202,6 +5250,7 @@ def record_audit_event(event):
         "repo": str(ROOT),
         "mode": ACTIVE_MODE,
         **event,
+        "schema_version": RUNTIME_RECORD_SCHEMA_VERSION,
     }
 
     try:
@@ -5239,7 +5288,10 @@ def print_lai_audit():
             except Exception:
                 continue
 
-            if event.get("repo") == str(ROOT):
+            if (
+                runtime_record_schema_supported(event)
+                and event.get("repo") == str(ROOT)
+            ):
                 events.append(event)
 
     except Exception as exc:
@@ -5499,7 +5551,7 @@ def load_jsonl_tail(path, max_lines=5000):
         except Exception:
             continue
 
-        if isinstance(payload, dict):
+        if runtime_record_schema_supported(payload):
             events.append(payload)
 
     return events
@@ -8578,7 +8630,7 @@ def workspace_state_paths():
     )
 
 
-CHECKPOINT_SCHEMA_VERSION = 1
+CHECKPOINT_SCHEMA_VERSION = RUNTIME_RECORD_SCHEMA_VERSION
 
 
 def run_checkpoint_path():
@@ -8865,6 +8917,7 @@ def load_workspace_state():
     json_path, _ = workspace_state_paths()
 
     base = {
+        "schema_version": RUNTIME_RECORD_SCHEMA_VERSION,
         "root": str(ROOT),
         "updated_at": None,
         "last_mode": None,
@@ -8888,10 +8941,15 @@ def load_workspace_state():
             json_path.read_text(errors="replace")
         )
 
+        version = data.get("schema_version")
+        if version not in {None, RUNTIME_RECORD_SCHEMA_VERSION}:
+            return base
+
         if data.get("root") != str(ROOT):
             return base
 
         base.update(data)
+        base["schema_version"] = RUNTIME_RECORD_SCHEMA_VERSION
 
         base["recent_files"] = normalize_workspace_state_paths(
             base.get("recent_files")
@@ -8923,11 +8981,14 @@ def workspace_git_branch():
         return "[unavailable]"
 
 
-def cleanup_stale_workspace_states(max_age_days=45):
+def cleanup_stale_workspace_states(max_age_days=None):
     time = __import__("time")
 
     if not STATE_BASE.is_dir():
         return
+
+    if max_age_days is None:
+        max_age_days = STATE_RETENTION_DAYS
 
     cutoff = (
         time.time()
@@ -9134,6 +9195,7 @@ def save_workspace_state(state):
 
     json_path, md_path = workspace_state_paths()
 
+    state["schema_version"] = RUNTIME_RECORD_SCHEMA_VERSION
     state["root"] = str(ROOT)
     state["updated_at"] = time.strftime(
         "%Y-%m-%dT%H:%M:%SZ",

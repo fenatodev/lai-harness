@@ -2,6 +2,7 @@
 
 lai harness keeps one versioned recovery checkpoint per workspace under `$LAI_DATA_DIR/checkpoints`.
 The checkpoint is operational state, not repository content and not conversation persistence.
+Its machine-readable contract is `schemas/runtime/checkpoint.schema.json`; see [Runtime records](RUNTIME-RECORDS.md).
 
 ## What is recorded
 

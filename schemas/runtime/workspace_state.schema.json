@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fenatodev/lai-harness/schemas/runtime/workspace_state.schema.json",
+  "title": "LAI workspace state",
+  "type": "object",
+  "required": ["schema_version", "root"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "root": {"type": "string", "minLength": 1},
+    "updated_at": {"type": ["string", "null"]},
+    "last_mode": {"type": ["string", "null"]},
+    "last_task": {"type": ["string", "null"]},
+    "recent_files": {"type": "array", "items": {"type": "string"}},
+    "modified_files": {"type": "array", "items": {"type": "string"}},
+    "git_status": {"type": ["string", "null"]},
+    "git_branch": {"type": ["string", "null"]}
+  },
+  "additionalProperties": true
+}

@@ -8,8 +8,8 @@ Use this checklist for beta releases with protected `main`.
 cd ~/dev/projects/lai-local-agent
 lai readiness
 lai workspace status --json
-lai release-check --target 0.4.0-beta.17 --json
-lai release-pack --target 0.4.0-beta.17 --with-vsix --json
+lai release-check --target 0.4.0-beta.18 --json
+lai release-pack --target 0.4.0-beta.18 --with-vsix --json
 make typecheck
 make lint
 make check
@@ -31,7 +31,7 @@ Every product version bump must review `docs/assets/visual-assets.json`. Its `re
 
 ## Protected-main integration
 
-1. Push the current versioned feature branch (for beta.17: `feature/v0.4.0-beta.17-actions-supply-chain`).
+1. Push the current versioned feature branch (for beta.17: `feature/v0.4.0-beta.18-actions-supply-chain`).
 2. Open a PR into `main`.
 3. Confirm all required checks are present; `Harness Score L4` is already part of protected `main`.
 4. Require `Python 3.11`, `Python 3.12`, `Publication gates`, and `Harness Score L4` with the branch up to date.
@@ -40,20 +40,20 @@ Every product version bump must review `docs/assets/visual-assets.json`. Its `re
 
 ## Tag after merge
 
-Only after merged `main` is green and `lai release-check --target 0.4.0-beta.17 --json` reports `ready_to_tag`:
+Only after merged `main` is green and `lai release-check --target 0.4.0-beta.18 --json` reports `ready_to_tag`:
 
 ```bash
-git tag -a v0.4.0-beta.17 \
-  -m "v0.4.0-beta.17 — Node 24 CI supply-chain hardening"
-git push origin v0.4.0-beta.17
+git tag -a v0.4.0-beta.18 \
+  -m "v0.4.0-beta.18 — Node 24 CI supply-chain hardening"
+git push origin v0.4.0-beta.18
 ```
 
 Then verify tag CI is green.
 
 ## GitHub pre-release
 
-1. Create the GitHub Release from `v0.4.0-beta.17`.
+1. Create the GitHub Release from `v0.4.0-beta.18`.
 2. Use the title/body from the release pack.
 3. Keep it marked as pre-release.
-4. Optionally attach the inspected `lai-harness-0.4.0-beta.17.vsix`.
-5. Run `lai release-governance --target 0.4.0-beta.17 --remote --json` and `lai project-handoff --target 0.4.0-beta.17 --remote --json`; published governance should be fully verified.
+4. Optionally attach the inspected `lai-harness-0.4.0-beta.18.vsix`.
+5. Run `lai release-governance --target 0.4.0-beta.18 --remote --json` and `lai project-handoff --target 0.4.0-beta.18 --remote --json`; published governance should be fully verified.

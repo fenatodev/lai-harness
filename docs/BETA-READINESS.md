@@ -1,10 +1,10 @@
 # Beta readiness
 
-This document records the release posture for `0.4.0-beta.17`. This is a CI/supply-chain hardening cut; LAI runtime capability, model behavior, and repository authority remain unchanged.
+This document records the release posture for `0.4.0-beta.18`. This is a CI/supply-chain hardening cut; LAI runtime capability, model behavior, and repository authority remain unchanged.
 
 ## Scope
 
-`0.4.0-beta.17` adds:
+`0.4.0-beta.18` adds:
 
 - Node 24-compatible GitHub-maintained actions at reviewed releases;
 - immutable full-SHA pins for `actions/checkout`, `actions/setup-python`, and `actions/setup-node`;
@@ -18,7 +18,7 @@ This cut does not chase Harness Score points. Its purpose is to remove a live Gi
 ## Required feature-branch gate
 
 ```bash
-lai release-check --target 0.4.0-beta.17 --json
+lai release-check --target 0.4.0-beta.18 --json
 make lint
 make typecheck
 make check
@@ -32,14 +32,14 @@ Expected before merge: spec 033 complete, action-hardening regressions green, al
 
 ## Protected-main integration
 
-1. Push `feature/v0.4.0-beta.17-actions-supply-chain`.
+1. Push `feature/v0.4.0-beta.18-actions-supply-chain`.
 2. Open a PR into protected `main`.
 3. Require `Python 3.11`, `Python 3.12`, `Publication gates`, and `Harness Score L4`.
 4. Merge without bypassing branch protection.
 5. Fast-forward local `main` to `origin/main`.
 6. Wait for merged-main CI and Harness maturity to succeed.
-7. Run `lai release-check --target 0.4.0-beta.17 --json`; only `ready_to_tag` may proceed to a tag.
-8. Freeze the final VSIX from merged `main`, push only `v0.4.0-beta.17`, wait for tag CI, then publish the pre-release with that exact asset.
+7. Run `lai release-check --target 0.4.0-beta.18 --json`; only `ready_to_tag` may proceed to a tag.
+8. Freeze the final VSIX from merged `main`, push only `v0.4.0-beta.18`, wait for tag CI, then publish the pre-release with that exact asset.
 
 ## Non-goals
 
