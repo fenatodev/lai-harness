@@ -18,25 +18,19 @@ The repository README is the primary landing page. Keep Wiki/Projects disabled u
 
 ## Visual presentation
 
-The approved diagrams are versioned under `docs/assets/`:
+The approved diagrams are versioned under `docs/assets/`. `docs/assets/visual-assets.json` must be reviewed on every version bump. Regenerate a diagram only when the architecture it describes changes; otherwise update the review marker after confirming the diagrams remain accurate.
 
-- `core-architecture.png` — product/core overview;
-- `private-mobile-access.png` — companion gateway and private mobile boundary;
-- `release-flow.png` — protected integration/release lifecycle.
+## Release v0.4.0-beta.19
 
-`docs/assets/visual-assets.json` must be reviewed on every version bump. Regenerate a diagram when the architecture it describes changes; otherwise explicitly confirm it remains current before updating the review marker.
+Use `lai release-pack --target 0.4.0-beta.19 --with-vsix --json` to generate local publication files.
 
-## Release v0.4.0-beta.18
+**Expected title:** lai harness v0.4.0-beta.19 — release metadata correctness
 
-Use `lai release-pack --target 0.4.0-beta.18 --with-vsix --json` to generate local release files.
-
-**Title:** lai harness v0.4.0-beta.18 — Node 24 CI supply-chain hardening
-
-The GitHub Release body should come from generated `release-body.md` or [Release notes](RELEASE-NOTES.md). Keep the release marked as a pre-release while the project remains beta.
+The generated `release-body.md` must come from the exact `## lai harness v0.4.0-beta.19` section in [Release notes](RELEASE-NOTES.md). Do not substitute text from older `### Release body for GitHub` markers.
 
 Before merge, protected `main` must require `Python 3.11`, `Python 3.12`, `Publication gates`, and `Harness Score L4`.
 
-After publication, run `lai release-governance --target 0.4.0-beta.18 --remote --json` to verify branch protection, pre-release metadata, and the VSIX digest when attached.
+After publication, run `lai release-governance --target 0.4.0-beta.19 --remote --json` to verify branch protection, pre-release metadata, and the VSIX digest when attached.
 
 ## Publication hygiene
 

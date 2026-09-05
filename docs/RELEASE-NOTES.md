@@ -1,3 +1,34 @@
+## lai harness v0.4.0-beta.19 — release metadata correctness
+
+This beta fixes the release-pack metadata defect discovered while publishing beta.18. Generated GitHub release bodies and annotated-tag messages now come from the exact target-version section in this file instead of stale legacy markers or hardcoded titles.
+
+### What changed
+
+- `release-pack` selects the exact `## lai harness v<TARGET>` section and stops at the next level-2 heading.
+- Legacy `### Release body for GitHub` markers in older release sections are ignored.
+- Annotated-tag messages are derived from the same target heading as the release body.
+- Missing target-specific notes fall back to neutral generic metadata rather than unrelated older release text.
+- Current publishing/readiness/checklist documentation is aligned with the actual beta.19 scope.
+- Regressions cover stale markers and version-prefix collisions.
+
+### Why this matters
+
+A correct binary can still be published incorrectly if its release evidence describes another version. Release metadata is part of the trust boundary: operators and users should be able to verify that tag, notes, CI evidence, and attached artifact refer to the same cut.
+
+### Validation gate
+
+```bash
+lai release-check --target 0.4.0-beta.19 --json
+lai release-pack --target 0.4.0-beta.19 --with-vsix --json
+make lint
+make typecheck
+make check
+make test-dev
+make test
+make harness-score-gate
+make validate
+```
+
 ## lai harness v0.4.0-beta.18 — versioned runtime records
 
 This beta stabilizes the local state/observability contract before persistent remote sessions. Workspace state, metrics, audit events, and recovery checkpoints now have explicit versioned formats, while retention limits become operator-configurable instead of hidden constants.

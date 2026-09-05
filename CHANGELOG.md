@@ -1,3 +1,18 @@
+## [0.4.0-beta.19] - 2026-09-05
+
+### Fixed
+- Release packs now select the exact target-version section from `docs/RELEASE-NOTES.md` instead of reusing a stale legacy `Release body for GitHub` marker.
+- Annotated-tag messages now derive from the same target release heading instead of a hardcoded historical title.
+- Version-prefix matching is exact enough to prevent targets such as `beta.1` from matching `beta.10`.
+- Current beta publishing/readiness/checklist documentation now describes the actual release scope.
+
+### Safety and architecture
+- No runtime authority, model behavior, persistence format, remote capability, Git authority, dependency, or control-plane behavior changes.
+
+### Validation
+- Focused release-pack/identity regressions and install smoke pass.
+- Full local gates: 218 tests + 72 pytest subtests; strict mypy green; publication scan clean; VSIX inspection passed.
+
 ## [0.4.0-beta.18] - 2026-09-05
 
 ### Added
