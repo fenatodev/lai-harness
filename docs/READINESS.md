@@ -34,4 +34,4 @@ Use `lai release-check --json` for a model-free release gate after `lai readines
 
 ## Beta readiness
 
-For beta cuts, use `lai readiness`, `lai release-check --target 0.4.0-beta.13 --json`, `make validate`, and the checks in [Beta readiness](BETA-READINESS.md). The beta gate is deterministic and does not tag, merge, push, upload, or publish artifacts. Use `lai release-pack` afterwards to prepare local release files outside the repository.
+For beta cuts, use `lai readiness`, `lai release-check --target 0.4.0-beta.14 --json`, `make validate`, and the checks in [Beta readiness](BETA-READINESS.md). The beta gate is deterministic and does not tag, merge, push, upload, or publish artifacts. Use `lai release-pack` afterwards to prepare local release files outside the repository.

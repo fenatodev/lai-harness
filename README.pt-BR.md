@@ -12,7 +12,7 @@
   <a href="LICENSE"><img alt="Licença" src="https://img.shields.io/badge/license-MIT-0f766e"></a>
 </p>
 
-> **Release atual:** `v0.4.0-beta.13` · beta experimental · fluxo Linux/WSL-first · inferência local por endpoint OpenAI-compatible, desenvolvido com llama.cpp.
+> **Release atual:** `v0.4.0-beta.14` · beta experimental · fluxo Linux/WSL-first · inferência local por endpoint OpenAI-compatible, desenvolvido com llama.cpp.
 
 O lai harness foi criado para um problema específico: modelos locais pequenos perdem muita capacidade quando precisam carregar prompts gigantes, schemas genéricos e muitas rodadas de ferramentas. O projeto reduz esse overhead e coloca ao redor do modelo regras que não dependem da própria resposta do modelo: policy, specs, validação, auditoria, checkpoints e release protegido.
 
@@ -22,12 +22,12 @@ Ele complementa agentes cloud de alto contexto. O trabalho local fica rápido e 
 
 | Área | Estado atual |
 | --- | --- |
-| Versão | `0.4.0-beta.13` |
+| Versão | `0.4.0-beta.14` |
 | Maturidade do harness | L4 · Self-correcting · 93/108 (86%) |
 | Runtime | Python stdlib; sem dependências Python no harness |
 | Interfaces | CLI (`lai`) + extensão VS Code |
 | Modelo local | HTTP OpenAI-compatible; desenvolvido com llama.cpp + GGUF do usuário |
-| Controle remoto | Control plane autenticado em loopback, sem shell/escrita remotos |
+| Controle remoto | Control plane autenticado em loopback; leitura remota + work isolado, sem shell remoto nem escrita direta no repo fonte |
 | Release | `main` protegida, CI obrigatório, tag anotada, tag CI e verificação de digest |
 
 Harness Score é usado como ratchet externo de maturidade do repositório, não como certificação de segurança.
@@ -92,7 +92,7 @@ Leia [Installation](docs/INSTALLATION.md) e [Quick start](docs/QUICKSTART.md) an
 
 ## Controle local e acesso móvel privado
 
-O `lai serve` cria uma fronteira HTTP autenticada somente em loopback para runs assíncronos sem shell/escrita. Ele não expõe shell genérico, mutação Git, publicação de release ou a porta do llama.cpp diretamente.
+O `lai serve` cria uma fronteira HTTP autenticada somente em loopback para runs assíncronos. Modos de leitura continuam sem shell; a beta.14 também permite `implement`, `fix`, `refactor` e `ci-fix` em um safe workspace descartável, com validação estruturada dentro de uma sandbox Docker. Ele não expõe shell remoto genérico, escrita direta no checkout fonte, mutação Git, publicação de release ou a porta do llama.cpp diretamente.
 
 ```bash
 lai control-token init
@@ -119,17 +119,17 @@ O fluxo exige:
 8. handoff convergente sem ações manuais pendentes.
 
 ```bash
-lai release-check --target 0.4.0-beta.13 --json
-lai release-pack --target 0.4.0-beta.13 --with-vsix --json
-lai release-governance --target 0.4.0-beta.13 --remote --json
-lai project-handoff --target 0.4.0-beta.13 --remote --json
+lai release-check --target 0.4.0-beta.14 --json
+lai release-pack --target 0.4.0-beta.14 --with-vsix --json
+lai release-governance --target 0.4.0-beta.14 --remote --json
+lai project-handoff --target 0.4.0-beta.14 --remote --json
 ```
 
 ## Segurança
 
 O lai harness **não é uma sandbox**. As ferramentas de arquivo ficam confinadas à raiz do repositório e a inspeção Git dedicada é somente leitura, mas `bash` local permitido ainda executa com as permissões do usuário. A policy governa ações; ela não substitui isolamento do sistema operacional.
 
-O controle remoto é mais estreito por design: os filhos do control plane recebem perfis sem shell/escrita antes que os schemas cheguem ao modelo.
+O controle remoto é mais estreito por design. Runs de leitura recebem apenas ferramentas de inspeção. Runs de work recebem ferramentas de arquivo confinadas ao workspace + `validate`, trabalham numa cópia isolada e retornam diff limitado. A validação roda em Docker sem rede, sem HOME do host, sem socket Docker, com capabilities removidas e rootfs somente leitura.
 
 Use modos de escrita somente em workspaces confiáveis, com backup ou descartáveis, sob conta de menor privilégio. Nunca publique chaves, tokens de controle, estados, métricas, auditoria, modelos ou handoffs reais.
 
@@ -140,7 +140,8 @@ Use modos de escrita somente em workspaces confiáveis, com backup ou descartáv
 - modelos locais podem produzir afirmações incorretas e precisam de grounding/validação;
 - policy de `bash` não é containment;
 - ainda não há instalador automático de modelo nem extensão no Marketplace;
-- escrita/aprovação remota continua deliberadamente fora do control plane atual.
+- o work remoto gera apenas um diff isolado; promover/aplicar esse resultado no checkout fonte continua dependendo de um futuro protocolo explícito de aprovação;
+- a validação de work remoto exige Docker e a imagem de sandbox já presente localmente; o harness nunca faz pull automático.
 
 ## Documentação visual
 

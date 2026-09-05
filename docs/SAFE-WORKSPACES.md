@@ -77,3 +77,11 @@ The base must be outside the source repository.
 - It does not call the model.
 - It does not copy untracked files, secrets, virtualenvs, or generated runtime state.
 - It does not bypass the protected branch write guard in the source checkout.
+
+## Automatic control-run workspaces
+
+Starting with beta.14, remote `implement`, `fix`, `refactor`, and `ci-fix` control runs create a unique safe workspace automatically before the model starts. The control child uses that copy as its repository root; the source checkout is not the child's working tree.
+
+Remote validation runs against the safe workspace through the configured Docker sandbox. At completion, the control-run record returns bounded Git status, changed paths, and diff evidence. The workspace path is operational evidence, not an approval to copy changes into the source repository.
+
+Work-result promotion is intentionally a separate future capability. Until that protocol exists, review the returned diff and apply equivalent changes through the normal protected feature-branch workflow rather than treating a control-run workspace as authoritative source state.
