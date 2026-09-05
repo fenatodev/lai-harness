@@ -23,7 +23,7 @@ import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "0.4.0-beta.19"
+VERSION = "0.4.0-beta.20"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -76,10 +76,10 @@ SEMANTIC_CODE_CONTRACT = {
         },
         {
             "id": "model-evaluation",
-            "intent": "compare local coding models through deterministic scenarios, sample records, and scoring",
-            "paths": ["src/local-agent", "docs/MODEL-EVALUATION.md"],
-            "entrypoints": ["render_model_evaluation_plan", "render_model_evaluation_sample", "render_model_evaluation_score"],
-            "terms": ["model", "evaluation", "benchmark", "score", "scenario", "latency", "tokens", "hallucination", "truncation"],
+            "intent": "compare local coding models with versioned disposable fixtures, independent validation, runtime evidence, repeated samples, and scoring",
+            "paths": ["src/local-agent", "model-eval/fixtures-v1.json", "docs/MODEL-EVALUATION.md", "docs/MODEL-BAKEOFF-2026-09-05.md"],
+            "entrypoints": ["render_model_evaluation_plan", "run_model_evaluation", "run_model_evaluation_fixture", "render_model_evaluation_score"],
+            "terms": ["model", "evaluation", "benchmark", "fixture", "score", "scenario", "repeat", "latency", "tokens", "hallucination", "validation", "truncation"],
         },
         {
             "id": "observability-recovery",
@@ -1543,6 +1543,14 @@ def model_evaluation_payload():
             "low_truncation": 5,
             "efficiency": 5,
         },
+        "runner": {
+            "fixture_schema_version": 1,
+            "model_backed_scenarios": sorted(MODEL_EVALUATION_MODEL_BACKED_SCENARIOS),
+            "repeat_min": 1,
+            "repeat_max": 5,
+            "decision_min_samples_per_scenario": 2,
+            "result_dir": str(model_evaluation_result_dir()),
+        },
     }
 
 
@@ -1559,7 +1567,8 @@ def render_model_evaluation_plan(json_mode=False):
         "Purpose:",
         "- Compare small local coding models on the lai harness workflow before changing defaults.",
         "- Use the same scenarios, recording format, and scoring rubric for every model.",
-        "- This command is deterministic and does not call, start, or download a model.",
+        "- This plan command is deterministic and does not call, start, or download a model.",
+        "- lai model run evaluates only the model already loaded on the authenticated endpoint.",
         "",
         "Scenarios:",
     ]
@@ -1577,8 +1586,10 @@ def render_model_evaluation_plan(json_mode=False):
         "Commands:",
         "- lai model plan",
         "- lai model plan --json",
-        "- lai model sample > model-eval/results.jsonl",
-        "- lai model score model-eval/results.jsonl",
+        "- lai model sample",
+        "- lai model run --repeat 2",
+        "- lai model score latest",
+        "- lai model score first.jsonl second.jsonl",
         "",
         "Decision rule:",
         "- Keep the current default unless another model wins clearly on correctness, validation, policy obedience, and acceptable latency.",
@@ -1687,10 +1698,15 @@ def render_model_evaluation_score(records):
     grouped = {}
     for record in records:
         model = record["model"]
-        item = grouped.setdefault(model, {"count": 0, "total": 0.0, "scenarios": []})
+        item = grouped.setdefault(
+            model, {"count": 0, "total": 0.0, "scenarios": [], "scenario_counts": {}}
+        )
         score = score_model_evaluation_record(record)
         item["count"] += 1
         item["total"] += score
+        item["scenario_counts"][record["scenario"]] = (
+            item["scenario_counts"].get(record["scenario"], 0) + 1
+        )
         item["scenarios"].append((record["scenario"], score, record["outcome"], record["validation"]))
 
     lines = ["# lai model evaluation score", ""]
@@ -1704,6 +1720,17 @@ def render_model_evaluation_score(records):
         lines.append(f"- records: {data['count']}")
         lines.append(f"- average_score: {average:.1f}")
         lines.append(f"- total_score: {data['total']:.1f}")
+        covered = MODEL_EVALUATION_MODEL_BACKED_SCENARIOS & set(data["scenario_counts"])
+        minimum_samples = (
+            min(data["scenario_counts"].get(item, 0) for item in MODEL_EVALUATION_MODEL_BACKED_SCENARIOS)
+            if covered == MODEL_EVALUATION_MODEL_BACKED_SCENARIOS else 0
+        )
+        decision_eligible = (
+            covered == MODEL_EVALUATION_MODEL_BACKED_SCENARIOS and minimum_samples >= 2
+        )
+        lines.append(f"- coverage: {len(covered)}/{len(MODEL_EVALUATION_MODEL_BACKED_SCENARIOS)}")
+        lines.append(f"- minimum_samples_per_required_scenario: {minimum_samples}")
+        lines.append(f"- decision_eligible: {'yes' if decision_eligible else 'no'}")
         for scenario, score, outcome, validation in sorted(data["scenarios"]):
             lines.append(
                 f"  - {scenario}: {score:.1f} "
@@ -1718,6 +1745,559 @@ def render_model_evaluation_score(records):
     return "\n".join(lines).rstrip()
 
 
+MODEL_EVALUATION_RUN_SCHEMA_VERSION = 1
+MODEL_EVALUATION_SOURCE_FIXTURE_FILE = (
+    Path(__file__).resolve().parent.parent / "model-eval" / "fixtures-v1.json"
+)
+MODEL_EVALUATION_MODEL_BACKED_SCENARIOS = {
+    "plan-repo-change",
+    "debug-repro",
+    "implement-small-diff",
+    "review-supported-findings",
+    "security-defensive",
+}
+
+
+def model_evaluation_result_dir():
+    return DATA_BASE / "model-eval"
+
+
+def model_evaluation_fixture_file():
+    if MODEL_EVALUATION_SOURCE_FIXTURE_FILE.is_file():
+        return MODEL_EVALUATION_SOURCE_FIXTURE_FILE
+    return model_evaluation_result_dir() / "fixtures-v1.json"
+
+
+def load_model_evaluation_fixtures():
+    try:
+        payload = json.loads(model_evaluation_fixture_file().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid model evaluation fixture file: {exc}") from exc
+    if payload.get("schema_version") != 1 or not isinstance(payload.get("fixtures"), list):
+        raise ValueError("unsupported model evaluation fixture schema")
+    fixtures = payload["fixtures"]
+    ids = [item.get("id") for item in fixtures if isinstance(item, dict)]
+    if len(ids) != len(fixtures) or len(set(ids)) != len(ids):
+        raise ValueError("model evaluation fixture ids must be unique strings")
+    return payload
+
+
+def model_evaluation_safe_result_path(raw):
+    result_base = model_evaluation_result_dir().resolve()
+    if raw == "latest":
+        candidates = sorted(
+            result_base.glob("*.jsonl"),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        ) if result_base.is_dir() else []
+        if not candidates:
+            raise ValueError("no model evaluation results found")
+        return candidates[0]
+
+    supplied = Path(raw).expanduser()
+    candidates = [supplied] if supplied.is_absolute() else [ROOT / supplied, result_base / supplied]
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        try:
+            resolved.relative_to(ROOT.resolve())
+            return resolved
+        except ValueError:
+            pass
+        try:
+            resolved.relative_to(result_base)
+            return resolved
+        except ValueError:
+            continue
+    raise ValueError("model evaluation result path is outside repository and LAI model-eval data")
+
+
+def model_evaluation_server_profile():
+    host = gateway()
+    req = urllib.request.Request(
+        f"http://{host}:{LLAMA_PORT}/props",
+        headers={"Authorization": f"Bearer {llama_api_key()}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as response:
+            props = json.loads(response.read().decode("utf-8", errors="replace"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
+        raise ValueError(f"unable to read authenticated model server props: {exc}") from exc
+    default_settings = props.get("default_generation_settings") or {}
+    return {
+        "host": str(host),
+        "port": int(LLAMA_PORT),
+        "model_alias": str(props.get("model_alias") or MODEL),
+        "model_ftype": str(props.get("model_ftype") or ""),
+        "context_size": int(default_settings.get("n_ctx") or default_settings.get("n_ctx_train") or 0),
+        "total_slots": int(props.get("total_slots") or 0),
+    }
+
+
+def model_evaluation_hardware_profile(server_profile):
+    uname = os.uname() if hasattr(os, "uname") else None
+    return {
+        "system": uname.sysname if uname else sys.platform,
+        "release": uname.release if uname else "",
+        "machine": uname.machine if uname else "",
+        "cpu_count": int(os.cpu_count() or 0),
+        "python": sys.version.split()[0],
+        "model_ftype": server_profile.get("model_ftype", ""),
+        "context_size": int(server_profile.get("context_size") or 0),
+    }
+
+
+def model_evaluation_write_fixture_file(repo, relative_path, content):
+    target = (repo / relative_path).resolve()
+    try:
+        target.relative_to(repo.resolve())
+    except ValueError as exc:
+        raise ValueError(f"unsafe fixture path: {relative_path}") from exc
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(str(content), encoding="utf-8")
+
+
+def model_evaluation_git(repo, *args, check=True):
+    proc = subprocess.run(
+        ["git", *args], cwd=repo, text=True, capture_output=True, timeout=20,
+    )
+    if check and proc.returncode != 0:
+        raise ValueError(f"fixture git command failed: {' '.join(args)}: {proc.stderr.strip()}")
+    return proc
+
+
+def model_evaluation_changed_paths(repo):
+    proc = model_evaluation_git(repo, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+    raw = proc.stdout
+    items = raw.split("\0")
+    paths = []
+    index = 0
+    while index < len(items):
+        item = items[index]
+        if not item:
+            index += 1
+            continue
+        status = item[:2]
+        path = item[3:] if len(item) >= 4 else ""
+        if path:
+            paths.append(path)
+        if status.startswith("R") or status.startswith("C"):
+            index += 1
+        index += 1
+    return sorted(set(paths))
+
+
+def model_evaluation_prepare_fixture(base, fixture):
+    repo = base / fixture["id"]
+    repo.mkdir(parents=True, exist_ok=False)
+    for relative_path, content in (fixture.get("files") or {}).items():
+        model_evaluation_write_fixture_file(repo, relative_path, content)
+    model_evaluation_git(repo, "init", "-q")
+    model_evaluation_git(repo, "checkout", "-q", "-b", "test/model-eval")
+    model_evaluation_git(repo, "config", "user.name", "LAI Model Eval")
+    model_evaluation_git(repo, "config", "user.email", "model-eval@example.invalid")
+    model_evaluation_git(repo, "add", "-A")
+    model_evaluation_git(repo, "commit", "-q", "-m", "fixture baseline")
+    for relative_path, content in (fixture.get("pre_run_changes") or {}).items():
+        model_evaluation_write_fixture_file(repo, relative_path, content)
+    baseline_diff = model_evaluation_git(repo, "diff", "--binary").stdout
+    baseline_paths = model_evaluation_changed_paths(repo)
+    return repo, baseline_diff, baseline_paths
+
+
+def model_evaluation_read_events(path):
+    if not path.is_file():
+        return []
+    events = []
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            event = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events
+
+
+def model_evaluation_measure_events(metrics_events, audit_events):
+    api_events = [event for event in metrics_events if event.get("type") == "api"]
+    tool_events = [event for event in metrics_events if event.get("type") == "tool"]
+    limit_events = [event for event in metrics_events if event.get("type") == "agent_limit"]
+    policy_blocks = sum(
+        1 for event in [*metrics_events, *audit_events]
+        if str(event.get("decision") or "").upper() == "DENY"
+    )
+    return {
+        "prompt_tokens": sum(int(event.get("prompt_tokens") or 0) for event in api_events),
+        "completion_tokens": sum(int(event.get("completion_tokens") or 0) for event in api_events),
+        "tool_calls": len(tool_events),
+        "truncation_retries": sum(
+            1 for event in limit_events if event.get("reason") == "response_truncated"
+        ),
+        "policy_blocks": policy_blocks,
+    }
+
+
+def model_evaluation_validation_argv(profile):
+    if profile in (None, "none"):
+        return None
+    if profile == "python-unittest":
+        return [sys.executable, "-m", "unittest", "test_math_utils.py"]
+    raise ValueError(f"unsupported model evaluation validation profile: {profile}")
+
+
+def model_evaluation_claim_flags(output, baseline_diff, final_diff, validation_returncode, fixture):
+    flags = []
+    expected = fixture.get("expected") or {}
+    if not expected.get("read_only"):
+        claimed_edit = re.search(
+            r"\b(implemented|changed|updated|replaced|edited|modified|fixed)\b",
+            output,
+            flags=re.IGNORECASE,
+        )
+        if claimed_edit and final_diff == baseline_diff:
+            flags.append("claimed_edit_without_diff")
+        claimed_validation = re.search(
+            r"\b(tests?|validation)\b.{0,40}\b(pass(?:ed)?|successful|success|ok)\b",
+            output,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if claimed_validation and validation_returncode not in (None, 0):
+            flags.append("claimed_validation_success_but_validator_failed")
+
+    max_lines = 0
+    for content in (fixture.get("files") or {}).values():
+        max_lines = max(max_lines, len(str(content).splitlines()))
+    for content in (fixture.get("pre_run_changes") or {}).values():
+        max_lines = max(max_lines, len(str(content).splitlines()))
+    cited = [int(value) for value in re.findall(r"\bline\s+(\d+)\b", output, flags=re.IGNORECASE)]
+    if cited and max(cited) > max_lines:
+        flags.append("impossible_line_reference")
+    return sorted(set(flags))
+
+
+def model_evaluation_validate_result(fixture, proc, baseline_diff, baseline_paths, final_diff, final_paths, validation_proc):
+    expected = fixture.get("expected") or {}
+    output = (proc.stdout or "") + "\n" + (proc.stderr or "")
+    failures = []
+
+    if proc.returncode != 0:
+        failures.append(f"agent_exit={proc.returncode}")
+    if expected.get("read_only") and final_diff != baseline_diff:
+        failures.append("read_only_diff_changed")
+    if expected.get("read_only") and final_paths != baseline_paths:
+        failures.append("read_only_status_changed")
+
+    expected_paths = sorted(expected.get("expected_changed_paths") or [])
+    if expected_paths and final_paths != expected_paths:
+        failures.append(
+            "changed_paths=" + ",".join(final_paths) + ";expected=" + ",".join(expected_paths)
+        )
+
+    for pattern in expected.get("required_output_patterns") or []:
+        if not re.search(pattern, output, flags=re.IGNORECASE | re.DOTALL):
+            failures.append(f"missing_output_pattern={pattern}")
+
+    validation_returncode = validation_proc.returncode if validation_proc is not None else None
+    if validation_proc is not None and validation_proc.returncode != 0:
+        failures.append(f"validator_exit={validation_proc.returncode}")
+
+    claim_flags = model_evaluation_claim_flags(
+        output,
+        baseline_diff,
+        final_diff,
+        validation_returncode,
+        fixture,
+    )
+    failures.extend(f"hallucination={item}" for item in claim_flags)
+
+    validation = "pass" if not failures else "fail"
+    if proc.returncode != 0 or (validation_proc is not None and validation_proc.returncode != 0):
+        outcome = "fail"
+    elif failures:
+        outcome = "partial"
+    else:
+        outcome = "pass"
+    return {
+        "outcome": outcome,
+        "validation": validation,
+        "hallucination_flags": len(claim_flags),
+        "failures": failures,
+        "output": output,
+    }
+
+
+def model_evaluation_slug(value):
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value)).strip("-._")
+    return (slug or "model")[:80]
+
+
+def run_model_evaluation_fixture(fixture, run_root, server_profile):
+    fixture_base = run_root / "fixtures"
+    fixture_base.mkdir(parents=True, exist_ok=True)
+    repo, baseline_diff, baseline_paths = model_evaluation_prepare_fixture(fixture_base, fixture)
+
+    runtime = run_root / "runtime" / fixture["id"]
+    metrics_dir = runtime / "metrics"
+    audit_dir = runtime / "audit"
+    state_dir = runtime / "state"
+    env = os.environ.copy()
+    env.update({
+        "LAI_METRICS_DIR": str(metrics_dir),
+        "LAI_AUDIT_DIR": str(audit_dir),
+        "LAI_STATE_DIR": str(state_dir),
+        "PYTHONDONTWRITEBYTECODE": "1",
+    })
+    source_skills = Path(__file__).resolve().parent.parent / "skills"
+    if source_skills.is_dir():
+        env["LAI_SKILLS_DIR"] = str(source_skills)
+
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        f"--{fixture['mode']}",
+        str(fixture["prompt"]),
+    ]
+    started = time.monotonic()
+    try:
+        proc = subprocess.run(
+            command,
+            cwd=repo,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=300,
+        )
+    except subprocess.TimeoutExpired as exc:
+        proc = subprocess.CompletedProcess(
+            command,
+            124,
+            stdout=exc.stdout or "",
+            stderr=(exc.stderr or "") + "\nmodel evaluation timeout",
+        )
+    latency_ms = round((time.monotonic() - started) * 1000, 2)
+
+    final_diff = model_evaluation_git(repo, "diff", "--binary").stdout
+    final_paths = model_evaluation_changed_paths(repo)
+    validation_proc = None
+    validation_profile = (fixture.get("expected") or {}).get("validation_profile")
+    validation_argv = model_evaluation_validation_argv(validation_profile)
+    if validation_argv:
+        validation_proc = subprocess.run(
+            validation_argv,
+            cwd=repo,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=60,
+        )
+    evaluated = model_evaluation_validate_result(
+        fixture,
+        proc,
+        baseline_diff,
+        baseline_paths,
+        final_diff,
+        final_paths,
+        validation_proc,
+    )
+    metrics_events = model_evaluation_read_events(metrics_dir / "events.jsonl")
+    audit_events = model_evaluation_read_events(audit_dir / "events.jsonl")
+    measured = model_evaluation_measure_events(metrics_events, audit_events)
+    notes = "; ".join(evaluated["failures"])
+    if validation_proc is not None and validation_proc.returncode != 0:
+        validator_tail = ((validation_proc.stdout or "") + "\n" + (validation_proc.stderr or "")).strip()
+        if validator_tail:
+            notes = (notes + "; " if notes else "") + "validator=" + validator_tail[-400:].replace("\n", " | ")
+
+    return {
+        "model": server_profile["model_alias"],
+        "scenario": fixture["id"],
+        "outcome": evaluated["outcome"],
+        "validation": evaluated["validation"],
+        "latency_ms": latency_ms,
+        "prompt_tokens": measured["prompt_tokens"],
+        "completion_tokens": measured["completion_tokens"],
+        "tool_calls": measured["tool_calls"],
+        "truncation_retries": measured["truncation_retries"],
+        "policy_blocks": measured["policy_blocks"],
+        "hallucination_flags": evaluated["hallucination_flags"],
+        "notes": notes[:1200],
+        "agent_exit_code": proc.returncode,
+        "changed_paths": final_paths,
+        "response_sha256": hashlib.sha256(evaluated["output"].encode("utf-8")).hexdigest(),
+        "response_excerpt": evaluated["output"].strip()[-1600:],
+    }
+
+
+def parse_model_evaluation_run_args(args):
+    json_mode = False
+    scenarios = []
+    repeat = 1
+    index = 0
+    while index < len(args):
+        item = args[index]
+        if item == "--json":
+            json_mode = True
+            index += 1
+            continue
+        if item == "--scenario":
+            if index + 1 >= len(args):
+                raise SystemExit("Missing value for --scenario")
+            scenarios.append(args[index + 1])
+            index += 2
+            continue
+        if item == "--repeat":
+            if index + 1 >= len(args):
+                raise SystemExit("Missing value for --repeat")
+            try:
+                repeat = int(args[index + 1])
+            except ValueError as exc:
+                raise SystemExit("--repeat must be an integer from 1 to 5") from exc
+            if repeat < 1 or repeat > 5:
+                raise SystemExit("--repeat must be an integer from 1 to 5")
+            index += 2
+            continue
+        raise SystemExit("Usage: lai model run [--scenario ID] [--repeat 1..5] [--json]")
+    return {"json": json_mode, "scenarios": scenarios, "repeat": repeat}
+
+
+def model_evaluation_source_state():
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ROOT, text=True, capture_output=True, timeout=10,
+    )
+    status = subprocess.run(
+        ["git", "status", "--porcelain=v1", "-z"],
+        cwd=ROOT, text=True, capture_output=True, timeout=10,
+    )
+    if head.returncode != 0 or status.returncode != 0:
+        raise ValueError("model evaluation requires a Git repository")
+    return {"head": head.stdout.strip(), "status": status.stdout}
+
+
+def run_model_evaluation(args):
+    options = parse_model_evaluation_run_args(args)
+    fixture_payload = load_model_evaluation_fixtures()
+    fixtures = fixture_payload["fixtures"]
+    by_id = {fixture["id"]: fixture for fixture in fixtures}
+    selected_ids = list(dict.fromkeys(
+        options["scenarios"] or [fixture["id"] for fixture in fixtures]
+    ))
+    unknown = [item for item in selected_ids if item not in by_id]
+    if unknown:
+        raise SystemExit("Unknown model evaluation scenario(s): " + ", ".join(unknown))
+
+    source_before = model_evaluation_source_state()
+    fixture_file = model_evaluation_fixture_file()
+    fixture_sha256 = hashlib.sha256(fixture_file.read_bytes()).hexdigest()
+    server_profile = model_evaluation_server_profile()
+    hardware_profile = model_evaluation_hardware_profile(server_profile)
+    result_dir = model_evaluation_result_dir()
+    result_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        result_dir.chmod(0o700)
+    except OSError:
+        pass
+
+    run_id = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + secrets.token_hex(4)
+    stem = run_id + "-" + model_evaluation_slug(server_profile["model_alias"])
+    results_path = result_dir / f"{stem}.jsonl"
+    summary_path = result_dir / f"{stem}.summary.json"
+
+    records = []
+    with tempfile.TemporaryDirectory(prefix="lai-model-eval-") as temp_dir:
+        run_root = Path(temp_dir)
+        for sample_index in range(1, options["repeat"] + 1):
+            for scenario_id in selected_ids:
+                record = run_model_evaluation_fixture(
+                    by_id[scenario_id], run_root / f"sample-{sample_index}", server_profile
+                )
+                record["sample_index"] = sample_index
+                records.append(record)
+
+    source_after = model_evaluation_source_state()
+    if source_after != source_before:
+        raise ValueError("source repository changed during model evaluation")
+
+    results_path.write_text(
+        "\n".join(json.dumps(record, ensure_ascii=False, sort_keys=True) for record in records) + "\n",
+        encoding="utf-8",
+    )
+    average_score = (
+        sum(score_model_evaluation_record(normalize_model_eval_record(record, index + 1)) for index, record in enumerate(records))
+        / len(records)
+    ) if records else 0.0
+    executable = Path(__file__).resolve()
+    try:
+        executable.relative_to(ROOT.resolve())
+        harness_commit = source_before["head"]
+    except ValueError:
+        harness_commit = None
+    source_clean = not bool(source_before["status"])
+    summary = {
+        "schema_version": MODEL_EVALUATION_RUN_SCHEMA_VERSION,
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "evaluation_run_id": run_id,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "fixture_schema_version": fixture_payload["schema_version"],
+        "fixture_sha256": fixture_sha256,
+        "harness_executable_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
+        "harness_commit": harness_commit,
+        "evaluation_repository_commit": source_before["head"],
+        "source_clean": source_clean,
+        "model": server_profile["model_alias"],
+        "server": server_profile,
+        "hardware": hardware_profile,
+        "scenarios": selected_ids,
+        "repeat": options["repeat"],
+        "decision_eligible": (
+            source_clean
+            and options["repeat"] >= 2
+            and set(selected_ids) == MODEL_EVALUATION_MODEL_BACKED_SCENARIOS
+        ),
+        "average_score": round(average_score, 2),
+        "results_path": str(results_path),
+        "summary_path": str(summary_path),
+    }
+    summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return summary, records, options["json"]
+
+
+def render_model_evaluation_run(summary, records, json_mode=False):
+    if json_mode:
+        return json.dumps({**summary, "records": records}, indent=2, sort_keys=True)
+    lines = [
+        "# lai model evaluation run",
+        f"Model: {summary['model']}",
+        f"Evaluation run: {summary['evaluation_run_id']}",
+        f"Average score: {summary['average_score']:.1f}",
+        f"Repeat: {summary['repeat']}",
+        f"Decision eligible: {'yes' if summary['decision_eligible'] else 'no'}",
+        f"Results: {summary['results_path']}",
+        f"Summary: {summary['summary_path']}",
+        "",
+        "Scenarios:",
+    ]
+    for record in records:
+        lines.append(
+            f"- {record['scenario']}[sample={record.get('sample_index', 1)}]: "
+            f"{record['outcome']} / {record['validation']} "
+            f"score={score_model_evaluation_record(normalize_model_eval_record(record, 1)):.1f} "
+            f"latency_ms={record['latency_ms']:.0f} tools={record['tool_calls']} "
+            f"hallucinations={record['hallucination_flags']}"
+        )
+        if record.get("notes"):
+            lines.append(f"  notes: {record['notes']}")
+    lines.extend([
+        "",
+        "Safety:",
+        "- The runner evaluated only the already-loaded model.",
+        "- It did not download, start, stop, switch, or select a default model.",
+        "- Fixture repositories were disposable and removed after evaluation.",
+    ])
+    return "\n".join(lines)
+
+
 def handle_model_evaluation(args):
     command = args[0] if args else "plan"
     if command in {"plan", "list"}:
@@ -1727,18 +2307,27 @@ def handle_model_evaluation(args):
     if command == "sample":
         print(render_model_evaluation_sample())
         return
-    if command == "score":
-        if len(args) != 2:
-            raise SystemExit("Usage: lai model score <repo-relative-results.jsonl>")
+    if command == "run":
         try:
-            path = safe_path(args[1])
-            records = load_model_evaluation_records(path)
+            summary, records, json_mode = run_model_evaluation(args[1:])
+            print(render_model_evaluation_run(summary, records, json_mode=json_mode))
+        except (OSError, ValueError) as exc:
+            raise SystemExit(f"Model evaluation run failed: {exc}") from exc
+        return
+    if command == "score":
+        if len(args) < 2:
+            raise SystemExit("Usage: lai model score <results.jsonl|latest> [more-results.jsonl ...]")
+        try:
+            records = []
+            for raw in args[1:]:
+                path = model_evaluation_safe_result_path(raw)
+                records.extend(load_model_evaluation_records(path))
             print(render_model_evaluation_score(records))
         except (OSError, ValueError) as exc:
             raise SystemExit(f"Invalid model evaluation results: {exc}") from exc
         return
     raise SystemExit(
-        "Usage: lai model [plan [--json]|sample|score <repo-relative-results.jsonl>]"
+        "Usage: lai model [plan [--json]|sample|run [--scenario ID] [--repeat 1..5] [--json]|score <results.jsonl|latest> [...]]"
     )
 
 
