@@ -11,14 +11,14 @@ ROOT = Path(__file__).resolve().parents[2]
 POLICY = ROOT / "src" / "local-agent"
 
 
-def emit(permission, message=None):
-    payload = {"permission": permission}
+def emit(permission: str, message: str | None = None) -> None:
+    payload: dict[str, str] = {"permission": permission}
     if message:
         payload["userMessage"] = message[:500]
     sys.stdout.write(json.dumps(payload, ensure_ascii=False))
 
 
-def extract_command(payload):
+def extract_command(payload: object) -> str | None:
     if not isinstance(payload, dict):
         return None
     command = payload.get("command")
@@ -32,7 +32,7 @@ def extract_command(payload):
     return None
 
 
-def classify(command):
+def classify(command: str) -> dict[str, str]:
     request = {
         "tool": "bash",
         "args": {"command": command},
@@ -53,12 +53,17 @@ def classify(command):
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or "policy-check failed")
     result = json.loads(proc.stdout)
-    if not isinstance(result, dict) or result.get("decision") not in {"ALLOW", "ASK", "DENY"}:
+    if not isinstance(result, dict):
         raise RuntimeError("invalid policy-check result")
-    return result
+    decision = result.get("decision")
+    if not isinstance(decision, str) or decision not in {"ALLOW", "ASK", "DENY"}:
+        raise RuntimeError("invalid policy-check result")
+    reason = result.get("reason")
+    reason_text = reason if isinstance(reason, str) and reason else "policy decision has no reason"
+    return {"decision": decision, "reason": reason_text}
 
 
-def main():
+def main() -> None:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
         command = extract_command(payload)
@@ -71,7 +76,7 @@ def main():
         return
 
     decision = result["decision"]
-    reason = str(result.get("reason") or "policy decision has no reason")
+    reason = result["reason"]
     if decision == "DENY":
         emit("deny", f"Blocked by lai policy: {reason}")
     elif decision == "ASK":

@@ -8,12 +8,12 @@
 <p align="center">
   <a href="https://github.com/fenatodev/lai-harness/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/fenatodev/lai-harness/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="https://github.com/fenatodev/lai-harness/releases"><img alt="Release" src="https://img.shields.io/github/v/release/fenatodev/lai-harness?include_prereleases&label=release"></a>
-  <img alt="Harness Score" src="https://img.shields.io/badge/Harness%20Score-L4%20%C2%B7%2093%2F108-2563eb">
+  <img alt="Harness Score" src="https://img.shields.io/badge/Harness%20Score-L4%20%C2%B7%20100%2F108-2563eb">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-0f766e"></a>
 </p>
 
-> **Current release:** `v0.4.0-beta.15` · experimental beta · Linux/WSL-first · local inference through an OpenAI-compatible endpoint such as llama.cpp.
+> **Current release:** `v0.4.0-beta.16` · experimental beta · Linux/WSL-first · local inference through an OpenAI-compatible endpoint such as llama.cpp.
 
 lai harness makes constrained local models more useful by giving them a smaller, more deterministic operating environment. Instead of relying on a huge prompt and a generic shell, it combines mode-specific tools, repository-aware context, explicit policy decisions, validation gates, persistent state, and a release workflow that can be audited from feature branch to GitHub pre-release.
 
@@ -23,8 +23,8 @@ It complements high-context cloud agents rather than trying to replace them: loc
 
 | Area | Current posture |
 | --- | --- |
-| Product version | `0.4.0-beta.15` |
-| Harness maturity | L4 · Self-correcting · 93/108 (86%) |
+| Product version | `0.4.0-beta.16` |
+| Harness maturity | L4 · Self-correcting · 100/108 (93%) |
 | Runtime | Python standard library; no Python package dependencies in the harness |
 | Primary surfaces | CLI (`lai`) + VS Code extension |
 | Local model path | OpenAI-compatible HTTP; developed with llama.cpp + user-supplied GGUF |
@@ -73,7 +73,7 @@ See [Architecture](docs/ARCHITECTURE.md), [Development harness](docs/DEVELOPMENT
 - structured `validate` profiles with Docker sandboxing for remote work and promotion revalidation;
 - validation guard after writes and acceptance guard for requested test changes;
 - evidence-driven debug/review/security modes and model-assisted post-patch sanity checks;
-- development hooks plus a separate Harness Score L4 CI ratchet.
+- development hooks, a strict mypy ratchet on typed guardrail modules, a generated development-sensor lock, and a separate Harness Score L4 CI ratchet.
 
 ### Observability and state
 
@@ -181,10 +181,10 @@ The release process is intentionally stricter than a normal local package build:
 8. require a converged project handoff with no remaining manual actions.
 
 ```bash
-lai release-check --target 0.4.0-beta.15 --json
-lai release-pack --target 0.4.0-beta.15 --with-vsix --json
-lai release-governance --target 0.4.0-beta.15 --remote --json
-lai project-handoff --target 0.4.0-beta.15 --remote --json
+lai release-check --target 0.4.0-beta.16 --json
+lai release-pack --target 0.4.0-beta.16 --with-vsix --json
+lai release-governance --target 0.4.0-beta.16 --remote --json
+lai project-handoff --target 0.4.0-beta.16 --remote --json
 ```
 
 See [Release governance](docs/RELEASE-GOVERNANCE.md), [Release checklist](docs/RELEASE-CHECKLIST.md), and [Release notes](docs/RELEASE-NOTES.md).
@@ -223,7 +223,7 @@ These measurements are hardware-, model-, and fixture-specific. They document en
 - local `bash` policy is governance, not OS containment;
 - no automatic model installer or marketplace-distributed extension yet;
 - metrics/audit retention is basic and local;
-- remote work produces isolated diffs only; promoting/applying a work result to the source checkout still requires a future explicit approval protocol;
+- approved remote work can promote only into a dedicated local feature worktree; commit, push, PR creation, merge, and protected-branch integration remain separate governed actions;
 - remote work validation requires Docker plus the configured sandbox image to already exist locally; the harness never pulls it automatically.
 
 ## Visual documentation policy

@@ -1,5 +1,50 @@
 # Release notes
 
+## lai harness v0.4.0-beta.16 — reproducible quality sensors
+
+This beta hardens the development harness rather than expanding runtime authority. Python quality sensors are now version-locked, strict static type checking is enforced on the first typed guardrail boundary, and CI/publication gates consume the same canonical sensor set.
+
+### What changed
+
+- Added `requirements-dev.in` as the human-maintained development-sensor manifest and generated `requirements.txt` with exact direct/transitive versions.
+- Added pinned mypy 2.3.1 with `strict = True` over `.cursor/hooks/feedback_check.py` and `.cursor/hooks/guard_shell.py`.
+- Added explicit annotations to those guardrail hooks while preserving fail-closed shell policy and repository-confined feedback behavior.
+- Added canonical `make typecheck`; Python 3.11/3.12 CI and the publication gate now enforce it.
+- CI installs development sensors from the generated lock; `requirements-dev.txt` remains only a compatibility entrypoint.
+- Runtime installation remains standard-library-only and does not install the development lock.
+- Removed stale documentation that still described beta.15 workspace promotion as future work.
+
+### Validation evidence
+
+- strict mypy: 2 typed guardrail modules, 0 issues;
+- focused quality/hook regressions: 9 tests green before the full run;
+- Harness Score 1.6.3: **L4 Self-correcting, 100/108 (93%)**;
+- full local gates: **206 tests + 68 pytest subtests**; publication scan clean; VSIX inspection passed.
+
+### Why this matters
+
+A self-correcting harness needs reproducible sensors as much as it needs model/tool guards. This cut makes the quality boundary less dependent on whichever pytest/Ruff/type-checker versions happen to be installed, and establishes a strict type-check ratchet that can expand naturally as `src/local-agent` is split into importable subsystems.
+
+### Validation gate
+
+```bash
+lai release-check --target 0.4.0-beta.16 --json
+lai release-pack --target 0.4.0-beta.16 --with-vsix --json
+make typecheck
+make lint
+make check
+make test-dev
+make test
+make harness-score-gate
+make validate
+```
+
+### Release body for GitHub
+
+lai harness v0.4.0-beta.16 adds reproducible quality sensors: a generated version-pinned development lock, strict mypy enforcement on typed Python guardrail hooks, and CI/publication wiring that makes static type checking a real ratchet rather than a marker file.
+
+Runtime behavior and authority remain unchanged from beta.15: the harness still has no third-party Python runtime dependencies, and MCP/subagent capabilities are intentionally deferred until their governed runtime boundaries exist.
+
 ## lai harness v0.4.0-beta.15 — approved workspace promotion
 
 This beta adds the first deterministic approval boundary between an isolated remote work result and a durable Git feature workspace. The model still cannot write the active source checkout or run a remote shell. Promotion acts only on a successful, revalidated, hash-bound patch.

@@ -1,3 +1,24 @@
+## [0.4.0-beta.16] - 2026-09-05
+
+### Added
+- Added a generated, version-pinned `requirements.txt` development-sensor lock sourced from `requirements-dev.in` while keeping the runtime standard-library-only.
+- Added pinned mypy 2.3.1 with a strict ratchet over the Python development guardrail hooks.
+- Added `make typecheck` and enforced static type checking in Python 3.11/3.12 CI and the publication gate.
+
+### Changed
+- Added explicit type annotations to shell-policy and feedback hooks without weakening fail-closed or repository-confinement behavior.
+- CI now installs all development sensors from the canonical generated lock; `requirements-dev.txt` is a compatibility include only.
+- Removed the completed workspace-promotion item from the near-term roadmap and corrected stale documentation that still described promotion as future work.
+
+### Harness maturity
+- Harness Score 1.6.3 improved from 93/108 (86%) to 100/108 (93%) while remaining L4 Self-correcting.
+- Remaining score gaps are intentionally deferred: custom subagents require real delegation/orchestration, and MCP config requires the governed MCP broker boundary.
+
+### Validation
+- Strict mypy passes on the declared two-module guardrail scope with zero issues.
+- Focused quality-sensor and development-hook regressions pass before the full release gate.
+- Full local gates: 206 tests + 68 pytest subtests; publication scan clean; VSIX inspection passed.
+
 ## [0.4.0-beta.15] - 2026-09-05
 
 ### Added

@@ -36,12 +36,13 @@ Use the narrowest relevant check while developing.
 - `make test` — dependency-free unittest regression suite.
 - `make test-dev` — pytest development runner.
 - `make lint` — Ruff lint checks.
+- `make typecheck` — strict mypy ratchet on the currently typed guardrail modules.
 - `make check` — deterministic static/syntax checks.
 - `make validate` — complete publication gate.
 - `make harness-score` — pinned repository harness maturity measurement.
 - `make harness-score-gate` — require Harness Score L4 for repository harness changes.
 
-`make validate` invokes the complete existing publication gate.
+`make validate` invokes the complete publication gate, including the current strict type-check ratchet. `requirements-dev.in` is the human-maintained development-sensor manifest and `requirements.txt` is its generated pinned lock; the runtime installer must remain third-party-dependency-free.
 
 ## Development Workflow
 

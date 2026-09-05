@@ -11,9 +11,15 @@ make harness-score
 make harness-score-gate
 ```
 
-`make harness-score-gate` requires L4. During the beta.9 cut the repository measures L4 Self-correcting at 93/108 (86%), up from the beta.8 L3 baseline of 76/108 (70%).
+`make harness-score-gate` requires L4. Beta.9 reached L4 Self-correcting at 93/108 (86%), up from the beta.8 L3 baseline of 76/108 (70%). Beta.16 raises the measured maturity to 100/108 (93%) by adding real reproducible-sensor and type-checking capabilities.
 
-The project does not add subagents, MCP configuration, a type checker, or dependency metadata solely to gain score points. Those mechanisms should be added only when they solve a real reliability or product problem.
+The project does not add subagents, MCP configuration, type checking, or dependency metadata solely to gain score points. Beta.16 adds the latter two because they now enforce reproducible CI sensors and a strict typed guardrail boundary. Subagents and MCP remain deferred until real delegation and governed broker boundaries exist.
+
+## Reproducible static sensors
+
+`requirements-dev.in` is the small human-maintained sensor manifest. `requirements.txt` is generated from it with exact direct/transitive versions and is the canonical CI install input. The product runtime installer does not consume either file.
+
+`mypy.ini` starts with `strict = True` on the two Python guardrail hooks. `make typecheck` and `make validate` enforce that boundary, while CI runs the same check on Python 3.11 and 3.12. The scope should expand as runtime subsystems move out of the extensionless `src/local-agent` monolith into importable modules.
 
 ## Policy-backed shell gate
 

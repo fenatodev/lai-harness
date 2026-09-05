@@ -23,14 +23,17 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install development sensors
-        run: python -m pip install -r requirements-dev.txt
+      - name: Install locked development sensors
+        run: python -m pip install -r requirements.txt
 
       - name: Pytest
         run: python -m pytest -q
 
       - name: Ruff
-        run: ruff check src tests
+        run: ruff check src tests .cursor/hooks
+
+      - name: Mypy ratchet
+        run: python -m mypy --config-file mypy.ini
 
       - name: Standard-library regression suite
         run: make test
@@ -53,6 +56,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+
+      - name: Install locked development sensors
+        run: python -m pip install -r requirements.txt
 
       - name: Validate release artifacts
         run: make validate
