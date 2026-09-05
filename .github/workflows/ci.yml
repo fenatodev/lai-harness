@@ -30,7 +30,7 @@ jobs:
         run: python -m pytest -q
 
       - name: Ruff
-        run: ruff check src tests .cursor/hooks
+        run: ruff check src/local-agent src tests .cursor/hooks
 
       - name: Mypy ratchet
         run: python -m mypy --config-file mypy.ini

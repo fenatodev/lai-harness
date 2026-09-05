@@ -22,7 +22,7 @@ test-dev:
 	$(DEV_PYTHON) -m pytest -q
 
 lint:
-	$(DEV_PYTHON) -m ruff check src tests .cursor/hooks
+	$(DEV_PYTHON) -m ruff check src/local-agent src tests .cursor/hooks
 
 typecheck:
 	$(DEV_PYTHON) -m mypy --config-file mypy.ini

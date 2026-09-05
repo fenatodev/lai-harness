@@ -12,7 +12,7 @@
   <a href="LICENSE"><img alt="Licença" src="https://img.shields.io/badge/license-MIT-0f766e"></a>
 </p>
 
-> **Release atual:** `v0.4.0-beta.20` · beta experimental · fluxo Linux/WSL-first · inferência local por endpoint OpenAI-compatible, desenvolvido com llama.cpp.
+> **Release atual:** `v0.4.0-beta.21` · beta experimental · fluxo Linux/WSL-first · inferência local por endpoint OpenAI-compatible, desenvolvido com llama.cpp.
 
 O lai harness foi criado para um problema específico: modelos locais pequenos perdem muita capacidade quando precisam carregar prompts gigantes, schemas genéricos e muitas rodadas de ferramentas. O projeto reduz esse overhead e coloca ao redor do modelo regras que não dependem da própria resposta do modelo: policy, specs, validação, auditoria, checkpoints e release protegido.
 
@@ -22,7 +22,7 @@ Ele complementa agentes cloud de alto contexto. O trabalho local fica rápido e 
 
 | Área | Estado atual |
 | --- | --- |
-| Versão | `0.4.0-beta.20` |
+| Versão | `0.4.0-beta.21` |
 | Maturidade do harness | L4 · Self-correcting · 100/108 (93%) |
 | Runtime | Python stdlib; sem dependências Python no harness |
 | Interfaces | CLI (`lai`) + extensão VS Code |
@@ -55,6 +55,7 @@ Leia [Architecture](docs/ARCHITECTURE.md), [Development harness](docs/DEVELOPMEN
 - contexto semântico, handoff persistente, checkpoints e resume com detecção de drift;
 - métricas JSONL e auditoria forense versionadas, com retenção local configurável, histórico/export de runs e `lai readiness`;
 - avaliação local repetível de modelos com `lai model run`, validação independente dos fixtures, proveniência, amostragem repetida e planejamento/pontuação sem chamar o modelo;
+- inteligência de atualização com `lai update`, fontes oficiais allowlisted, evidência de vulnerabilidade e releases, detecção de mudanças e nenhuma aplicação automática;
 - control plane `lai serve` autenticado e limitado a loopback;
 - runs assíncronos remotos de leitura e work isolado (`implement` / `fix` / `refactor` / `ci-fix`) sob perfis sem shell;
 - promotion explícita vinculada ao SHA-256 do patch, com revalidação e criação de `lai/promotion-*` em worktree Git dedicada;
@@ -120,10 +121,10 @@ O fluxo exige:
 8. handoff convergente sem ações manuais pendentes.
 
 ```bash
-lai release-check --target 0.4.0-beta.20 --json
-lai release-pack --target 0.4.0-beta.20 --with-vsix --json
-lai release-governance --target 0.4.0-beta.20 --remote --json
-lai project-handoff --target 0.4.0-beta.20 --remote --json
+lai release-check --target 0.4.0-beta.21 --json
+lai release-pack --target 0.4.0-beta.21 --with-vsix --json
+lai release-governance --target 0.4.0-beta.21 --remote --json
+lai project-handoff --target 0.4.0-beta.21 --remote --json
 ```
 
 ## Segurança
@@ -158,6 +159,8 @@ Os diagramas são apoio de documentação; código, testes, policy e security mo
 - [Safe workspaces](docs/SAFE-WORKSPACES.md)
 - [Project handoff](docs/PROJECT-HANDOFF.md)
 - [Runtime records](docs/RUNTIME-RECORDS.md)
+- [Update intelligence](docs/UPDATE-INTELLIGENCE.md)
+- [Model evaluation](docs/MODEL-EVALUATION.md)
 
 O código original do LAI usa [MIT](LICENSE). VS Code, llama.cpp, modelos, GGUF e templates permanecem sob termos próprios e não são redistribuídos. Veja [Third-party software](THIRD_PARTY.md).
 

@@ -23,7 +23,7 @@ import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "0.4.0-beta.20"
+VERSION = "0.4.0-beta.21"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -80,6 +80,20 @@ SEMANTIC_CODE_CONTRACT = {
             "paths": ["src/local-agent", "model-eval/fixtures-v1.json", "docs/MODEL-EVALUATION.md", "docs/MODEL-BAKEOFF-2026-09-05.md"],
             "entrypoints": ["render_model_evaluation_plan", "run_model_evaluation", "run_model_evaluation_fixture", "render_model_evaluation_score"],
             "terms": ["model", "evaluation", "benchmark", "fixture", "score", "scenario", "repeat", "latency", "tokens", "hallucination", "validation", "truncation"],
+        },
+        {
+            "id": "update-intelligence",
+            "intent": "track reviewed dependencies and trusted upstream releases through bounded model-free update evidence without automatic mutation",
+            "paths": ["src/local-agent", "updates/sources-v1.json", "docs/UPDATE-INTELLIGENCE.md"],
+            "entrypoints": ["render_update_plan", "run_update_check", "render_update_check", "handle_update_intelligence"],
+            "terms": ["update", "upstream", "dependency", "release", "version", "vulnerability", "security", "skill", "tool", "dependabot", "pypi", "npm"],
+        },
+        {
+            "id": "update-intelligence",
+            "intent": "observe trusted dependency and reference-agent releases through bounded read-only metadata checks without applying updates",
+            "paths": ["src/local-agent", "updates/sources-v1.json", "docs/UPDATE-INTELLIGENCE.md"],
+            "entrypoints": ["render_update_plan", "run_update_check", "render_update_latest"],
+            "terms": ["update", "dependency", "upstream", "release", "vulnerability", "security", "radar", "maintenance", "version", "provenance"],
         },
         {
             "id": "observability-recovery",
@@ -297,7 +311,7 @@ def normalize_config_values(values, *, config_file=None, file_scope=False):
             config_error("port must be an integer from 1 to 65535", config_file)
         try:
             normalized["port"] = int(raw_port)
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError):
             config_error("port must be an integer from 1 to 65535", config_file)
         if not 1 <= normalized["port"] <= 65535:
             config_error("port must be an integer from 1 to 65535", config_file)
@@ -1574,8 +1588,8 @@ def render_model_evaluation_plan(json_mode=False):
     ]
     for scenario in MODEL_EVALUATION_SCENARIOS:
         lines.append(f"- {scenario['id']} [{scenario['mode']}]: {scenario['prompt']}")
-        for signal in scenario["signals"]:
-            lines.append(f"  - signal: {signal}")
+        for scenario_signal in scenario["signals"]:
+            lines.append(f"  - signal: {scenario_signal}")
     lines.extend([
         "",
         "Record results as JSONL with:",
@@ -2296,6 +2310,697 @@ def render_model_evaluation_run(summary, records, json_mode=False):
         "- Fixture repositories were disposable and removed after evaluation.",
     ])
     return "\n".join(lines)
+
+
+UPDATE_INTELLIGENCE_SCHEMA_VERSION = 1
+UPDATE_ALLOWED_HOSTS = {"api.github.com", "pypi.org", "registry.npmjs.org"}
+UPDATE_MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+UPDATE_HTTP_TIMEOUT = 10
+UPDATE_RESULT_RETENTION = 30
+UPDATE_SOURCE_TYPES = {"pypi", "npm", "github-release", "dependabot"}
+UPDATE_CATEGORIES = {
+    "dev-sensor", "harness-tool", "runtime", "managed-dependency", "reference-agent"
+}
+UPDATE_CURRENT_DETECTORS = {
+    "dev-pin", "harness-score-pin", "llama-props-build", "dependabot", "none"
+}
+UPDATE_SECURITY_SOURCES = {"pypi-release", "dependabot", "none"}
+UPDATE_SOURCE_MANIFEST = Path(__file__).resolve().parent.parent / "updates" / "sources-v1.json"
+
+
+def update_intelligence_dir():
+    return DATA_BASE / "update-intelligence"
+
+
+def update_source_manifest_file():
+    if UPDATE_SOURCE_MANIFEST.is_file():
+        return UPDATE_SOURCE_MANIFEST
+    return update_intelligence_dir() / "sources-v1.json"
+
+
+def running_from_source_checkout():
+    candidate = ROOT / "src" / "local-agent"
+    try:
+        return candidate.is_file() and candidate.resolve() == Path(__file__).resolve()
+    except OSError:
+        return False
+
+
+def parse_update_dev_pins():
+    path = ROOT / "requirements-dev.in"
+    if not running_from_source_checkout() or not path.is_file():
+        return {}
+    pins = {}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.split("#", 1)[0].strip()
+        match = re.match(r"^([A-Za-z0-9_.-]+)==([^\s]+)$", line)
+        if match:
+            pins[match.group(1).lower()] = match.group(2)
+    return pins
+
+
+def parse_update_harness_score_pin():
+    path = ROOT / "Makefile"
+    if not running_from_source_checkout() or not path.is_file():
+        return None
+    match = re.search(
+        r"harness-score@([0-9]+(?:\.[0-9]+){1,3}(?:[-+][A-Za-z0-9._-]+)?)",
+        path.read_text(encoding="utf-8"),
+    )
+    return match.group(1) if match else None
+
+
+def update_source_current_version(source, *, allow_server=False):
+    detector = source["current_detector"]
+    if detector == "dev-pin":
+        current = parse_update_dev_pins().get(str(source.get("package", "")).lower())
+        return current or source.get("current_version")
+    if detector == "harness-score-pin":
+        return parse_update_harness_score_pin() or source.get("current_version")
+    if detector == "dependabot":
+        return "managed"
+    if detector == "llama-props-build":
+        return update_llama_cpp_build() if allow_server else None
+    return None
+
+
+def load_update_sources():
+    path = update_source_manifest_file()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid update source manifest: {exc}") from exc
+    if payload.get("schema_version") != 1 or not isinstance(payload.get("sources"), list):
+        raise ValueError("unsupported update source manifest schema")
+    policy = payload.get("policy") or {}
+    if policy != {
+        "automatic_apply": False,
+        "arbitrary_urls": False,
+        "reference_upstreams_are_dependencies": False,
+    }:
+        raise ValueError("update source manifest policy must remain fail-closed")
+
+    seen = set()
+    dev_pins = parse_update_dev_pins()
+    harness_pin = parse_update_harness_score_pin()
+    for source in payload["sources"]:
+        if not isinstance(source, dict):
+            raise ValueError("update sources must be objects")
+        source_id = str(source.get("id") or "")
+        if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,79}", source_id):
+            raise ValueError(f"invalid update source id: {source_id!r}")
+        if source_id in seen:
+            raise ValueError(f"duplicate update source id: {source_id}")
+        seen.add(source_id)
+        source_type = source.get("source_type")
+        category = source.get("category")
+        detector = source.get("current_detector")
+        security_source = source.get("security_source")
+        if source_type not in UPDATE_SOURCE_TYPES:
+            raise ValueError(f"unsupported update source type for {source_id}")
+        if category not in UPDATE_CATEGORIES:
+            raise ValueError(f"unsupported update category for {source_id}")
+        if detector not in UPDATE_CURRENT_DETECTORS:
+            raise ValueError(f"unsupported current detector for {source_id}")
+        if security_source not in UPDATE_SECURITY_SOURCES:
+            raise ValueError(f"unsupported security source for {source_id}")
+
+        if source_type == "pypi":
+            package = str(source.get("package") or "")
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", package):
+                raise ValueError(f"invalid PyPI package for {source_id}")
+        elif source_type == "npm":
+            package = str(source.get("package") or "")
+            if not re.fullmatch(r"(?:@[A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+", package):
+                raise ValueError(f"invalid npm package for {source_id}")
+        elif source_type == "github-release":
+            repository = str(source.get("repository") or "")
+            if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+                raise ValueError(f"invalid GitHub repository for {source_id}")
+        elif detector != "dependabot":
+            raise ValueError(f"dependabot source {source_id} requires dependabot detector")
+
+        declared_current = source.get("current_version")
+        if detector == "dev-pin" and running_from_source_checkout():
+            observed = dev_pins.get(str(source.get("package", "")).lower())
+            if not observed or declared_current != observed:
+                raise ValueError(
+                    f"update manifest pin drift for {source_id}: manifest={declared_current} repo={observed}"
+                )
+        if detector == "harness-score-pin" and running_from_source_checkout():
+            if not harness_pin or declared_current != harness_pin:
+                raise ValueError(
+                    f"update manifest pin drift for {source_id}: manifest={declared_current} repo={harness_pin}"
+                )
+        if category == "reference-agent" and detector != "none":
+            raise ValueError(f"reference upstream {source_id} cannot be treated as installed")
+
+    payload["manifest_path"] = str(path)
+    payload["manifest_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return payload
+
+
+class UpdateNoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def update_http_json(url):
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname not in UPDATE_ALLOWED_HOSTS:
+        raise ValueError("update source URL is not on the fixed HTTPS allowlist")
+    if parsed.username or parsed.password or parsed.fragment:
+        raise ValueError("update source URL contains forbidden URL components")
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": f"lai-harness/{VERSION}",
+    }
+    request = urllib.request.Request(url, headers=headers, method="GET")
+    opener = urllib.request.build_opener(UpdateNoRedirectHandler())
+    try:
+        with opener.open(request, timeout=UPDATE_HTTP_TIMEOUT) as response:
+            final = urllib.parse.urlparse(response.geturl())
+            if final.scheme != "https" or final.hostname not in UPDATE_ALLOWED_HOSTS:
+                raise ValueError("update response escaped the fixed HTTPS allowlist")
+            content_type = ""
+            if getattr(response, "headers", None) is not None:
+                try:
+                    content_type = response.headers.get_content_type()
+                except AttributeError:
+                    content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0]
+                length = response.headers.get("Content-Length")
+                if length and int(length) > UPDATE_MAX_RESPONSE_BYTES:
+                    raise ValueError("update response exceeds size limit")
+            if content_type and content_type not in {"application/json", "application/vnd.github+json"}:
+                raise ValueError(f"update response is not JSON: {content_type}")
+            raw = response.read(UPDATE_MAX_RESPONSE_BYTES + 1)
+    except urllib.error.HTTPError as exc:
+        raise ValueError(f"update source HTTP {exc.code}") from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise ValueError(f"update source unavailable: {exc}") from exc
+    if len(raw) > UPDATE_MAX_RESPONSE_BYTES:
+        raise ValueError("update response exceeds size limit")
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("update response contains invalid JSON") from exc
+
+
+def update_llama_cpp_build():
+    request = urllib.request.Request(
+        f"http://{gateway()}:{LLAMA_PORT}/props",
+        headers={"Authorization": f"Bearer {llama_api_key()}"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            payload = json.loads(response.read(256 * 1024).decode("utf-8"))
+    except (OSError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
+        return None
+    build_info = str(payload.get("build_info") or "").strip()
+    match = re.match(r"^(b\d+)(?:[-+].*)?$", build_info)
+    return match.group(1) if match else None
+
+
+def update_version_key(value):
+    text = str(value or "").strip()
+    build = re.match(r"^b(\d+)(?:[-+].*)?$", text, flags=re.IGNORECASE)
+    if build:
+        return ("build", (int(build.group(1)),))
+    semver = re.match(r"^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?", text)
+    if semver:
+        parts = tuple(int(part or 0) for part in semver.groups())
+        return ("numeric", parts)
+    return None
+
+
+def classify_update_version(current, latest, *, reference=False):
+    if reference:
+        return "observed"
+    if current in (None, ""):
+        return "current_unknown"
+    if latest in (None, ""):
+        return "latest_unknown"
+    if str(current).lstrip("v") == str(latest).lstrip("v"):
+        return "current"
+    current_key = update_version_key(current)
+    latest_key = update_version_key(latest)
+    if current_key and latest_key and current_key[0] == latest_key[0]:
+        if latest_key[1] > current_key[1]:
+            return "update_available"
+        if latest_key[1] < current_key[1]:
+            return "ahead_of_latest"
+    return "version_changed_manual_review"
+
+
+def update_release_excerpt(value, limit=1600):
+    text = str(value or "").replace("\x00", "")
+    return text[:limit]
+
+
+def sanitize_update_vulnerability(item):
+    if not isinstance(item, dict):
+        return {"id": "unknown", "summary": "unstructured vulnerability metadata"}
+    fixed_in = item.get("fixed_in") or []
+    if not isinstance(fixed_in, list):
+        fixed_in = []
+    return {
+        "id": str(item.get("id") or item.get("source") or "unknown")[:120],
+        "summary": str(item.get("details") or item.get("summary") or "")[:300],
+        "fixed_in": [str(value)[:80] for value in fixed_in[:8]],
+    }
+
+
+def check_update_pypi_source(source):
+    package = source["package"]
+    current = update_source_current_version(source, allow_server=False)
+    encoded = urllib.parse.quote(package, safe="")
+    latest_payload = update_http_json(f"https://pypi.org/pypi/{encoded}/json")
+    if not isinstance(latest_payload, dict):
+        raise ValueError("PyPI latest response must be an object")
+    latest = str((latest_payload.get("info") or {}).get("version") or "").strip() or None
+    vulnerabilities = []
+    if current:
+        current_encoded = urllib.parse.quote(str(current), safe="")
+        current_payload = update_http_json(
+            f"https://pypi.org/pypi/{encoded}/{current_encoded}/json"
+        )
+        if not isinstance(current_payload, dict):
+            raise ValueError("PyPI release response must be an object")
+        raw_vulnerabilities = current_payload.get("vulnerabilities") or []
+        if not isinstance(raw_vulnerabilities, list):
+            raise ValueError("PyPI vulnerabilities field must be a list")
+        vulnerabilities = [sanitize_update_vulnerability(item) for item in raw_vulnerabilities[:20]]
+    return {
+        "current_version": current,
+        "latest_version": latest,
+        "status": classify_update_version(current, latest),
+        "security_status": "vulnerable" if vulnerabilities else "clear",
+        "vulnerability_count": len(vulnerabilities),
+        "vulnerabilities": vulnerabilities,
+        "source_url": f"https://pypi.org/project/{encoded}/",
+        "content_trust": "trusted-metadata-untrusted-text",
+    }
+
+
+def check_update_npm_source(source):
+    package = source["package"]
+    current = update_source_current_version(source, allow_server=False)
+    encoded = urllib.parse.quote(package, safe="@/")
+    payload = update_http_json(f"https://registry.npmjs.org/{encoded}/latest")
+    if not isinstance(payload, dict):
+        raise ValueError("npm latest response must be an object")
+    latest = str(payload.get("version") or "").strip() or None
+    return {
+        "current_version": current,
+        "latest_version": latest,
+        "status": classify_update_version(current, latest),
+        "security_status": "unknown",
+        "vulnerability_count": None,
+        "vulnerabilities": [],
+        "source_url": f"https://www.npmjs.com/package/{package}",
+        "content_trust": "trusted-metadata-untrusted-text",
+    }
+
+
+def check_update_github_release_source(source):
+    repository = source["repository"]
+    encoded_repository = "/".join(
+        urllib.parse.quote(part, safe="") for part in repository.split("/", 1)
+    )
+    payload = update_http_json(
+        f"https://api.github.com/repos/{encoded_repository}/releases/latest"
+    )
+    if not isinstance(payload, dict):
+        raise ValueError("GitHub release response must be an object")
+    tag = str(payload.get("tag_name") or "").strip() or None
+    body = str(payload.get("body") or "")
+    current = update_source_current_version(source, allow_server=True)
+    reference = source.get("category") == "reference-agent"
+    return {
+        "current_version": current,
+        "latest_version": tag,
+        "status": classify_update_version(current, tag, reference=reference),
+        "security_status": "unknown",
+        "vulnerability_count": None,
+        "vulnerabilities": [],
+        "source_url": (
+            f"https://github.com/{repository}/releases/tag/"
+            + urllib.parse.quote(str(tag or ""), safe="")
+            if tag else f"https://github.com/{repository}/releases"
+        ),
+        "release_name": str(payload.get("name") or "")[:240],
+        "published_at": str(payload.get("published_at") or "")[:80],
+        "release_notes_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+        "release_notes_excerpt": update_release_excerpt(body),
+        "content_trust": "untrusted-upstream-release-notes",
+    }
+
+
+def check_update_dependabot_source(source):
+    return {
+        "current_version": "managed",
+        "latest_version": None,
+        "status": "managed_by_dependabot",
+        "security_status": "managed_by_dependabot",
+        "vulnerability_count": None,
+        "vulnerabilities": [],
+        "source_url": "https://github.com/dependabot",
+        "content_trust": "local-configuration",
+    }
+
+
+def check_update_source(source):
+    source_type = source["source_type"]
+    if source_type == "pypi":
+        details = check_update_pypi_source(source)
+    elif source_type == "npm":
+        details = check_update_npm_source(source)
+    elif source_type == "github-release":
+        details = check_update_github_release_source(source)
+    elif source_type == "dependabot":
+        details = check_update_dependabot_source(source)
+    else:
+        raise ValueError(f"unsupported update source type: {source_type}")
+    return {
+        "id": source["id"],
+        "category": source["category"],
+        "source_type": source_type,
+        **details,
+    }
+
+
+def update_observation_key(record):
+    return (
+        str(record.get("latest_version") or ""),
+        str(record.get("release_notes_sha256") or ""),
+        str(record.get("security_status") or ""),
+        int(record.get("vulnerability_count") or 0),
+    )
+
+
+def update_latest_summary_path():
+    return update_intelligence_dir() / "latest.json"
+
+
+def load_latest_update_summary():
+    path = update_latest_summary_path()
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if payload.get("schema_version") != UPDATE_INTELLIGENCE_SCHEMA_VERSION:
+        return None
+    if not isinstance(payload.get("sources"), list):
+        return None
+    return payload
+
+
+def update_workspace_snapshot():
+    try:
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True,
+            capture_output=True, timeout=10,
+        )
+        status = subprocess.run(
+            ["git", "status", "--porcelain=v1", "-z"], cwd=ROOT, text=True,
+            capture_output=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if head.returncode != 0 or status.returncode != 0:
+        return None
+    return {"head": head.stdout.strip(), "status": status.stdout}
+
+
+def render_update_plan(json_mode=False):
+    manifest = load_update_sources()
+    sources = []
+    for source in manifest["sources"]:
+        current = update_source_current_version(source, allow_server=False)
+        sources.append({
+            "id": source["id"],
+            "category": source["category"],
+            "source_type": source["source_type"],
+            "current_detector": source["current_detector"],
+            "current_version": current,
+            "security_source": source["security_source"],
+        })
+    payload = {
+        "schema_version": UPDATE_INTELLIGENCE_SCHEMA_VERSION,
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "mode": "offline-plan",
+        "network": "disabled",
+        "manifest_sha256": manifest["manifest_sha256"],
+        "policy": manifest["policy"],
+        "allowed_remote_hosts": sorted(UPDATE_ALLOWED_HOSTS),
+        "sources": sources,
+        "remote_command": "lai update check --remote",
+    }
+    if json_mode:
+        return json.dumps(payload, indent=2, sort_keys=True)
+    lines = [
+        "# lai update intelligence plan",
+        f"Version: {VERSION}",
+        "Network: disabled",
+        f"Tracked sources: {len(sources)}",
+        "Automatic apply: disabled",
+        "",
+        "Sources:",
+    ]
+    for source in sources:
+        current = source["current_version"] or "[dynamic/none]"
+        lines.append(
+            f"- {source['id']} [{source['category']}/{source['source_type']}]: "
+            f"current={current}; security={source['security_source']}"
+        )
+    lines.extend([
+        "",
+        "Safety:",
+        "- This command is deterministic and performs no network request or model call.",
+        "- Reference-agent releases are observations, never automatically imported as dependencies or skills.",
+        "- Remote checks can only use fixed official HTTPS hosts and never apply updates.",
+    ])
+    return "\n".join(lines)
+
+
+def update_result_directory():
+    path = update_intelligence_dir().resolve()
+    try:
+        path.relative_to(ROOT.resolve())
+    except ValueError:
+        return path
+    raise ValueError("update intelligence data directory must be outside the active repository")
+
+
+def prune_update_intelligence_results(result_dir, keep=UPDATE_RESULT_RETENTION):
+    if keep < 1:
+        raise ValueError("update result retention must be positive")
+    candidates = []
+    for path in result_dir.glob("*.json"):
+        if path.name == "latest.json" or path.is_symlink() or not path.is_file():
+            continue
+        try:
+            candidates.append((path.stat().st_mtime_ns, path.name, path))
+        except OSError:
+            continue
+    candidates.sort(reverse=True)
+    for _, _, path in candidates[keep:]:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def run_update_check():
+    manifest = load_update_sources()
+    result_dir = update_result_directory()
+    previous = load_latest_update_summary()
+    previous_by_id = {
+        item.get("id"): item for item in (previous or {}).get("sources", [])
+        if isinstance(item, dict) and item.get("id")
+    }
+    workspace_before = update_workspace_snapshot()
+    records = []
+    for source in manifest["sources"]:
+        try:
+            record = check_update_source(source)
+        except (OSError, ValueError) as exc:
+            record = {
+                "id": source["id"],
+                "category": source["category"],
+                "source_type": source["source_type"],
+                "current_version": update_source_current_version(source, allow_server=False),
+                "latest_version": None,
+                "status": "check_failed",
+                "security_status": "unknown",
+                "vulnerability_count": None,
+                "vulnerabilities": [],
+                "source_url": "",
+                "content_trust": "none",
+                "error": str(exc)[:400],
+            }
+        old = previous_by_id.get(source["id"])
+        if old is None:
+            record["changed_since_last_check"] = None
+        else:
+            record["changed_since_last_check"] = (
+                update_observation_key(record) != update_observation_key(old)
+            )
+        records.append(record)
+
+    workspace_after = update_workspace_snapshot()
+    if workspace_after != workspace_before:
+        raise ValueError("active repository changed during update intelligence check")
+
+    vulnerability_count = sum(
+        int(record.get("vulnerability_count") or 0) for record in records
+    )
+    update_candidates = [
+        record["id"] for record in records if record.get("status") == "update_available"
+    ]
+    failed_sources = [
+        record["id"] for record in records if record.get("status") == "check_failed"
+    ]
+    reference_changes = [
+        record["id"] for record in records
+        if record.get("category") == "reference-agent"
+        and record.get("changed_since_last_check") is True
+    ]
+    if vulnerability_count:
+        overall = "security_attention"
+    elif failed_sources:
+        overall = "partial"
+    elif update_candidates:
+        overall = "updates_available"
+    elif reference_changes:
+        overall = "reference_changes"
+    else:
+        overall = "current"
+
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    run_id = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + secrets.token_hex(4)
+    summary = {
+        "schema_version": UPDATE_INTELLIGENCE_SCHEMA_VERSION,
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "created_at": now,
+        "check_id": run_id,
+        "overall": overall,
+        "network_mode": "explicit-public-metadata-only",
+        "manifest_sha256": manifest["manifest_sha256"],
+        "harness_executable_sha256": hashlib.sha256(Path(__file__).resolve().read_bytes()).hexdigest(),
+        "workspace_head": (workspace_before or {}).get("head"),
+        "workspace_clean": not bool((workspace_before or {}).get("status", "")),
+        "vulnerability_count": vulnerability_count,
+        "update_candidates": update_candidates,
+        "failed_sources": failed_sources,
+        "reference_changes": reference_changes,
+        "retention_count": UPDATE_RESULT_RETENTION,
+        "sources": records,
+    }
+    result_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        result_dir.chmod(0o700)
+    except OSError:
+        pass
+    result_path = result_dir / f"{run_id}.json"
+    summary["result_path"] = str(result_path)
+    summary["latest_path"] = str(update_latest_summary_path())
+    text = json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    _atomic_write_text(result_path, text)
+    _atomic_write_text(update_latest_summary_path(), text)
+    prune_update_intelligence_results(result_dir)
+    for path in (result_path, update_latest_summary_path()):
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
+    return summary
+
+
+def render_update_check(summary, json_mode=False):
+    if json_mode:
+        return json.dumps(summary, indent=2, sort_keys=True)
+    lines = [
+        "# lai update intelligence check",
+        f"Overall: {summary['overall']}",
+        f"Created: {summary['created_at']}",
+        f"Vulnerabilities: {summary['vulnerability_count']}",
+        f"Update candidates: {len(summary['update_candidates'])}",
+        f"Reference changes: {len(summary['reference_changes'])}",
+        f"Failed sources: {len(summary['failed_sources'])}",
+        "",
+        "Sources:",
+    ]
+    for record in summary["sources"]:
+        current = record.get("current_version") or "?"
+        latest = record.get("latest_version") or "?"
+        changed = record.get("changed_since_last_check")
+        changed_text = "first" if changed is None else ("changed" if changed else "same")
+        lines.append(
+            f"- {record['id']}: {record['status']} current={current} latest={latest} "
+            f"security={record['security_status']} observation={changed_text}"
+        )
+        if record.get("error"):
+            lines.append(f"  error: {record['error']}")
+        if int(record.get("vulnerability_count") or 0):
+            for vulnerability in record.get("vulnerabilities", [])[:5]:
+                lines.append(
+                    f"  vulnerability: {vulnerability.get('id')} {vulnerability.get('summary', '')}".rstrip()
+                )
+    lines.extend([
+        "",
+        f"Result: {summary.get('result_path', '[not persisted]')}",
+        "",
+        "Safety:",
+        "- Remote metadata was read only from fixed official public endpoints.",
+        "- Upstream release-note text is untrusted evidence and is never executed or injected as instructions.",
+        "- No dependency, model, skill, tool, repository file, Git ref, or release was changed.",
+    ])
+    return "\n".join(lines)
+
+
+def render_update_latest(json_mode=False):
+    summary = load_latest_update_summary()
+    if summary is None:
+        raise ValueError("no update intelligence result found")
+    return render_update_check(summary, json_mode=json_mode)
+
+
+def handle_update_intelligence(args):
+    command = args[0] if args else "plan"
+    rest = args[1:] if args else []
+    json_mode = "--json" in rest
+    unexpected = [item for item in rest if item not in {"--json", "--remote"}]
+    if unexpected:
+        raise SystemExit(
+            "Usage: lai update [plan [--json]|check --remote [--json]|latest [--json]]"
+        )
+    if command == "plan":
+        if "--remote" in rest:
+            raise SystemExit("lai update plan is offline; remove --remote")
+        return render_update_plan(json_mode=json_mode)
+    if command == "check":
+        if "--remote" not in rest:
+            raise SystemExit("lai update check requires explicit --remote")
+        try:
+            return render_update_check(run_update_check(), json_mode=json_mode)
+        except (OSError, ValueError) as exc:
+            raise SystemExit(f"Update intelligence check failed: {exc}") from exc
+    if command == "latest":
+        if "--remote" in rest:
+            raise SystemExit("lai update latest is local-only; remove --remote")
+        try:
+            return render_update_latest(json_mode=json_mode)
+        except (OSError, ValueError) as exc:
+            raise SystemExit(f"Update intelligence latest failed: {exc}") from exc
+    raise SystemExit(
+        "Usage: lai update [plan [--json]|check --remote [--json]|latest [--json]]"
+    )
 
 
 def handle_model_evaluation(args):
@@ -7768,7 +8473,6 @@ def release_pack_resolve_out_dir(raw_out, expected_tag):
 
 def release_pack_files(pack_dir, release_payload, include_vsix=False):
     target_version = release_payload["target_version"]
-    expected_tag = release_payload["expected_tag"]
     files = {
         "release_body": pack_dir / "release-body.md",
         "checklist": pack_dir / "release-checklist.md",
@@ -7971,7 +8675,7 @@ def release_governance_pack_status(target_version, expected_tag):
 
 
 def github_repository_slug(origin=None):
-    value = str(origin if origin is not None else git_origin()).strip()
+    value = str(origin if origin is not None else git_origin_url()).strip()
     path = None
     if value.startswith("git@github.com:"):
         path = value.split(":", 1)[1]
@@ -10755,6 +11459,10 @@ def main():
 
     if args and args[0] == "--context":
         print_context_candidates(" ".join(args[1:]).strip())
+        return
+
+    if args and args[0] == "--update-intelligence":
+        print(handle_update_intelligence(args[1:]))
         return
 
     if args and args[0] == "--model-eval":
