@@ -55,6 +55,10 @@ case "$command_name" in
         shift
         exec "$bin_dir/local-agent" --run "$@"
         ;;
+    update|updates)
+        shift
+        exec "$bin_dir/local-agent" --update-intelligence "$@"
+        ;;
     model|models)
         shift
         exec "$bin_dir/local-agent" --model-eval "$@"

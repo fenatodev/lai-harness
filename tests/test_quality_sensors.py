@@ -51,6 +51,8 @@ class QualitySensorsTest(unittest.TestCase):
         self.assertIn("make typecheck", validate)
         self.assertGreaterEqual(ci.count("pip install -r requirements.txt"), 2)
         self.assertIn("python -m mypy --config-file mypy.ini", ci)
+        self.assertIn("ruff check src/local-agent src tests .cursor/hooks", makefile)
+        self.assertIn("ruff check src/local-agent src tests .cursor/hooks", ci)
 
     def test_runtime_installer_does_not_install_python_dependencies(self):
         installer = (ROOT / "scripts" / "install-local.sh").read_text()

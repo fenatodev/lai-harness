@@ -1,3 +1,43 @@
+## lai harness v0.4.0-beta.21 — update intelligence
+
+This beta adds a bounded maintenance radar that can observe trusted dependency, runtime, and reference-agent metadata without becoming an updater. It turns upstream change into audit-ready evidence for a later governed spec/PR.
+
+### What changed
+
+- Added deterministic offline `lai update plan` and explicit networked `lai update check --remote`.
+- Added local `lai update latest` backed by atomically persisted versioned observations under `$LAI_DATA_DIR/update-intelligence`.
+- Added official PyPI version and exact-pinned-version vulnerability checks for development sensors.
+- Added Harness Score version observation, Dependabot-managed GitHub Actions status, and authenticated local llama.cpp build evidence.
+- Added latest-release observation for Codex, Claude Code, Qwen Code, Kimi Code, and Hermes Agent as reference-only engineering signals.
+- Added change-since-last-check tracking, SHA-256 provenance, bounded upstream release-note excerpts, and canonical source URLs.
+- Updated Ruff/CI to lint the extensionless `src/local-agent` explicitly.
+
+### Safety boundary
+
+- Remote checks require explicit `--remote` and use only fixed official HTTPS metadata hosts.
+- Redirects, arbitrary URLs, oversized/non-JSON responses, and public-feed credentials are rejected.
+- Upstream release-note text is marked untrusted and never executed or treated as instructions.
+- No model, dependency, skill, package, Git ref, PR, merge, tag, or release is changed automatically.
+- llama.cpp build ids that cannot be ordered against release semver are flagged for compatibility review instead of being called upgrades.
+
+### Why this matters
+
+A long-lived coding harness must keep learning about ecosystem changes without surrendering its trust boundary. This cut separates awareness from authority: LAI can notice a security fix or useful upstream capability, but adoption still requires a focused spec, isolated validation, review, and protected integration.
+
+### Validation gate
+
+```bash
+lai release-check --target 0.4.0-beta.21 --json
+lai update plan --json
+make lint
+make typecheck
+make check
+make test-dev
+make test
+make harness-score-gate
+make validate
+```
+
 ## lai harness v0.4.0-beta.20 — automated model evaluation
 
 This beta turns the existing model rubric into a repeatable local evaluation runner for the model already loaded behind the authenticated LAI endpoint. It measures coding-agent behavior on disposable fixtures without changing the configured default model or expanding runtime authority.

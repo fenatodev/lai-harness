@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "policy": {
+    "automatic_apply": false,
+    "arbitrary_urls": false,
+    "reference_upstreams_are_dependencies": false
+  },
+  "sources": [
+    {
+      "id": "mypy",
+      "category": "dev-sensor",
+      "source_type": "pypi",
+      "package": "mypy",
+      "current_detector": "dev-pin",
+      "security_source": "pypi-release",
+      "current_version": "2.3.1"
+    },
+    {
+      "id": "pytest",
+      "category": "dev-sensor",
+      "source_type": "pypi",
+      "package": "pytest",
+      "current_detector": "dev-pin",
+      "security_source": "pypi-release",
+      "current_version": "9.1.1"
+    },
+    {
+      "id": "ruff",
+      "category": "dev-sensor",
+      "source_type": "pypi",
+      "package": "ruff",
+      "current_detector": "dev-pin",
+      "security_source": "pypi-release",
+      "current_version": "0.16.6"
+    },
+    {
+      "id": "harness-score",
+      "category": "harness-tool",
+      "source_type": "npm",
+      "package": "harness-score",
+      "current_detector": "harness-score-pin",
+      "security_source": "none",
+      "current_version": "1.6.3"
+    },
+    {
+      "id": "llama-cpp",
+      "category": "runtime",
+      "source_type": "github-release",
+      "repository": "ggml-org/llama.cpp",
+      "current_detector": "llama-props-build",
+      "security_source": "none"
+    },
+    {
+      "id": "github-actions",
+      "category": "managed-dependency",
+      "source_type": "dependabot",
+      "current_detector": "dependabot",
+      "security_source": "dependabot"
+    },
+    {
+      "id": "openai-codex",
+      "category": "reference-agent",
+      "source_type": "github-release",
+      "repository": "openai/codex",
+      "current_detector": "none",
+      "security_source": "none"
+    },
+    {
+      "id": "claude-code",
+      "category": "reference-agent",
+      "source_type": "github-release",
+      "repository": "anthropics/claude-code",
+      "current_detector": "none",
+      "security_source": "none"
+    },
+    {
+      "id": "qwen-code",
+      "category": "reference-agent",
+      "source_type": "github-release",
+      "repository": "QwenLM/qwen-code",
+      "current_detector": "none",
+      "security_source": "none"
+    },
+    {
+      "id": "kimi-code",
+      "category": "reference-agent",
+      "source_type": "github-release",
+      "repository": "MoonshotAI/kimi-code",
+      "current_detector": "none",
+      "security_source": "none"
+    },
+    {
+      "id": "hermes-agent",
+      "category": "reference-agent",
+      "source_type": "github-release",
+      "repository": "NousResearch/hermes-agent",
+      "current_detector": "none",
+      "security_source": "none"
+    }
+  ]
+}

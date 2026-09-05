@@ -1,3 +1,25 @@
+## [0.4.0-beta.21] - 2026-09-05
+
+### Added
+- Added `lai update plan`, explicit `lai update check --remote`, and local `lai update latest` for bounded maintenance intelligence.
+- Added a versioned trusted-source manifest covering Python development sensors, Harness Score, llama.cpp, Dependabot-managed GitHub Actions, and selected reference-agent upstreams.
+- Added PyPI exact-version vulnerability evidence, latest-version comparison, upstream release provenance, bounded release-note excerpts, SHA-256 hashes, and change-since-last-check tracking.
+- Added installed-manifest synchronization under `$LAI_DATA_DIR/update-intelligence`.
+
+### Safety and architecture
+- Update intelligence uses fixed official HTTPS metadata hosts, GET-only requests, no redirects, bounded response/time limits, and no public-feed credentials.
+- Upstream release-note text is untrusted evidence and is never executed or injected as instructions.
+- There is no apply/install/download/upgrade/PR/merge/tag/publish operation; detected candidates must enter the normal spec/branch/validation flow.
+- llama.cpp build ids and semver release tags are treated as incompatible schemes requiring manual compatibility review rather than fake ordinal comparison.
+- Ruff now explicitly lints the extensionless `src/local-agent`, closing a sensor gap discovered while hardening this cut.
+
+### Dogfood evidence
+- The first live check found mypy, pytest, and Ruff current; GitHub Actions managed by Dependabot; Harness Score `1.6.4` available over the pinned `1.6.3`; and reference-agent release observations without applying any change.
+- A repeated live check reported unchanged upstream observations and preserved the source checkout.
+
+### Validation
+- Full local gates: 238 tests + 85 pytest subtests; strict mypy green; Harness Score L4 at 100/108; publication scan clean; VSIX inspection passed.
+
 ## [0.4.0-beta.20] - 2026-09-05
 
 ### Added
