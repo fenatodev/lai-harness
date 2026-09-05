@@ -13,7 +13,7 @@
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-0f766e"></a>
 </p>
 
-> **Current release:** `v0.4.0-beta.19` · experimental beta · Linux/WSL-first · local inference through an OpenAI-compatible endpoint such as llama.cpp.
+> **Current release:** `v0.4.0-beta.20` · experimental beta · Linux/WSL-first · local inference through an OpenAI-compatible endpoint such as llama.cpp.
 
 lai harness makes constrained local models more useful by giving them a smaller, more deterministic operating environment. Instead of relying on a huge prompt and a generic shell, it combines mode-specific tools, repository-aware context, explicit policy decisions, validation gates, persistent state, and a release workflow that can be audited from feature branch to GitHub pre-release.
 
@@ -23,7 +23,7 @@ It complements high-context cloud agents rather than trying to replace them: loc
 
 | Area | Current posture |
 | --- | --- |
-| Product version | `0.4.0-beta.19` |
+| Product version | `0.4.0-beta.20` |
 | Harness maturity | L4 · Self-correcting · 100/108 (93%) |
 | Runtime | Python standard library; no Python package dependencies in the harness |
 | Primary surfaces | CLI (`lai`) + VS Code extension |
@@ -81,7 +81,7 @@ See [Architecture](docs/ARCHITECTURE.md), [Development harness](docs/DEVELOPMENT
 - deterministic `lai runs`, `lai run show`, `lai run last`, and sanitized `lai run export`;
 - deterministic `lai readiness` environment/repository health checks;
 - validated secret-safe configuration diagnostics with `lai config`;
-- local model benchmark planning/sampling/scoring with `lai model`.
+- repeatable local model evaluation with `lai model run`, independent fixture validation, provenance, repeated sampling, and model-free planning/scoring.
 
 ### Release engineering
 
@@ -181,10 +181,10 @@ The release process is intentionally stricter than a normal local package build:
 8. require a converged project handoff with no remaining manual actions.
 
 ```bash
-lai release-check --target 0.4.0-beta.19 --json
-lai release-pack --target 0.4.0-beta.19 --with-vsix --json
-lai release-governance --target 0.4.0-beta.19 --remote --json
-lai project-handoff --target 0.4.0-beta.19 --remote --json
+lai release-check --target 0.4.0-beta.20 --json
+lai release-pack --target 0.4.0-beta.20 --with-vsix --json
+lai release-governance --target 0.4.0-beta.20 --remote --json
+lai project-handoff --target 0.4.0-beta.20 --remote --json
 ```
 
 See [Release governance](docs/RELEASE-GOVERNANCE.md), [Release checklist](docs/RELEASE-CHECKLIST.md), and [Release notes](docs/RELEASE-NOTES.md).

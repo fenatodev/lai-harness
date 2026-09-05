@@ -1,3 +1,44 @@
+## lai harness v0.4.0-beta.20 — automated model evaluation
+
+This beta turns the existing model rubric into a repeatable local evaluation runner for the model already loaded behind the authenticated LAI endpoint. It measures coding-agent behavior on disposable fixtures without changing the configured default model or expanding runtime authority.
+
+### What changed
+
+- Added `lai model run` with versioned plan/debug/implement/review/security fixtures in disposable Git repositories.
+- Added independent machine validation for exit status, source mutation, expected evidence, and implementation test results.
+- Added objective hallucination flags for claimed edits without a diff, claimed passing validation when the independent validator fails, and impossible line references.
+- Added isolated per-scenario state/metrics/audit capture for latency, tokens, tool calls, truncation retries, and policy blocks.
+- Added model/server/hardware provenance plus executable, fixture, response, and source-state hashes.
+- Added `--repeat 1..5`, multi-file scoring, `latest` result resolution, and decision eligibility only after every model-backed scenario has at least two samples.
+- Installed the canonical fixture set under `$LAI_DATA_DIR/model-eval` while keeping live result JSONL outside the public repository by default.
+- Documented the first local Ministral/Qwen bake-off as preliminary evidence rather than a universal model ranking.
+
+### Safety boundary
+
+- `lai model plan`, `sample`, and `score` remain deterministic and model-free.
+- `lai model run` contacts only the already-loaded authenticated endpoint model.
+- The runner does not download, start, stop, switch, fine-tune, or select models.
+- Fixture repositories are disposable; source checkout HEAD/status must remain invariant.
+- Benchmark results cannot automatically replace the default model.
+
+### Why this matters
+
+Model choice and future self-improvement should be driven by observed LAI behavior, not generic benchmark reputation. This cut turns operational successes and failures into repeatable evidence that can later feed regression creation, improvement proposals, and controlled model-selection decisions.
+
+### Validation gate
+
+```bash
+lai release-check --target 0.4.0-beta.20 --json
+lai model plan --json
+make lint
+make typecheck
+make check
+make test-dev
+make test
+make harness-score-gate
+make validate
+```
+
 ## lai harness v0.4.0-beta.19 — release metadata correctness
 
 This beta fixes the release-pack metadata defect discovered while publishing beta.18. Generated GitHub release bodies and annotated-tag messages now come from the exact target-version section in this file instead of stale legacy markers or hardcoded titles.

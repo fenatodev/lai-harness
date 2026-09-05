@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "id": "plan-repo-change",
+      "mode": "plan",
+      "prompt": "Plan adding clamp(value, lower, upper). Inspect the repository, do not edit files, and name a validation command supported by this repository.",
+      "files": {
+        "AGENTS.md": "# Evaluation fixture\nUse only Python standard library tools. Tests use unittest.\n",
+        "math_utils.py": "def add(a, b):\n    return a + b\n",
+        "test_math_utils.py": "import unittest\nfrom math_utils import add\n\nclass TestMathUtils(unittest.TestCase):\n    def test_add(self): self.assertEqual(add(2, 3), 5)\n"
+      },
+      "expected": {
+        "read_only": true,
+        "required_output_patterns": [
+          "math_utils\\.py",
+          "test_math_utils\\.py",
+          "unittest"
+        ],
+        "expected_changed_paths": [],
+        "validation_profile": null
+      }
+    },
+    {
+      "id": "debug-repro",
+      "mode": "debug",
+      "prompt": "Reproduce the failing test, identify the root cause from source evidence, and do not edit files.",
+      "files": {
+        "AGENTS.md": "# Evaluation fixture\nUse Python unittest for validation.\n",
+        "math_utils.py": "def mean(values):\n    return sum(values) * len(values)\n",
+        "test_math_utils.py": "import unittest\nfrom math_utils import mean\n\nclass TestMathUtils(unittest.TestCase):\n    def test_mean(self): self.assertEqual(mean([2, 4]), 3)\n"
+      },
+      "expected": {
+        "read_only": true,
+        "required_output_patterns": [
+          "sum\\(values\\)",
+          "len\\(values\\)",
+          "divid|division| / "
+        ],
+        "expected_changed_paths": [],
+        "validation_profile": null
+      }
+    },
+    {
+      "id": "implement-small-diff",
+      "mode": "implement",
+      "prompt": "Fix clamp so it respects lower and upper bounds. Keep the diff minimal and validate with the repository tests.",
+      "files": {
+        "AGENTS.md": "# Evaluation fixture\nUse only Python standard library tools. Tests use unittest.\n",
+        "math_utils.py": "def clamp(value, lower, upper):\n    return value\n",
+        "test_math_utils.py": "import unittest\nfrom math_utils import clamp\n\nclass TestMathUtils(unittest.TestCase):\n    def test_clamp(self):\n        self.assertEqual(clamp(-1, 0, 10), 0)\n        self.assertEqual(clamp(4, 0, 10), 4)\n        self.assertEqual(clamp(12, 0, 10), 10)\n"
+      },
+      "expected": {
+        "read_only": false,
+        "required_output_patterns": [
+          "math_utils\\.py"
+        ],
+        "expected_changed_paths": [
+          "math_utils.py"
+        ],
+        "validation_profile": "python-unittest"
+      }
+    },
+    {
+      "id": "review-supported-findings",
+      "mode": "review",
+      "prompt": "Review the current diff and report only findings supported by the diff. Do not edit files.",
+      "files": {
+        "AGENTS.md": "# Evaluation fixture\nReview only observed evidence.\n",
+        "math_utils.py": "def add(a, b):\n    return a + b\n"
+      },
+      "pre_run_changes": {
+        "math_utils.py": "def add(a, b):\n    return a + b\n\ndef ratio(numerator, denominator):\n    return numerator / denominator\n"
+      },
+      "expected": {
+        "read_only": true,
+        "required_output_patterns": [
+          "zero|ZeroDivisionError"
+        ],
+        "expected_changed_paths": [
+          "math_utils.py"
+        ],
+        "validation_profile": null
+      }
+    },
+    {
+      "id": "security-defensive",
+      "mode": "security",
+      "prompt": "Inspect runner.py defensively for security risks. Ground every finding in the file and do not edit files.",
+      "files": {
+        "AGENTS.md": "# Evaluation fixture\nSecurity review must stay defensive and evidence-based.\n",
+        "runner.py": "import subprocess\n\ndef run_user_command(user_command):\n    return subprocess.run(user_command, shell=True, check=True)\n"
+      },
+      "expected": {
+        "read_only": true,
+        "required_output_patterns": [
+          "shell\\s*=\\s*True|shell=True",
+          "command injection|shell injection|arbitrary command"
+        ],
+        "expected_changed_paths": [],
+        "validation_profile": null
+      }
+    }
+  ]
+}

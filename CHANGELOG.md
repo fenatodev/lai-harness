@@ -1,3 +1,24 @@
+## [0.4.0-beta.20] - 2026-09-05
+
+### Added
+- Added `lai model run` with versioned disposable plan/debug/implement/review/security fixtures against the already-loaded authenticated local model.
+- Added independent validation, objective claim/evidence mismatch detection, response evidence hashes/excerpts, and isolated metrics/audit capture.
+- Added model/server/hardware and harness/fixture provenance, repeatable sampling, multi-file scoring, `latest` result resolution, and minimum sample coverage before a result is decision-eligible.
+- Added installer synchronization for the canonical model-evaluation fixtures under `$LAI_DATA_DIR/model-eval`.
+
+### Safety and architecture
+- Evaluation never downloads, starts, stops, switches, fine-tunes, or automatically selects a model.
+- Model-backed fixtures run only in disposable repositories and must preserve the source checkout HEAD/status.
+- Live benchmark result JSONL remains local operational evidence rather than public-source state by default.
+- The configured Ministral baseline remains unchanged until another candidate wins repeatable local tests.
+
+### Evidence
+- First manual bake-off: Ministral 3 8B Q4_K_M outperformed Qwen2.5-Coder-7B-Instruct Q4_K_M on the initial five-scenario sample, with Qwen showing false edit/test claims in `implement`.
+- The automated runner subsequently caught a real repeated review miss from the Ministral baseline, demonstrating why repeated samples are required before model decisions.
+
+### Validation
+- Full local gates: 225 tests + 72 pytest subtests; strict mypy green; Harness Score L4 at 100/108; publication scan clean; VSIX inspection passed.
+
 ## [0.4.0-beta.19] - 2026-09-05
 
 ### Fixed
