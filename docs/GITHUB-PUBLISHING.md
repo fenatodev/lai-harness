@@ -26,17 +26,17 @@ The approved diagrams are versioned under `docs/assets/`:
 
 `docs/assets/visual-assets.json` must be reviewed on every version bump. Regenerate a diagram when the architecture it describes changes; otherwise explicitly confirm it remains current before updating the review marker.
 
-## Release v0.4.0-beta.16
+## Release v0.4.0-beta.17
 
-Use `lai release-pack --target 0.4.0-beta.16 --with-vsix --json` to generate local release files.
+Use `lai release-pack --target 0.4.0-beta.17 --with-vsix --json` to generate local release files.
 
-**Title:** lai harness v0.4.0-beta.16 — reproducible quality sensors
+**Title:** lai harness v0.4.0-beta.17 — Node 24 CI supply-chain hardening
 
 The GitHub Release body should come from generated `release-body.md` or [Release notes](RELEASE-NOTES.md). Keep the release marked as a pre-release while the project remains beta.
 
 Before merge, protected `main` must require `Python 3.11`, `Python 3.12`, `Publication gates`, and `Harness Score L4`.
 
-After publication, run `lai release-governance --target 0.4.0-beta.16 --remote --json` to verify branch protection, pre-release metadata, and the VSIX digest when attached.
+After publication, run `lai release-governance --target 0.4.0-beta.17 --remote --json` to verify branch protection, pre-release metadata, and the VSIX digest when attached.
 
 ## Publication hygiene
 

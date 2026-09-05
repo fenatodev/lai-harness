@@ -88,6 +88,7 @@ Recovery compatibility must fail closed when repository evidence has drifted.
 - A syntax check proves syntax only.
 - A targeted test proves only its covered behavior.
 - Do not install dependencies during autonomous agent work.
+- GitHub Actions dependencies must use reviewed immutable full-SHA pins; keep the release version in a comment and update pins through reviewable dependency PRs.
 - Do not expose credentials, local state, audit records, metrics, models, or real handoffs.
 - Critical safety decisions must fail closed.
 

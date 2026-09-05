@@ -13,7 +13,7 @@
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-0f766e"></a>
 </p>
 
-> **Current release:** `v0.4.0-beta.16` · experimental beta · Linux/WSL-first · local inference through an OpenAI-compatible endpoint such as llama.cpp.
+> **Current release:** `v0.4.0-beta.17` · experimental beta · Linux/WSL-first · local inference through an OpenAI-compatible endpoint such as llama.cpp.
 
 lai harness makes constrained local models more useful by giving them a smaller, more deterministic operating environment. Instead of relying on a huge prompt and a generic shell, it combines mode-specific tools, repository-aware context, explicit policy decisions, validation gates, persistent state, and a release workflow that can be audited from feature branch to GitHub pre-release.
 
@@ -23,7 +23,7 @@ It complements high-context cloud agents rather than trying to replace them: loc
 
 | Area | Current posture |
 | --- | --- |
-| Product version | `0.4.0-beta.16` |
+| Product version | `0.4.0-beta.17` |
 | Harness maturity | L4 · Self-correcting · 100/108 (93%) |
 | Runtime | Python standard library; no Python package dependencies in the harness |
 | Primary surfaces | CLI (`lai`) + VS Code extension |
@@ -181,10 +181,10 @@ The release process is intentionally stricter than a normal local package build:
 8. require a converged project handoff with no remaining manual actions.
 
 ```bash
-lai release-check --target 0.4.0-beta.16 --json
-lai release-pack --target 0.4.0-beta.16 --with-vsix --json
-lai release-governance --target 0.4.0-beta.16 --remote --json
-lai project-handoff --target 0.4.0-beta.16 --remote --json
+lai release-check --target 0.4.0-beta.17 --json
+lai release-pack --target 0.4.0-beta.17 --with-vsix --json
+lai release-governance --target 0.4.0-beta.17 --remote --json
+lai project-handoff --target 0.4.0-beta.17 --remote --json
 ```
 
 See [Release governance](docs/RELEASE-GOVERNANCE.md), [Release checklist](docs/RELEASE-CHECKLIST.md), and [Release notes](docs/RELEASE-NOTES.md).

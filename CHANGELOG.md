@@ -1,3 +1,20 @@
+## [0.4.0-beta.17] - 2026-09-05
+
+### Changed
+- Migrated GitHub-maintained CI actions to reviewed Node 24-compatible v7 releases pinned to immutable full commit SHAs.
+- Publication packaging now uses explicit Node.js 24 and disables unnecessary setup-node package-manager caching.
+- Added weekly Dependabot tracking for GitHub Actions so SHA updates arrive as reviewable pull requests.
+
+### Safety and reproducibility
+- Added regressions that reject floating official GitHub Action references and unreviewed official action dependencies.
+- LAI runtime capabilities, model behavior, remote authority, promotion behavior, and runtime Python dependencies are unchanged.
+
+### Motivation
+- Removes the live GitHub Actions Node 20 deprecation warning observed during the beta.16 tag CI instead of pursuing unrelated Harness Score points.
+
+### Validation
+- Local disposable-env gates: Ruff green, strict mypy 0 issues, 209 pytest/unittest tests + 68 pytest subtests, publication scan clean, and VSIX inspection passed.
+
 ## [0.4.0-beta.16] - 2026-09-05
 
 ### Added
