@@ -2507,15 +2507,16 @@ def update_http_json(url):
 
 
 def update_llama_cpp_build():
-    request = urllib.request.Request(
-        f"http://{gateway()}:{LLAMA_PORT}/props",
-        headers={"Authorization": f"Bearer {llama_api_key()}"},
-        method="GET",
-    )
     try:
+        api_key = llama_api_key()
+        request = urllib.request.Request(
+            f"http://{gateway()}:{LLAMA_PORT}/props",
+            headers={"Authorization": f"Bearer {api_key}"},
+            method="GET",
+        )
         with urllib.request.urlopen(request, timeout=5) as response:
             payload = json.loads(response.read(256 * 1024).decode("utf-8"))
-    except (OSError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
+    except (RuntimeError, OSError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
         return None
     build_info = str(payload.get("build_info") or "").strip()
     match = re.match(r"^(b\d+)(?:[-+].*)?$", build_info)
