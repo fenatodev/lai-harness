@@ -8,9 +8,9 @@ Use this checklist for beta releases with protected `main`.
 cd ~/dev/projects/lai-local-agent
 lai readiness
 lai workspace status --json
-lai release-check --target 0.4.0-beta.22 --json
+lai release-check --target 0.4.0-beta.23 --json
 lai update plan --json
-lai release-pack --target 0.4.0-beta.22 --with-vsix --json
+lai release-pack --target 0.4.0-beta.23 --with-vsix --json
 make typecheck
 make lint
 make check
@@ -20,7 +20,7 @@ make harness-score-gate
 make validate
 ```
 
-Expected: version/target aligned, spec 038 complete, update-triage regressions green, synchronized Harness Score 1.6.4 pins verified, release metadata aligned with beta.22, and a clean tree after the release commit.
+Expected: version/target aligned, spec 039 complete, update-evidence freshness regressions green and beta.22 triage semantics preserved, release metadata aligned with beta.23, and a clean tree after the release commit.
 
 ## Update-triage review
 
@@ -35,8 +35,8 @@ Expected: version/target aligned, spec 038 complete, update-triage regressions g
 
 ## Release metadata review
 
-- Confirm `release-body.md` begins with the exact beta.22 level-2 heading from `docs/RELEASE-NOTES.md`.
-- Confirm `human-release-commands.sh` uses the same beta.22 heading for the annotated-tag message.
+- Confirm `release-body.md` begins with the exact beta.23 level-2 heading from `docs/RELEASE-NOTES.md`.
+- Confirm `human-release-commands.sh` uses the same beta.23 heading for the annotated-tag message.
 - Treat neutral generic fallback metadata as a review signal, not preferred release copy.
 
 ## Visual documentation review
@@ -45,7 +45,7 @@ Every product version bump must review `docs/assets/visual-assets.json`. Regener
 
 ## Protected-main integration
 
-1. Push `feature/v0.4.0-beta.22-update-triage`.
+1. Push `feature/v0.4.0-beta.23-update-triage`.
 2. Open a PR into `main`.
 3. Require `Python 3.11`, `Python 3.12`, `Publication gates`, and `Harness Score L4` with the branch up to date.
 4. Merge through GitHub without bypassing branch protection.
@@ -53,14 +53,14 @@ Every product version bump must review `docs/assets/visual-assets.json`. Regener
 
 ## Tag after merge
 
-Only after `lai release-check --target 0.4.0-beta.22 --json` reports `ready_to_tag`, use the generated `human-release-commands.sh`. Expected annotated message:
+Only after `lai release-check --target 0.4.0-beta.23 --json` reports `ready_to_tag`, use the generated `human-release-commands.sh`. Expected annotated message:
 
 ```text
-v0.4.0-beta.22 — update triage
+v0.4.0-beta.23 — update evidence convergence
 ```
 
 Then verify tag CI is green.
 
 ## GitHub pre-release
 
-Create the pre-release from `v0.4.0-beta.22`, use the validated pack title/body, attach only the inspected `lai-harness-0.4.0-beta.22.vsix`, and verify remote governance plus the VSIX digest before declaring the cut complete.
+Create the pre-release from `v0.4.0-beta.23`, use the validated pack title/body, attach only the inspected `lai-harness-0.4.0-beta.23.vsix`, and verify remote governance plus the VSIX digest before declaring the cut complete.

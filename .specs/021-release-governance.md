@@ -1,6 +1,6 @@
 # 021 — release governance
 
-Status: active
+Status: complete
 Workflow mode: implement
 
 ## Problem

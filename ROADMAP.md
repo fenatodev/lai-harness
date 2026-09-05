@@ -2,7 +2,7 @@
 
 ## Near term
 
-- Dogfood `lai update triage` across repeated observations and add further maintenance automation only when it preserves the separate reviewed spec/PR boundary.
+- Dogfood beta.23 update-evidence convergence across upgrades; only add further maintenance automation when repeated evidence justifies it and the reviewed spec/PR boundary remains intact.
 - Extend semantic code contracts and the strict type-check ratchet as subsystems split out of `src/local-agent`.
 - Expand automated model-evaluation fixtures from observed dogfood failures and use repeated evidence before any default-model change.
 - Keep generic `bash` out of remote control profiles; evolve the structured `validate`/sandbox boundary from measured fixtures rather than exposing shell text.
@@ -37,6 +37,7 @@ Roadmap items are intentions, not commitments. Model redistribution and automati
 - v0.4.0-alpha.21: release preflight and public mode aliases before beta readiness.
 - v0.4.0-beta.1: first beta readiness cut with deterministic release gates and documented stabilization posture.
 - v0.4.0-beta.2: release polish with current GitHub metadata, release notes, checklist, and public VSIX artifact naming.
+- v0.4.0-beta.23: stale update-evidence convergence across local baseline changes, with explicit refresh and stale-action suppression.
 - v0.4.0-beta.22: offline update triage with security-first prioritization plus the first governed radar-driven dependency refresh.
 - v0.4.0-beta.21: bounded update intelligence for trusted dependencies/runtime metadata and reference-agent release observation, with no automatic apply path.
 - v0.4.0-beta.20: automated local model evaluation with disposable fixtures, independent validation, provenance, repeated sampling, and decision eligibility.

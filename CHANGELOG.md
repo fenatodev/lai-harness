@@ -1,3 +1,18 @@
+## [0.4.0-beta.23] - 2026-09-05
+
+### Added
+- Added deterministic freshness validation for persisted update-triage evidence using LAI version and update-source manifest SHA-256.
+- Added `refresh_required` plus explicit stale-evidence reason codes and an operator-only refresh command.
+
+### Safety and correctness
+- Stale snapshots suppress all old per-source recommendations rather than presenting them as current actions.
+- Triage remains offline/model-free and never performs its own remote refresh.
+- Fresh snapshots preserve beta.22 security-first triage behavior unchanged.
+- Completed spec 021 is now marked complete in its retained traceability document.
+
+### Dogfood
+- A real beta.22 snapshot under a beta.23 runtime produced `refresh_required`; one explicit remote check converged the evidence and restored normal triage without source mutation.
+
 ## [0.4.0-beta.22] - 2026-09-05
 
 ### Added
