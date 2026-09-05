@@ -1,3 +1,22 @@
+## [0.4.0-beta.18] - 2026-09-05
+
+### Added
+- Added version 1 machine-readable JSON Schema contracts for workspace state, metric events, audit events, and recovery checkpoints.
+- Added configurable bounded retention for workspace state and metrics/audit JSONL through the existing CLI, environment, and TOML precedence.
+- Added atomic tail pruning for metrics and audit files plus focused compatibility/retention regressions.
+
+### Changed
+- New workspace, metrics, and audit records now declare `schema_version: 1`; recovery checkpoints use the same runtime-record schema version.
+- Legacy unversioned workspace/metric/audit records remain readable. Unsupported future metric/audit versions are skipped and unsupported workspace/checkpoint state fails closed.
+
+### Safety and architecture
+- Retention affects local observability/state records only and never repository files, safe workspaces, promoted worktrees, Git history, release artifacts, or model files.
+- No new runtime dependency, model behavior, remote capability, Git authority, or release authority is introduced.
+
+### Validation
+- Focused runtime-record/config/state/checkpoint regressions pass.
+- Full local gates: 217 tests + 72 pytest subtests; strict mypy green; publication scan clean; VSIX inspection passed.
+
 ## [0.4.0-beta.17] - 2026-09-05
 
 ### Changed

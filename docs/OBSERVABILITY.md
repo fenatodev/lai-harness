@@ -27,7 +27,7 @@ Each non-selection run writes a workspace-scoped JSON checkpoint under `$LAI_DAT
 - completion budget and number of supplied tool schemas;
 - tool name, duration, and success status.
 
-When the metrics file exceeds roughly 5 MB, the harness retains its most recent 3,000 lines. This is a size guard, not a complete retention policy.
+New metric events declare `schema_version: 1`. Legacy unversioned events remain readable, while unsupported future versions are ignored. The default retention threshold is 5 MB and the default retained tail is 3,000 lines; both are configurable.
 
 ## Forensic audit
 
@@ -43,7 +43,7 @@ Audit hashes demonstrate which bytes were observed at stages of a run. They do n
 
 ## Privacy and retention
 
-Runtime records can expose repository names, absolute paths, task descriptions, filenames, snippets of results, commands, validation output, and recovery metadata. Keep the data directory private, outside the repository, exclude it from version control, and delete or rotate records according to project policy. Avoid entering secrets in prompts. `/clearcontext` clears workspace context, not metrics, audit history, or recovery checkpoints.
+Runtime records can expose repository names, absolute paths, task descriptions, filenames, snippets of results, commands, validation output, and recovery metadata. Keep the data directory private and outside the repository. Workspace-state, metrics, and audit retention are configurable; JSONL pruning is tail-based and atomic. See [Runtime records](RUNTIME-RECORDS.md) for schema and retention contracts. Avoid entering secrets in prompts. `/clearcontext` clears workspace context, not metrics, audit history, or recovery checkpoints.
 
 ## Run history
 

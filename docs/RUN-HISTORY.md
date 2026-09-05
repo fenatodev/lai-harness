@@ -1,6 +1,7 @@
 # run history
 
 `lai runs` lists recent local runs for the current repository from the existing metrics and audit JSONL files.
+Readers accept legacy unversioned events and current schema version 1 while ignoring unsupported future event versions; see [Runtime records](RUNTIME-RECORDS.md).
 
 ```bash
 lai runs

@@ -1,3 +1,32 @@
+## lai harness v0.4.0-beta.18 — versioned runtime records
+
+This beta stabilizes the local state/observability contract before persistent remote sessions. Workspace state, metrics, audit events, and recovery checkpoints now have explicit versioned formats, while retention limits become operator-configurable instead of hidden constants.
+
+### What changed
+
+- Added JSON Schema draft 2020-12 contracts under `schemas/runtime/`.
+- New workspace-state, metric, and audit records write `schema_version: 1`; checkpoints share the same version baseline.
+- Legacy unversioned records remain readable; unsupported future versions cannot silently become current context/history.
+- Added configurable state age, metrics/audit byte thresholds, and retained-tail line counts using normal `CLI > environment > TOML > defaults` precedence.
+- JSONL pruning now uses an atomic same-directory replacement.
+
+### Why this matters
+
+Persistent mobile/gateway sessions need durable state formats that can evolve without silently misreading old or newer data. This cut creates that compatibility boundary without adding a database or expanding runtime authority.
+
+### Validation gate
+
+```bash
+lai release-check --target 0.4.0-beta.18 --json
+make lint
+make typecheck
+make check
+make test-dev
+make test
+make harness-score-gate
+make validate
+```
+
 # Release notes
 
 ## lai harness v0.4.0-beta.17 — Node 24 CI supply-chain hardening

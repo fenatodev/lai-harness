@@ -11,6 +11,11 @@ skills_dir = "~/.local/share/lai/skills"
 state_dir = "~/.local/share/lai/state"
 metrics_dir = "~/.local/share/lai/metrics"
 audit_dir = "~/.local/share/lai/audit"
+state_retention_days = 45
+metrics_max_bytes = 5000000
+metrics_keep_lines = 3000
+audit_max_bytes = 5000000
+audit_keep_lines = 4000
 
 # Used only when local-agent needs to invoke a configured server launcher.
 llama_server = "C:/path/to/llama-server.exe"
