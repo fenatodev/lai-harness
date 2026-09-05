@@ -45,7 +45,7 @@ Every product version bump must review `docs/assets/visual-assets.json`. Regener
 
 ## Protected-main integration
 
-1. Push `feature/v0.4.0-beta.23-update-triage`.
+1. Push `feature/v0.4.0-beta.23-update-evidence-convergence`.
 2. Open a PR into `main`.
 3. Require `Python 3.11`, `Python 3.12`, `Publication gates`, and `Harness Score L4` with the branch up to date.
 4. Merge through GitHub without bypassing branch protection.
