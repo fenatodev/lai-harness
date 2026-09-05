@@ -1,5 +1,6 @@
 import configparser
 from pathlib import Path
+import subprocess
 import unittest
 
 
@@ -53,6 +54,26 @@ class QualitySensorsTest(unittest.TestCase):
         self.assertIn("python -m mypy --config-file mypy.ini", ci)
         self.assertIn("ruff check src/local-agent src tests .cursor/hooks", makefile)
         self.assertIn("ruff check src/local-agent src tests .cursor/hooks", ci)
+
+    def test_current_active_spec_passes_runtime_validation(self):
+        active = []
+        for path in sorted((ROOT / ".specs").glob("*.md")):
+            if "- Status: `active`" in path.read_text():
+                active.append(path)
+        self.assertLessEqual(len(active), 1)
+
+        result = subprocess.run(
+            ["python3", "src/local-agent", "--spec-status"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=15,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        if active:
+            self.assertIn(str(active[0].relative_to(ROOT)), result.stdout)
+        else:
+            self.assertIn("Status: none", result.stdout)
 
     def test_runtime_installer_does_not_install_python_dependencies(self):
         installer = (ROOT / "scripts" / "install-local.sh").read_text()

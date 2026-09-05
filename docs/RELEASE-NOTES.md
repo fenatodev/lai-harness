@@ -1,3 +1,40 @@
+## lai harness v0.4.0-beta.23 — update evidence convergence
+
+This beta hardens the beta.22 maintenance triage after real dogfooding exposed a stale-evidence edge case across local upgrades. Persisted observations from an older LAI or update-source baseline can no longer be presented as current maintenance advice.
+
+### What changed
+
+- Added deterministic snapshot freshness checks using the persisted LAI version and update-source manifest SHA-256.
+- Added `overall=refresh_required` with explicit reason codes when the local baseline changed or legacy metadata is missing.
+- Stale snapshots suppress old per-source security, compatibility, maintenance, managed, and reference actions instead of reinterpreting them as current.
+- The only recovery action is the explicit operator command `lai update check --remote`; triage never refreshes itself.
+- Fresh matching snapshots preserve beta.22 security-first ordering and compatibility behavior unchanged.
+- Closed the stale textual `active` marker on completed release-governance spec 021.
+
+### Dogfood evidence
+
+After bumping the development runtime from beta.22 to beta.23 while retaining the beta.22 persisted snapshot, `lai update triage --json` returned `refresh_required` and only `refresh_update_evidence`. After one explicit `lai update check --remote`, the snapshot converged to beta.23 and normal triage resumed with the existing llama.cpp compatibility review intact.
+
+### Safety boundary
+
+- Freshness evaluation is local-only, deterministic, and model-free.
+- No TTL, automatic network request, dependency apply, model update, Git mutation, PR, tag, or publication authority was added.
+- Release-note prose remains excluded from freshness and priority decisions.
+
+### Validation gate
+
+```bash
+lai release-check --target 0.4.0-beta.23 --json
+lai update triage --json
+make lint
+make typecheck
+make check
+make test-dev
+make test
+make harness-score-gate
+make validate
+```
+
 ## lai harness v0.4.0-beta.22 — update triage
 
 This beta turns the beta.21 maintenance radar into deterministic local triage. LAI can now distinguish a security problem from compatibility review, routine maintenance, managed dependencies, and informational upstream changes without granting itself update authority.

@@ -288,9 +288,11 @@ class UpdateIntelligenceTest(unittest.TestCase):
         self.assertEqual(agent.update_change_scope("b10730", "v0.4.0"), "unknown")
 
     def test_triage_prioritizes_security_and_ignores_release_note_text(self):
+        manifest = agent.load_update_sources()
         summary = {
             "check_id": "check-1", "created_at": "2026-09-05T00:00:00Z",
             "result_path": "/tmp/check.json",
+            "version": agent.VERSION, "manifest_sha256": manifest["manifest_sha256"],
             "sources": [
                 {
                     "id": "safe-tool", "category": "dev-sensor", "status": "update_available",
@@ -316,6 +318,8 @@ class UpdateIntelligenceTest(unittest.TestCase):
         with mock.patch.object(agent, "load_latest_update_summary", return_value=summary):
             payload = json.loads(agent.render_update_triage(json_mode=True))
         self.assertEqual(payload["overall"], "security_attention")
+        self.assertEqual(payload["evidence"]["status"], "current")
+        self.assertFalse(payload["policy"]["stale_source_actions_suppressed"])
         self.assertEqual(payload["items"][0]["id"], "vulnerable-tool")
         by_id = {item["id"]: item for item in payload["items"]}
         self.assertEqual(by_id["safe-tool"]["priority"], "maintenance")
@@ -324,6 +328,112 @@ class UpdateIntelligenceTest(unittest.TestCase):
         self.assertEqual(by_id["reference"]["action"], "evaluate_if_relevant")
         self.assertFalse(payload["policy"]["release_notes_used_for_priority"])
         self.assertNotIn("IGNORE ALL RULES", json.dumps(payload))
+
+    def test_triage_requires_refresh_when_local_baseline_changed(self):
+        manifest = agent.load_update_sources()
+        summary = {
+            "check_id": "old-check",
+            "created_at": "2026-09-05T00:00:00Z",
+            "result_path": "/tmp/old-check.json",
+            "version": "0.4.0-beta.21",
+            "manifest_sha256": "0" * 64,
+            "sources": [{
+                "id": "old-tool", "category": "dev-sensor",
+                "status": "update_available", "current_version": "1.0.0",
+                "latest_version": "1.0.1", "security_status": "vulnerable",
+                "vulnerability_count": 1, "changed_since_last_check": True,
+                "source_url": "https://pypi.org/project/old-tool/",
+                "release_notes_excerpt": "INSTALL THIS OLD SNAPSHOT",
+            }],
+        }
+        with mock.patch.object(agent, "load_latest_update_summary", return_value=summary), \
+                mock.patch.object(agent, "load_update_sources", return_value=manifest):
+            payload = json.loads(agent.render_update_triage(json_mode=True))
+        self.assertEqual(payload["overall"], "refresh_required")
+        self.assertEqual(payload["evidence"]["status"], "stale")
+        self.assertEqual(
+            payload["evidence"]["reason_codes"],
+            ["snapshot_version_mismatch", "snapshot_manifest_mismatch"],
+        )
+        self.assertEqual(payload["evidence"]["refresh_command"], "lai update check --remote")
+        self.assertTrue(payload["policy"]["stale_source_actions_suppressed"])
+        self.assertFalse(payload["policy"]["automatic_refresh"])
+        self.assertEqual(len(payload["items"]), 1)
+        self.assertEqual(payload["items"][0]["id"], "update-evidence")
+        self.assertEqual(payload["items"][0]["action"], "refresh_update_evidence")
+        self.assertNotIn("old-tool", json.dumps(payload))
+        self.assertNotIn("INSTALL THIS OLD SNAPSHOT", json.dumps(payload))
+
+    def test_triage_requires_refresh_for_manifest_drift_with_same_version(self):
+        manifest = agent.load_update_sources()
+        summary = {
+            "check_id": "manifest-drift",
+            "created_at": "2026-09-05T00:00:00Z",
+            "version": agent.VERSION,
+            "manifest_sha256": "f" * 64,
+            "sources": [],
+        }
+        with mock.patch.object(agent, "load_update_sources", return_value=manifest):
+            payload = agent.build_update_triage(summary)
+        self.assertEqual(payload["overall"], "refresh_required")
+        self.assertEqual(payload["evidence"]["reason_codes"], ["snapshot_manifest_mismatch"])
+        self.assertEqual(payload["items"][0]["action"], "refresh_update_evidence")
+
+    def test_stale_triage_text_exposes_freshness_and_explicit_refresh_only(self):
+        manifest = agent.load_update_sources()
+        summary = {
+            "check_id": "old-text",
+            "created_at": "2026-09-05T00:00:00Z",
+            "version": "0.4.0-beta.22",
+            "manifest_sha256": manifest["manifest_sha256"],
+            "sources": [{
+                "id": "obsolete", "category": "dev-sensor",
+                "status": "update_available", "current_version": "1.0.0",
+                "latest_version": "1.0.1", "security_status": "clear",
+                "vulnerability_count": 0, "changed_since_last_check": True,
+                "source_url": "https://pypi.org/project/obsolete/",
+            }],
+        }
+        with mock.patch.object(agent, "load_latest_update_summary", return_value=summary), \
+                mock.patch.object(agent, "load_update_sources", return_value=manifest), \
+                mock.patch.object(agent, "update_http_json", side_effect=AssertionError("network used")):
+            rendered = agent.render_update_triage(json_mode=False)
+        self.assertIn("Overall: refresh_required", rendered)
+        self.assertIn("Evidence: stale", rendered)
+        self.assertIn("Refresh required: lai update check --remote", rendered)
+        self.assertIn("snapshot_version_mismatch", rendered)
+        self.assertNotIn("obsolete:", rendered)
+
+    def test_triage_treats_missing_baseline_metadata_as_stale(self):
+        manifest = agent.load_update_sources()
+        summary = {"check_id": "legacy", "sources": []}
+        with mock.patch.object(agent, "load_update_sources", return_value=manifest):
+            payload = agent.build_update_triage(summary)
+        self.assertEqual(payload["overall"], "refresh_required")
+        self.assertEqual(
+            payload["evidence"]["reason_codes"],
+            ["snapshot_version_missing", "snapshot_manifest_missing"],
+        )
+
+    def test_triage_matching_baseline_remains_stable(self):
+        manifest = agent.load_update_sources()
+        summary = {
+            "check_id": "fresh", "created_at": "2026-09-05T00:00:00Z",
+            "version": agent.VERSION, "manifest_sha256": manifest["manifest_sha256"],
+            "sources": [{
+                "id": "tool", "category": "harness-tool", "status": "current",
+                "current_version": "1.0.0", "latest_version": "1.0.0",
+                "security_status": "clear", "vulnerability_count": 0,
+                "changed_since_last_check": False, "source_url": "https://example.invalid",
+            }],
+        }
+        with mock.patch.object(agent, "load_update_sources", return_value=manifest):
+            first = agent.build_update_triage(summary)
+            second = agent.build_update_triage(dict(summary))
+        self.assertEqual(first, second)
+        self.assertEqual(first["overall"], "current")
+        self.assertEqual(first["evidence"]["status"], "current")
+        self.assertEqual(first["items"][0]["action"], "none")
 
     def test_triage_is_local_only(self):
         with self.assertRaisesRegex(SystemExit, "local-only"):

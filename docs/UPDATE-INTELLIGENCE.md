@@ -21,7 +21,9 @@ There is intentionally no `apply`, `install`, `download`, `upgrade`, `commit`, `
 
 ## Offline triage
 
-`lai update triage` ranks persisted observations by structured evidence only. Known vulnerabilities are immediate security attention; incompatible version schemes require compatibility review; patch/minor/major updates receive maintenance scopes; Dependabot-managed dependencies remain managed; reference-agent changes remain informational. Release-note text is excluded from the triage payload and never affects priority.
+`lai update triage` first validates that the persisted observation belongs to the current local maintenance baseline. It compares the snapshot LAI version and update-source manifest SHA-256 with the running version and trusted local manifest. Missing or mismatched metadata produces `overall=refresh_required`; stale per-source recommendations are suppressed and the only suggested recovery is the explicit operator command `lai update check --remote`. Triage never performs that refresh itself.
+
+When evidence is current, triage ranks persisted observations by structured evidence only. Known vulnerabilities are immediate security attention; incompatible version schemes require compatibility review; patch/minor/major updates receive maintenance scopes; Dependabot-managed dependencies remain managed; reference-agent changes remain informational. Release-note text is excluded from the triage payload and never affects priority.
 
 ## Trust boundary
 

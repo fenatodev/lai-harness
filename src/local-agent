@@ -23,7 +23,7 @@ import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "0.4.0-beta.22"
+VERSION = "0.4.0-beta.23"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -2629,26 +2629,72 @@ def triage_update_record(record):
     }
 
 
+def update_triage_evidence_status(summary):
+    manifest = load_update_sources()
+    snapshot_version = str(summary.get("version") or "")
+    current_version = VERSION
+    snapshot_manifest_sha256 = str(summary.get("manifest_sha256") or "")
+    current_manifest_sha256 = str(manifest.get("manifest_sha256") or "")
+    reasons = []
+    if not snapshot_version:
+        reasons.append("snapshot_version_missing")
+    elif snapshot_version != current_version:
+        reasons.append("snapshot_version_mismatch")
+    if not snapshot_manifest_sha256:
+        reasons.append("snapshot_manifest_missing")
+    elif snapshot_manifest_sha256 != current_manifest_sha256:
+        reasons.append("snapshot_manifest_mismatch")
+    return {
+        "status": "stale" if reasons else "current",
+        "reason_codes": reasons,
+        "snapshot_version": snapshot_version or None,
+        "current_version": current_version,
+        "snapshot_manifest_sha256": snapshot_manifest_sha256 or None,
+        "current_manifest_sha256": current_manifest_sha256 or None,
+        "refresh_command": "lai update check --remote",
+    }
+
+
 def build_update_triage(summary):
     urgency_order = {"immediate": 0, "high": 1, "medium": 2, "low": 3, "informational": 4, "none": 5}
     priority_order = {"security": 0, "compatibility": 1, "visibility": 2, "maintenance": 3, "reference": 4, "managed": 5, "current": 6}
-    items = [triage_update_record(record) for record in summary.get("sources", []) if isinstance(record, dict)]
-    items.sort(key=lambda item: (
-        urgency_order.get(item["urgency"], 9),
-        priority_order.get(item["priority"], 9),
-        item["id"],
-    ))
-    priorities = {item["priority"] for item in items}
-    if "security" in priorities:
-        overall = "security_attention"
-    elif "compatibility" in priorities or any(item["priority"] == "visibility" and item["urgency"] == "medium" for item in items):
-        overall = "review_required"
-    elif "maintenance" in priorities:
-        overall = "maintenance_available"
-    elif any(item["priority"] == "reference" and item["changed_since_last_check"] is True for item in items):
-        overall = "reference_changes"
+    evidence = update_triage_evidence_status(summary)
+    if evidence["status"] == "stale":
+        items = [{
+            "id": "update-evidence",
+            "category": "maintenance-evidence",
+            "priority": "visibility",
+            "urgency": "medium",
+            "action": "refresh_update_evidence",
+            "reason_codes": list(evidence["reason_codes"]),
+            "change_scope": "unknown",
+            "current_version": evidence["snapshot_version"],
+            "latest_version": evidence["current_version"],
+            "status": "stale_evidence",
+            "security_status": "unknown",
+            "vulnerability_count": 0,
+            "changed_since_last_check": None,
+            "source_url": "",
+        }]
+        overall = "refresh_required"
     else:
-        overall = "current"
+        items = [triage_update_record(record) for record in summary.get("sources", []) if isinstance(record, dict)]
+        items.sort(key=lambda item: (
+            urgency_order.get(item["urgency"], 9),
+            priority_order.get(item["priority"], 9),
+            item["id"],
+        ))
+        priorities = {item["priority"] for item in items}
+        if "security" in priorities:
+            overall = "security_attention"
+        elif "compatibility" in priorities or any(item["priority"] == "visibility" and item["urgency"] == "medium" for item in items):
+            overall = "review_required"
+        elif "maintenance" in priorities:
+            overall = "maintenance_available"
+        elif any(item["priority"] == "reference" and item["changed_since_last_check"] is True for item in items):
+            overall = "reference_changes"
+        else:
+            overall = "current"
     return {
         "schema_version": 1,
         "product": PRODUCT_NAME,
@@ -2659,6 +2705,7 @@ def build_update_triage(summary):
         "source_created_at": summary.get("created_at"),
         "source_result_path": summary.get("result_path"),
         "overall": overall,
+        "evidence": evidence,
         "counts": {
             key: sum(1 for item in items if item["priority"] == key)
             for key in ("security", "compatibility", "visibility", "maintenance", "reference", "managed", "current")
@@ -2667,7 +2714,9 @@ def build_update_triage(summary):
         "policy": {
             "release_notes_used_for_priority": False,
             "automatic_apply": False,
+            "automatic_refresh": False,
             "model_call": False,
+            "stale_source_actions_suppressed": evidence["status"] == "stale",
         },
     }
 
@@ -3102,6 +3151,7 @@ def render_update_triage(json_mode=False):
         f"Overall: {payload['overall']}",
         "Network: disabled",
         f"Source check: {payload.get('source_check_id') or '[unknown]'}",
+        f"Evidence: {payload['evidence']['status']}",
         "",
         "Prioritized observations:",
     ]
@@ -3110,6 +3160,13 @@ def render_update_triage(json_mode=False):
             f"- {item['id']}: priority={item['priority']} urgency={item['urgency']} "
             f"scope={item['change_scope']} action={item['action']}"
         )
+    if payload["evidence"]["status"] == "stale":
+        reasons = ", ".join(payload["evidence"]["reason_codes"]) or "unknown"
+        lines.extend([
+            "",
+            f"Refresh required: {payload['evidence']['refresh_command']}",
+            f"Reason: {reasons}",
+        ])
     lines.extend([
         "",
         "Safety:",

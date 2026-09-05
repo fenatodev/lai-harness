@@ -19,17 +19,17 @@ The repository README is the primary landing page. Keep Wiki/Projects disabled u
 ## Visual presentation
 
 The approved diagrams are versioned under `docs/assets/`. `docs/assets/visual-assets.json` must be reviewed on every version bump. Regenerate a diagram only when the architecture it describes changes; otherwise update the review marker after confirming the diagrams remain accurate.
-## Release v0.4.0-beta.22
+## Release v0.4.0-beta.23
 
-Use `lai release-pack --target 0.4.0-beta.22 --with-vsix --json` to generate local publication files.
+Use `lai release-pack --target 0.4.0-beta.23 --with-vsix --json` to generate local publication files.
 
-**Expected title:** lai harness v0.4.0-beta.22 — update triage
+**Expected title:** lai harness v0.4.0-beta.23 — update evidence convergence
 
-The generated `release-body.md` must come from the exact `## lai harness v0.4.0-beta.22` section in [Release notes](RELEASE-NOTES.md).
+The generated `release-body.md` must come from the exact `## lai harness v0.4.0-beta.23` section in [Release notes](RELEASE-NOTES.md).
 
 Before merge, protected `main` must require `Python 3.11`, `Python 3.12`, `Publication gates`, and `Harness Score L4`.
 
-After publication, run `lai release-governance --target 0.4.0-beta.22 --remote --json` to verify branch protection, pre-release metadata, and the VSIX digest when attached.
+After publication, run `lai release-governance --target 0.4.0-beta.23 --remote --json` to verify branch protection, pre-release metadata, and the VSIX digest when attached.
 
 ## Publication hygiene
 
