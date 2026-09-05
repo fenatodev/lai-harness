@@ -18,6 +18,8 @@ from fake_llama_server import FakeLlamaServer
 
 
 SOURCE = Path(__file__).parents[1] / "src" / "local-agent"
+if str(SOURCE.parent) not in sys.path:
+    sys.path.insert(0, str(SOURCE.parent))
 SPEC = importlib.util.spec_from_loader(
     "lai_control_test_agent",
     SourceFileLoader("lai_control_test_agent", str(SOURCE)),

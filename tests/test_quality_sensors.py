@@ -27,7 +27,7 @@ class QualitySensorsTest(unittest.TestCase):
             if stripped and not stripped.startswith("#"):
                 self.assertRegex(stripped, r"^[a-z0-9][a-z0-9-]*==[^=\s]+$")
 
-    def test_mypy_scope_is_strict_and_bound_to_guardrail_hooks(self):
+    def test_mypy_scope_is_strict_and_ratchets_extracted_runtime_modules(self):
         parser = configparser.ConfigParser()
         parser.read(ROOT / "mypy.ini")
         mypy = parser["mypy"]
@@ -39,6 +39,7 @@ class QualitySensorsTest(unittest.TestCase):
             {
                 ".cursor/hooks/feedback_check.py",
                 ".cursor/hooks/guard_shell.py",
+                "src/lai_semantics.py",
             },
         )
 

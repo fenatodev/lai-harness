@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -12,6 +13,8 @@ from contextlib import redirect_stdout
 
 
 SOURCE = Path(__file__).parents[1] / "src" / "local-agent"
+if str(SOURCE.parent) not in sys.path:
+    sys.path.insert(0, str(SOURCE.parent))
 SPEC = importlib.util.spec_from_loader(
     "lai_local_agent",
     SourceFileLoader("lai_local_agent", str(SOURCE)),
@@ -675,7 +678,7 @@ class LocalAgentTest(unittest.TestCase):
             check=True,
         )
         payload = json.loads(raw.stdout)
-        self.assertEqual(payload["version"], "0.4.0-beta.23")
+        self.assertEqual(payload["version"], "0.4.0-beta.24")
         self.assertEqual(payload["runs"][0]["run_id"], "run-1")
         self.assertEqual(payload["runs"][1]["run_id"], "run-2")
         self.assertIsNotNone(payload["runs"][1]["last_failure"])
@@ -767,7 +770,7 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("Authentication: OK", rendered)
         self.assertIn("mode_skills", rendered)
         payload = json.loads(raw)
-        self.assertEqual(payload["version"], "0.4.0-beta.23")
+        self.assertEqual(payload["version"], "0.4.0-beta.24")
         self.assertTrue(payload["server"]["authentication_ok"])
         self.assertIn(payload["overall"], {"ready", "attention"})
         self.assertTrue(
@@ -809,7 +812,7 @@ class LocalAgentTest(unittest.TestCase):
             agent.AUDIT_FILE = original_audit_file
 
         self.assertIn("RELEASE PREFLIGHT", context)
-        self.assertIn("Version: 0.4.0-beta.23", context)
+        self.assertIn("Version: 0.4.0-beta.24", context)
         self.assertIn("Readiness overall:", context)
         self.assertIn("- make check", context)
         self.assertIn("- make test-dev", context)
@@ -843,7 +846,7 @@ class LocalAgentTest(unittest.TestCase):
             stdout=subprocess.DEVNULL,
         )
         result = subprocess.run(
-            [str(SOURCE), "--release-check", "--target", "0.4.0-beta.23", "--json"],
+            [str(SOURCE), "--release-check", "--target", "0.4.0-beta.24", "--json"],
             cwd=self.root,
             env=env,
             text=True,
@@ -852,8 +855,8 @@ class LocalAgentTest(unittest.TestCase):
             check=True,
         )
         payload = json.loads(result.stdout)
-        self.assertEqual(payload["version"], "0.4.0-beta.23")
-        self.assertEqual(payload["expected_tag"], "v0.4.0-beta.23")
+        self.assertEqual(payload["version"], "0.4.0-beta.24")
+        self.assertEqual(payload["expected_tag"], "v0.4.0-beta.24")
         self.assertIn(payload["phase"], {"ready_for_integration", "ready_to_tag", "released", "blocked", "attention"})
         self.assertIn("make validate", payload["validation_commands"])
         self.assertTrue(
@@ -899,33 +902,33 @@ class LocalAgentTest(unittest.TestCase):
                 return state["exact_tag"]
             if args == ["describe", "--tags", "--abbrev=0"]:
                 return state["latest_tag"]
-            if args == ["rev-parse", "v0.4.0-beta.23^{}"]:
+            if args == ["rev-parse", "v0.4.0-beta.24^{}"]:
                 return state["tag_target"]
             return default
 
         with mock.patch.object(agent, "collect_readiness_status", return_value=readiness), \
                 mock.patch.object(agent, "git_command_text", side_effect=fake_git), \
                 mock.patch.object(agent, "release_validation_commands", return_value=["make validate"]):
-            candidate = agent.collect_release_check("0.4.0-beta.23")
+            candidate = agent.collect_release_check("0.4.0-beta.24")
             self.assertEqual(candidate["phase"], "ready_for_integration")
             self.assertFalse(candidate["tag_ready"])
 
             readiness["git"]["branch"] = "main"
             state["origin_main"] = state["head"]
-            taggable = agent.collect_release_check("0.4.0-beta.23")
+            taggable = agent.collect_release_check("0.4.0-beta.24")
             self.assertEqual(taggable["phase"], "ready_to_tag")
             self.assertTrue(taggable["tag_ready"])
             self.assertEqual(taggable["origin_main"], state["head"])
 
             state["origin_main"] = "different333"
-            divergent = agent.collect_release_check("0.4.0-beta.23")
+            divergent = agent.collect_release_check("0.4.0-beta.24")
             self.assertEqual(divergent["overall"], "blocked")
             self.assertEqual(divergent["phase"], "blocked")
             self.assertFalse(divergent["tag_ready"])
 
             state["origin_main"] = state["head"]
             state["tag_target"] = "old444"
-            wrong_tag = agent.collect_release_check("0.4.0-beta.23")
+            wrong_tag = agent.collect_release_check("0.4.0-beta.24")
             self.assertEqual(wrong_tag["overall"], "blocked")
             self.assertEqual(wrong_tag["phase"], "blocked")
             self.assertIn("old444", next(
@@ -933,8 +936,8 @@ class LocalAgentTest(unittest.TestCase):
             ))
 
             state["tag_target"] = state["head"]
-            state["exact_tag"] = "v0.4.0-beta.23"
-            released = agent.collect_release_check("0.4.0-beta.23")
+            state["exact_tag"] = "v0.4.0-beta.24"
+            released = agent.collect_release_check("0.4.0-beta.24")
             self.assertEqual(released["overall"], "ready")
             self.assertEqual(released["phase"], "released")
             self.assertFalse(released["tag_ready"])
@@ -946,7 +949,7 @@ class LocalAgentTest(unittest.TestCase):
         docs.mkdir()
         (docs / "RELEASE-NOTES.md").write_text(
             "# Release notes\n\n"
-            "## lai harness v0.4.0-beta.23 — correct beta title\n\n"
+            "## lai harness v0.4.0-beta.24 — correct beta title\n\n"
             "ready body for beta pack\n\n"
             "## lai harness v0.4.0-beta.17 — older release\n\n"
             "### Release body for GitHub\n\n"
@@ -974,7 +977,7 @@ class LocalAgentTest(unittest.TestCase):
                 str(SOURCE),
                 "--release-pack",
                 "--target",
-                "0.4.0-beta.23",
+                "0.4.0-beta.24",
                 "--out",
                 str(out_dir),
                 "--json",
@@ -987,22 +990,22 @@ class LocalAgentTest(unittest.TestCase):
             check=True,
         )
         payload = json.loads(result.stdout)
-        self.assertEqual(payload["version"], "0.4.0-beta.23")
-        self.assertEqual(payload["expected_tag"], "v0.4.0-beta.23")
+        self.assertEqual(payload["version"], "0.4.0-beta.24")
+        self.assertEqual(payload["expected_tag"], "v0.4.0-beta.24")
         self.assertEqual(payload["pack_dir"], str(out_dir.resolve()))
         self.assertFalse(payload["with_vsix"])
         for key in ("summary", "release_body", "checklist", "publishing", "commands"):
             self.assertTrue(Path(payload["files"][key]).is_file(), key)
         release_body = (out_dir / "release-body.md").read_text()
-        self.assertIn("## lai harness v0.4.0-beta.23 — correct beta title", release_body)
+        self.assertIn("## lai harness v0.4.0-beta.24 — correct beta title", release_body)
         self.assertIn("ready body for beta pack", release_body)
         self.assertNotIn("stale body from older beta", release_body)
         commands = (out_dir / "human-release-commands.sh").read_text()
-        self.assertIn("git tag -a v0.4.0-beta.23", commands)
-        self.assertIn("v0.4.0-beta.23 — correct beta title", commands)
+        self.assertIn("git tag -a v0.4.0-beta.24", commands)
+        self.assertIn("v0.4.0-beta.24 — correct beta title", commands)
         self.assertNotIn("remote capability profiles", commands)
         self.assertIn("git pull --ff-only origin main", commands)
-        self.assertIn("git push origin v0.4.0-beta.23", commands)
+        self.assertIn("git push origin v0.4.0-beta.24", commands)
         self.assertNotIn("git merge --ff-only", commands)
         self.assertNotIn("git push --atomic origin main", commands)
         status = subprocess.run(
@@ -1019,7 +1022,7 @@ class LocalAgentTest(unittest.TestCase):
                 str(SOURCE),
                 "--release-pack",
                 "--target",
-                "0.4.0-beta.23",
+                "0.4.0-beta.24",
                 "--out",
                 str(self.root / "release-pack"),
             ],
@@ -1094,7 +1097,7 @@ class LocalAgentTest(unittest.TestCase):
                 str(SOURCE),
                 "--release-pack",
                 "--target",
-                "0.4.0-beta.23",
+                "0.4.0-beta.24",
                 "--out",
                 str(out_dir),
                 "--json",
@@ -1112,7 +1115,7 @@ class LocalAgentTest(unittest.TestCase):
                 str(SOURCE),
                 "--release-governance",
                 "--target",
-                "0.4.0-beta.23",
+                "0.4.0-beta.24",
                 "--json",
             ],
             cwd=self.root,
@@ -1123,8 +1126,8 @@ class LocalAgentTest(unittest.TestCase):
             check=True,
         )
         payload = json.loads(result.stdout)
-        self.assertEqual(payload["version"], "0.4.0-beta.23")
-        self.assertEqual(payload["expected_tag"], "v0.4.0-beta.23")
+        self.assertEqual(payload["version"], "0.4.0-beta.24")
+        self.assertEqual(payload["expected_tag"], "v0.4.0-beta.24")
         self.assertIn(payload["overall"], {"action_required", "blocked"})
         self.assertIn(payload["release_pack"]["status"], {"ok", "warn"})
         action_ids = {item["id"] for item in payload["manual_actions"]}
@@ -1132,7 +1135,7 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("github_release", action_ids)
 
         rendered = subprocess.run(
-            [str(SOURCE), "--release-governance", "--target", "0.4.0-beta.23"],
+            [str(SOURCE), "--release-governance", "--target", "0.4.0-beta.24"],
             cwd=self.root,
             env=env,
             text=True,
@@ -1155,9 +1158,9 @@ class LocalAgentTest(unittest.TestCase):
 
     def test_release_governance_parses_remote_and_github_origins(self):
         options = agent.parse_release_governance_args([
-            "--target", "0.4.0-beta.23", "--remote", "--json",
+            "--target", "0.4.0-beta.24", "--remote", "--json",
         ])
-        self.assertEqual(options["target"], "0.4.0-beta.23")
+        self.assertEqual(options["target"], "0.4.0-beta.24")
         self.assertTrue(options["remote"])
         self.assertTrue(options["json"])
         self.assertEqual(
@@ -1196,14 +1199,14 @@ class LocalAgentTest(unittest.TestCase):
         )
 
     def test_remote_release_verifies_optional_vsix_digest(self):
-        vsix = self.base / "lai-harness-0.4.0-beta.23.vsix"
+        vsix = self.base / "lai-harness-0.4.0-beta.24.vsix"
         vsix.write_bytes(b"inspected-vsix")
         digest = agent.file_sha256(vsix)
         remote = {
-            "tag_name": "v0.4.0-beta.23",
+            "tag_name": "v0.4.0-beta.24",
             "draft": False,
             "prerelease": True,
-            "html_url": "https://github.com/fenatodev/lai-harness/releases/tag/v0.4.0-beta.23",
+            "html_url": "https://github.com/fenatodev/lai-harness/releases/tag/v0.4.0-beta.24",
             "assets": [{
                 "name": vsix.name,
                 "digest": f"sha256:{digest}",
@@ -1217,7 +1220,7 @@ class LocalAgentTest(unittest.TestCase):
         ):
             result = agent.github_release_status(
                 "fenatodev/lai-harness",
-                "v0.4.0-beta.23",
+                "v0.4.0-beta.24",
                 pack,
                 token="secret",
             )
@@ -1229,12 +1232,12 @@ class LocalAgentTest(unittest.TestCase):
         release_payload = {
             "overall": "ready",
             "phase": "released",
-            "target_version": "0.4.0-beta.23",
-            "expected_tag": "v0.4.0-beta.23",
+            "target_version": "0.4.0-beta.24",
+            "expected_tag": "v0.4.0-beta.24",
             "branch": "main",
             "head": "abc123",
-            "latest_tag": "v0.4.0-beta.23",
-            "exact_tag": "v0.4.0-beta.23",
+            "latest_tag": "v0.4.0-beta.24",
+            "exact_tag": "v0.4.0-beta.24",
             "origin": "git@github.com:fenatodev/lai-harness.git",
         }
         pack = {
@@ -1244,7 +1247,7 @@ class LocalAgentTest(unittest.TestCase):
             "present": [],
             "missing": [],
             "required_files": {},
-            "vsix": {"path": "/tmp/pack/lai-harness-0.4.0-beta.23.vsix", "present": False, "optional": True},
+            "vsix": {"path": "/tmp/pack/lai-harness-0.4.0-beta.24.vsix", "present": False, "optional": True},
         }
         remote = {
             "enabled": True,
@@ -1257,7 +1260,7 @@ class LocalAgentTest(unittest.TestCase):
         with mock.patch.object(agent, "collect_release_check", return_value=release_payload), \
                 mock.patch.object(agent, "release_governance_pack_status", return_value=pack), \
                 mock.patch.object(agent, "collect_github_release_governance", return_value=remote):
-            result = agent.collect_release_governance(target="0.4.0-beta.23", remote=True)
+            result = agent.collect_release_governance(target="0.4.0-beta.24", remote=True)
         self.assertEqual(result["overall"], "ready")
         self.assertEqual(result["manual_actions"], [])
         checks = {item["name"]: item["status"] for item in result["checks"]}
@@ -1268,12 +1271,12 @@ class LocalAgentTest(unittest.TestCase):
         release_payload = {
             "overall": "ready",
             "phase": "released",
-            "target_version": "0.4.0-beta.23",
-            "expected_tag": "v0.4.0-beta.23",
+            "target_version": "0.4.0-beta.24",
+            "expected_tag": "v0.4.0-beta.24",
             "branch": "main",
             "head": "abc123",
-            "latest_tag": "v0.4.0-beta.23",
-            "exact_tag": "v0.4.0-beta.23",
+            "latest_tag": "v0.4.0-beta.24",
+            "exact_tag": "v0.4.0-beta.24",
             "origin": "git@github.com:fenatodev/lai-harness.git",
         }
         pack = {
@@ -1296,7 +1299,7 @@ class LocalAgentTest(unittest.TestCase):
         with mock.patch.object(agent, "collect_release_check", return_value=release_payload), \
                 mock.patch.object(agent, "release_governance_pack_status", return_value=pack), \
                 mock.patch.object(agent, "collect_github_release_governance", return_value=remote):
-            result = agent.collect_release_governance(target="0.4.0-beta.23", remote=True)
+            result = agent.collect_release_governance(target="0.4.0-beta.24", remote=True)
         self.assertEqual(result["overall"], "action_required")
         self.assertEqual(
             [item["id"] for item in result["manual_actions"]],
@@ -1305,25 +1308,25 @@ class LocalAgentTest(unittest.TestCase):
 
     def test_project_handoff_remote_converges_live_release_state(self):
         options = agent.parse_project_handoff_args([
-            "--target", "0.4.0-beta.23", "--remote", "--json",
+            "--target", "0.4.0-beta.24", "--remote", "--json",
         ])
         self.assertTrue(options["remote"])
         self.assertTrue(options["json"])
 
         release_payload = {
-            "target_version": "0.4.0-beta.23",
-            "expected_tag": "v0.4.0-beta.23",
+            "target_version": "0.4.0-beta.24",
+            "expected_tag": "v0.4.0-beta.24",
             "branch": "main",
             "head": "abc123",
-            "latest_tag": "v0.4.0-beta.23",
-            "exact_tag": "v0.4.0-beta.23",
+            "latest_tag": "v0.4.0-beta.24",
+            "exact_tag": "v0.4.0-beta.24",
             "overall": "ready",
             "phase": "released",
         }
         pack = {
             "status": "ok",
-            "pack_dir": "/tmp/lai-harness-release-pack-v0.4.0-beta.23",
-            "vsix": {"path": "/tmp/lai-harness-0.4.0-beta.23.vsix", "present": True},
+            "pack_dir": "/tmp/lai-harness-release-pack-v0.4.0-beta.24",
+            "vsix": {"path": "/tmp/lai-harness-0.4.0-beta.24.vsix", "present": True},
         }
         local_governance = {
             "overall": "action_required",
@@ -1361,7 +1364,7 @@ class LocalAgentTest(unittest.TestCase):
                 mock.patch.object(agent, "collect_release_governance", side_effect=governance) as collect_governance, \
                 mock.patch.object(agent, "collect_safe_workspace_status", return_value={"base_dir": "/tmp/workspaces", "workspaces": []}), \
                 mock.patch.object(agent, "load_active_spec", return_value=None):
-            payload = agent.project_handoff_payload("0.4.0-beta.23", remote=True)
+            payload = agent.project_handoff_payload("0.4.0-beta.24", remote=True)
         self.assertEqual(payload["release_governance_local_overall"], "action_required")
         self.assertEqual(payload["release_governance_remote_overall"], "ready")
         self.assertEqual(payload["release_governance_overall"], "ready")
@@ -1372,7 +1375,7 @@ class LocalAgentTest(unittest.TestCase):
         markdown = agent.render_project_handoff_markdown(payload)
         self.assertIn("Remote GitHub evidence", markdown)
         self.assertIn("VSIX digest match: `True`", markdown)
-        self.assertIn("project-handoff --target 0.4.0-beta.23 --remote --json", markdown)
+        self.assertIn("project-handoff --target 0.4.0-beta.24 --remote --json", markdown)
         self.assertEqual(
             [call.kwargs["remote"] for call in collect_governance.call_args_list],
             [False, True],
@@ -1382,14 +1385,19 @@ class LocalAgentTest(unittest.TestCase):
                 mock.patch.object(agent, "collect_release_governance", return_value=local_governance) as offline_governance, \
                 mock.patch.object(agent, "collect_safe_workspace_status", return_value={"base_dir": "/tmp/workspaces", "workspaces": []}), \
                 mock.patch.object(agent, "load_active_spec", return_value=None):
-            offline = agent.project_handoff_payload("0.4.0-beta.23", remote=False)
+            offline = agent.project_handoff_payload("0.4.0-beta.24", remote=False)
         self.assertFalse(offline["release_governance_remote_enabled"])
         self.assertIsNone(offline["release_governance_remote_overall"])
-        offline_governance.assert_called_once_with(target="0.4.0-beta.23", remote=False)
+        offline_governance.assert_called_once_with(target="0.4.0-beta.24", remote=False)
 
     def test_project_handoff_renders_and_writes_next_chat_reference(self):
         data_dir = self.base / "data"
-        env = {**os.environ, "LAI_DATA_DIR": str(data_dir)}
+        env = {
+            **os.environ,
+            "LAI_DATA_DIR": str(data_dir),
+            "LAI_HOST": "127.0.0.1",
+            "LAI_PORT": "1",
+        }
         docs = self.root / "docs"
         docs.mkdir()
         (docs / "RELEASE-NOTES.md").write_text(
@@ -1414,7 +1422,7 @@ class LocalAgentTest(unittest.TestCase):
         )
 
         rendered = subprocess.run(
-            [str(SOURCE), "--project-handoff", "--target", "0.4.0-beta.23"],
+            [str(SOURCE), "--project-handoff", "--target", "0.4.0-beta.24"],
             cwd=self.root,
             env=env,
             text=True,
@@ -1432,7 +1440,7 @@ class LocalAgentTest(unittest.TestCase):
                 str(SOURCE),
                 "--project-handoff",
                 "--target",
-                "0.4.0-beta.23",
+                "0.4.0-beta.24",
                 "--out",
                 str(out_dir),
                 "--json",
@@ -1445,8 +1453,8 @@ class LocalAgentTest(unittest.TestCase):
             check=True,
         )
         payload = json.loads(result.stdout)
-        self.assertEqual(payload["version"], "0.4.0-beta.23")
-        self.assertEqual(payload["expected_tag"], "v0.4.0-beta.23")
+        self.assertEqual(payload["version"], "0.4.0-beta.24")
+        self.assertEqual(payload["expected_tag"], "v0.4.0-beta.24")
         self.assertEqual(payload["handoff_dir"], str(out_dir.resolve()))
         self.assertTrue(Path(payload["files"]["markdown"]).is_file())
         self.assertTrue(Path(payload["files"]["next_chat_prompt"]).is_file())
@@ -1459,7 +1467,7 @@ class LocalAgentTest(unittest.TestCase):
                 str(SOURCE),
                 "--project-handoff",
                 "--target",
-                "0.4.0-beta.23",
+                "0.4.0-beta.24",
                 "--out",
                 str(self.root / "handoff"),
             ],
@@ -1495,7 +1503,7 @@ class LocalAgentTest(unittest.TestCase):
         )
         payload = json.loads(result.stdout)
         self.assertEqual(payload["product"], "lai harness")
-        self.assertEqual(payload["version"], "0.4.0-beta.23")
+        self.assertEqual(payload["version"], "0.4.0-beta.24")
         self.assertEqual(payload["repository"], str(self.root.resolve()))
         self.assertIn("checks", payload)
 
@@ -2378,7 +2386,7 @@ class LocalAgentTest(unittest.TestCase):
             capture_output=True,
             check=True,
         )
-        self.assertEqual(result.stdout.strip(), "lai harness 0.4.0-beta.23")
+        self.assertEqual(result.stdout.strip(), "lai harness 0.4.0-beta.24")
 
     def test_deterministic_model_eval_plan_needs_no_server(self):
         result = subprocess.run(
@@ -2418,6 +2426,12 @@ class LocalAgentTest(unittest.TestCase):
         subsystem_ids = {item["id"] for item in payload["contract"]["subsystems"]}
         self.assertIn("context-intelligence", subsystem_ids)
         self.assertIn("policy-gateway", subsystem_ids)
+        self.assertIn("semantic-code-contracts", subsystem_ids)
+        semantic = next(
+            item for item in payload["contract"]["subsystems"]
+            if item["id"] == "semantic-code-contracts"
+        )
+        self.assertIn("src/lai_semantics.py", semantic["paths"])
 
     def test_deterministic_model_eval_json_and_sample_are_parseable(self):
         result = subprocess.run(
@@ -2429,7 +2443,7 @@ class LocalAgentTest(unittest.TestCase):
         )
         payload = json.loads(result.stdout)
         self.assertEqual(payload["product"], "lai harness")
-        self.assertEqual(payload["version"], "0.4.0-beta.23")
+        self.assertEqual(payload["version"], "0.4.0-beta.24")
         scenario_ids = {item["id"] for item in payload["scenarios"]}
         self.assertIn("context-ranking", scenario_ids)
 
@@ -2674,11 +2688,11 @@ class LocalAgentTest(unittest.TestCase):
         validate_script = (repo / "scripts" / "validate.sh").read_text(encoding="utf-8")
 
         self.assertIn("**Name:** `lai-harness`", publishing)
-        self.assertIn("lai harness v0.4.0-beta.23", publishing)
-        self.assertIn("lai harness v0.4.0-beta.23", release_notes)
-        self.assertIn("v0.4.0-beta.23", release_checklist)
+        self.assertIn("lai harness v0.4.0-beta.24", publishing)
+        self.assertIn("lai harness v0.4.0-beta.24", release_notes)
+        self.assertIn("v0.4.0-beta.24", release_checklist)
         self.assertIn("lai release-pack", release_pack)
-        self.assertIn("lai-harness-0.4.0-beta.23.vsix", release_pack)
+        self.assertIn("lai-harness-0.4.0-beta.24.vsix", release_pack)
         self.assertNotIn("Release v0.3.0", publishing)
         self.assertNotIn("**Name:** `lai-local-agent`", publishing)
         self.assertIn("/tmp/lai-harness-${version}.vsix", package_script)

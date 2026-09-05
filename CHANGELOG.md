@@ -1,3 +1,18 @@
+## [0.4.0-beta.24] - 2026-09-05
+
+### Changed
+- Extracted semantic code-contract data, rendering, and semantic-reference matching from the monolithic runtime into `src/lai_semantics.py`.
+- Added a canonical `semantic-code-contracts` subsystem so repository navigation follows the new module boundary.
+- Extended the strict mypy ratchet from two guardrail hooks to include the first extracted runtime module.
+- Updated the local installer to deploy the semantic module beside `local-agent` without adding a Python package/runtime dependency.
+
+### Safety and architecture
+- This is structural hardening only: policy, model execution, network behavior, control-plane capabilities, Git authority, and release authority are unchanged.
+- Source-tree and isolated-install semantic commands remain deterministic and model-free.
+
+### Validation
+- Focused semantics, context ranking, quality-sensor, install-smoke, and strict-mypy regressions must pass before full publication gates.
+
 ## [0.4.0-beta.23] - 2026-09-05
 
 ### Added

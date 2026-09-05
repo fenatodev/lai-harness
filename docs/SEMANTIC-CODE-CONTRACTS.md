@@ -28,6 +28,7 @@ Examples of subsystem ids:
 - `configuration`
 - `policy-gateway`
 - `tool-runtime`
+- `semantic-code-contracts`
 - `context-intelligence`
 - `spec-workflow`
 - `model-evaluation`
@@ -59,4 +60,6 @@ This reduces:
 
 ## maintenance rule
 
-When a subsystem is renamed, moved, split, or given new public behavior, update the contract and tests in the same change.
+The canonical semantic contract now lives in `src/lai_semantics.py`; `src/local-agent` imports it and keeps compatibility wrappers for the public CLI. The installer copies the module beside the runtime entrypoint, so installed and source-tree behavior use the same contract.
+
+When a subsystem is renamed, moved, split, or given new public behavior, update the contract and tests in the same change. Newly extracted deterministic modules should enter the strict mypy ratchet when they can pass without weakening checks.

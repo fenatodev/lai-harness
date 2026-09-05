@@ -1,3 +1,36 @@
+## lai harness v0.4.0-beta.24 — semantic contract modularization
+
+This beta starts the planned monolith reduction with a deliberately low-risk deterministic boundary. Semantic code-contract data, rendering, and semantic-reference matching now live in a dedicated typed module while the public CLI and ranking behavior remain compatible.
+
+### What changed
+
+- Added `src/lai_semantics.py` with typed semantic subsystem/contract structures.
+- Moved semantic contract rendering and semantic-reference matching out of `src/local-agent`.
+- Added `semantic-code-contracts` as a canonical subsystem pointing at the extracted module.
+- Updated the dependency-free local installer to deploy the module beside the runtime entrypoint.
+- Expanded `mypy --strict` to include the extracted runtime module while retaining the existing guardrail-hook ratchet.
+- Added source-tree, installed-runtime, semantic-ranking, and quality-sensor regressions for the new boundary.
+
+### Safety boundary
+
+- No policy decision, tool permission, model behavior, network request, control-plane capability, Git mutation path, or release authority changes in this cut.
+- The extracted module remains Python-standard-library-only and deterministic.
+- This is incremental modularization, not a broad rewrite of the runtime.
+
+### Validation gate
+
+```bash
+lai release-check --target 0.4.0-beta.24 --json
+lai semantics --json
+make lint
+make typecheck
+make check
+make test-dev
+make test
+make harness-score-gate
+make validate
+```
+
 ## lai harness v0.4.0-beta.23 — update evidence convergence
 
 This beta hardens the beta.22 maintenance triage after real dogfooding exposed a stale-evidence edge case across local upgrades. Persisted observations from an older LAI or update-source baseline can no longer be presented as current maintenance advice.
