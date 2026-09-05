@@ -2,12 +2,12 @@
 
 `lai serve` exposes a small authenticated HTTP/JSON control surface for local integrations such as `lai-gateway`, a private PWA, Telegram, or a Tailscale proxy.
 
-Beta.14 keeps the server loopback-only and supports two explicit capability classes:
+Beta.15 keeps the server loopback-only and supports two explicit run classes plus a separate approved-promotion action:
 
 - shell-free read-only runs: `plan`, `review`, `security`, `diagnose`, `release`;
 - isolated work runs: `implement`, `fix`, `refactor`, `ci-fix`.
 
-Work runs never execute directly in the source checkout. Each gets a disposable safe workspace copied from tracked repository contents. The model can use repository-confined file tools plus structured `validate`, but never generic `bash` or Git mutation tools. Validation executes in a constrained Docker sandbox. The source checkout remains unchanged until a future explicit promotion/approval step.
+Work runs never execute directly in the source checkout. Each gets a disposable safe workspace copied from tracked repository contents. The model can use repository-confined file tools plus structured `validate`, but never generic `bash` or Git mutation tools. Validation executes in a constrained Docker sandbox. A successful run may later expose a hash-bound promotion proposal; promotion is deterministic and creates a dedicated feature worktree rather than editing the active checkout.
 
 ![LAI private mobile access architecture](assets/private-mobile-access.png)
 
@@ -47,9 +47,9 @@ Requests without a valid bearer token receive `401`. Responses use JSON, disable
 
 Returns product/repository state, Git status, active spec summary, historical-run summary, queue state, and explicit capabilities.
 
-Beta.14 reports `model_execution=true`, `shell_execution=false`, and `repository_write=false` for the source checkout. It also reports `sandbox_workspace_write=true`, `async_work_runs=true`, the configured validation sandbox image, sandbox readiness, and the allowed remote modes.
+Beta.15 reports `model_execution=true`, `shell_execution=false`, and `repository_write=false` for the source checkout. It also reports `sandbox_workspace_write=true`, `async_work_runs=true`, the configured validation sandbox image, sandbox readiness, and the allowed remote modes.
 
-`repository_write=false` is deliberate: a remote work run can mutate only its disposable safe workspace. It does not apply those changes to the source checkout.
+`repository_write=false` is deliberate: a remote work run can mutate only its disposable safe workspace. Beta.15 additionally reports `approved_workspace_promotion=true` with `promotion_target=dedicated-feature-worktree`; promotion creates a separate Git worktree/branch and still does not edit the active source checkout.
 
 ### `GET /v1/readiness`
 
@@ -76,7 +76,7 @@ Accepts exactly:
 }
 ```
 
-Allowed modes in beta.14:
+Allowed run modes in beta.15:
 
 - read-only: `plan`, `review`, `security`, `diagnose`, `release`;
 - work: `implement`, `fix`, `refactor`, `ci-fix`.
@@ -98,6 +98,14 @@ Before spawning a work child, the control plane creates a unique safe workspace 
 Remote work profiles expose repository-confined read/write tools plus `validate`; `bash` and Git mutation tools are absent. Existing path confinement, symlink rejection, stale-write protection, `AGENTS.md` handling, spec requirements, patch sanity, validation guards, and mode-specific progress guards continue to apply inside the isolated workspace.
 
 When the child terminates, the control plane records a bounded workspace Git status, changed-path list, and diff. The source checkout is not modified.
+
+### Approved promotion
+
+`GET /v1/runs/<control_run_id>/promotion` computes a read-only proposal. Only a `succeeded` work run with a clean, unchanged source baseline and a non-empty safe patch can become `promotable`. The server inventories paths with NUL-delimited Git output, builds the complete bounded binary-capable patch, and returns its SHA-256, size, changed paths, source SHA/branch, and deterministic target branch. Display diffs are not used as approval material.
+
+`POST /v1/runs/<control_run_id>/promotion` accepts exactly `{"patch_sha256":"<64 lowercase hex>"}`. The server compares that hash to freshly recomputed patch bytes, repeats the repository `full` validation profile in the same networkless Docker sandbox, rechecks source SHA/branch/clean state, and then creates `lai/promotion-<run-id>` in a durable Git worktree under the LAI data directory. It runs `git apply --check` before `git apply`, recomputes the promoted worktree patch, and requires the resulting SHA-256 to match the approved hash.
+
+Failed/cancelled runs, source drift, dirty source state, mutable workspace-metadata drift, oversized/unsafe patches, validation failure, hash mismatch, or an existing target branch/worktree all fail closed. Repeating the same successful approval is idempotent. Promotion does not commit, push, merge, switch the active checkout, or call the model.
 
 ### Structured validation
 
@@ -135,14 +143,13 @@ Cancels only that queued/running control run. A queued run is cancelled before s
 
 ## Explicitly not exposed
 
-Beta.14 still has no HTTP capability for:
+Beta.15 still has no HTTP capability for:
 
 - arbitrary shell or arbitrary executable invocation;
-- direct writes to the source checkout;
-- commit, push, merge, tag, release publication, or Git mutation;
+- direct writes to or branch switching of the active source checkout;
+- commit, push, merge, tag, release publication, or caller-selected Git mutation;
 - dependency/package installation;
 - Docker control chosen by the model/caller;
-- approval execution or promotion of a work diff;
 - OS/service administration;
 - caller-controlled environment, cwd, mount, image, or network options.
 
@@ -151,7 +158,8 @@ Beta.14 still has no HTTP capability for:
 ```text
 phone -> Telegram/PWA -> lai-gateway -> Tailscale/private proxy -> 127.0.0.1:8765 -> lai harness
                                                         |-> read-only run
-                                                        `-> isolated work workspace -> sandbox validate -> diff
+                                                        `-> isolated work workspace -> sandbox validate -> patch hash
+                                                                                         -> approved promotion -> feature worktree
 ```
 
 `lai-gateway` is intentionally a separate project. Messaging credentials, mobile sessions, notification delivery, and commercial/social automation do not belong in the harness core.

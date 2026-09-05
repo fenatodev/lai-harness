@@ -1,51 +1,55 @@
 # Release notes
 
-## lai harness v0.4.0-beta.14 — isolated remote work runs
+## lai harness v0.4.0-beta.15 — approved workspace promotion
 
-This beta turns the control plane from a read-only mobile analysis surface into a bounded remote work surface without exposing a generic shell or writing directly to the source checkout.
+This beta adds the first deterministic approval boundary between an isolated remote work result and a durable Git feature workspace. The model still cannot write the active source checkout or run a remote shell. Promotion acts only on a successful, revalidated, hash-bound patch.
 
 ### What changed
 
-- Added remote `implement`, `fix`, `refactor`, and `ci-fix` control runs alongside the existing read-only modes.
-- Added a structured `validate` tool with `test`, `check`, `lint`, `build`, `typecheck`, and `full` profiles; callers/models do not provide shell commands.
-- Added per-run disposable safe workspaces copied from tracked source-repository contents. Work children execute there rather than in the source checkout.
-- Added fixed Docker validation sandboxing with no network, read-only container root, dropped capabilities, `no-new-privileges`, bounded CPU/memory/PIDs, no host home, and no Docker socket.
-- Added fail-closed sandbox readiness. The harness never pulls a sandbox image automatically.
-- Added bounded work-result evidence: workspace Git status, changed paths, diff, and truncation state.
-- Extended existing post-write validation/audit/checkpoint/progress guards so structured validation is first-class evidence.
-- `/v1/status` now distinguishes source-repository write posture from disposable-workspace write capability.
+- Added `GET /v1/runs/<control_run_id>/promotion` for a read-only promotion proposal.
+- Added `POST /v1/runs/<control_run_id>/promotion` accepting exactly one approved `patch_sha256`.
+- Source branch, SHA, and clean state are captured by the parent control server before the model starts; mutable safe-workspace metadata is not authoritative.
+- Changed-path inventory now uses structured NUL-delimited Git output, fixing the first-filename truncation discovered during real mobile work-run dogfooding.
+- Promotion reconstructs a complete binary-capable patch, bounds it, and hashes the exact bytes with SHA-256. The bounded UI diff is evidence only.
+- Immediately before Git mutation, the harness repeats the project `full` validation profile in the fixed Docker sandbox and rechecks source SHA/branch/clean state plus patch hash.
+- Approved patches are applied to deterministic `lai/promotion-<run-id>` branches in dedicated worktrees under `$LAI_DATA_DIR/promotions`.
+- `git apply --check` runs before apply, and the promoted worktree patch must hash to the approved SHA-256 afterwards.
+- Repeating the same approved hash is idempotent. Conflicting hashes, source/workspace drift, validation failure, unsafe/oversized patches, failed/cancelled runs, and pre-existing targets fail closed.
 
 ### Safety boundary
 
-- No remote mode receives generic `bash`.
-- Work runs receive repository-confined file tools plus `validate`; Git mutation tools are absent.
-- The source checkout remains unchanged by a work run. Applying/promoting the returned diff is intentionally not implemented in beta.14.
-- Clients cannot choose executable, cwd, env, shell text, Docker image, mounts, network settings, or validation argv.
-- Remote work is rejected before model execution when Docker or the configured local sandbox image is unavailable.
-- Local interactive `bash` remains unsandboxed and is not covered by the remote Docker containment claim.
+- Promotion never calls the model.
+- Failed or cancelled work runs cannot promote.
+- No caller chooses a branch name, destination path, executable, shell command, cwd, environment, Docker options, or validation argv.
+- The active source checkout keeps the same HEAD/tree/status; promotion does not switch it or apply files there.
+- This cut does not commit, push, open a PR, merge, tag, or publish a release.
+- Generic remote `bash` remains absent.
 
 ### Validation evidence
 
-A real Docker smoke on the development machine verified:
+Focused control-plane tests now cover source drift, dirty source state, hash mismatch, mutable metadata tampering, route/body/method allowlists, validation failure, exact successful promotion, idempotency, source-checkout invariance, and the path parser regression.
+
+Full local gates reached **200 tests + 68 subtests**. A real Docker + Git smoke in a temporary repository verified:
 
 ```text
-exit_code=0
-network=blocked
-home_secret=hidden
-docker_socket=hidden
+proposal.promotable = true
+validation_exit = 0
+branch = lai/promotion-aaaaaaaaaaaaaaaa
+hash_match = true
+source_head_unchanged = true
+source_tree_unchanged = true
+source_clean = true
 ```
-
-A full remote `implement` smoke with a real control subprocess and Docker validation verified that the isolated workspace changed while the source checkout SHA and files remained unchanged.
 
 ### Why this matters
 
-A private PWA or Telegram client can now ask LAI to perform meaningful implementation work, not just analysis. The model can inspect, edit, validate, repair, and return a bounded diff while the irreversible step — applying that diff to the real repository — stays outside the run and can become an explicit approval protocol later.
+Remote LAI work can now move from a disposable model workspace to a durable reviewable Git workspace without trusting another model turn and without editing the user's active checkout. This creates the correct substrate for the companion gateway to offer explicit **View diff / Promote / Discard** actions. Commit/push/PR remain separate future approvals.
 
 ### Validation gate
 
 ```bash
-lai release-check --target 0.4.0-beta.14 --json
-lai release-pack --target 0.4.0-beta.14 --with-vsix --json
+lai release-check --target 0.4.0-beta.15 --json
+lai release-pack --target 0.4.0-beta.15 --with-vsix --json
 make lint
 make check
 make test-dev
@@ -56,9 +60,13 @@ make validate
 
 ### Release body for GitHub
 
-lai harness v0.4.0-beta.14 adds isolated remote work runs for `implement`, `fix`, `refactor`, and `ci-fix`. Every remote work run executes in a disposable safe workspace rather than the source checkout, and validation uses a structured profile inside a fixed Docker sandbox with no network, no host home, no Docker socket, dropped capabilities, and a read-only container root.
+lai harness v0.4.0-beta.15 adds approved workspace promotion. Successful isolated work runs can expose an exact SHA-256-bound proposal; approval repeats `full` validation in the existing networkless Docker sandbox, rechecks source and workspace drift, and applies the exact patch to a dedicated `lai/promotion-*` Git worktree/feature branch. The active source checkout remains unchanged.
 
-The control plane still exposes no generic remote shell, Git mutation, direct source-repository write, dependency installation, or release publication. Completed work returns bounded Git/diff evidence for later review/promotion. Existing read-only remote modes remain compatible.
+The endpoint still exposes no generic remote shell, direct active-checkout write, commit, push, merge, dependency installation, or release publication.
+
+## lai harness v0.4.0-beta.14 — isolated remote work runs
+
+Beta.14 introduced isolated remote `implement`, `fix`, `refactor`, and `ci-fix` runs, disposable safe workspaces, structured `validate`, fixed no-network Docker validation, and bounded diff evidence while keeping the source checkout unchanged.
 
 ## lai harness v0.4.0-beta.13 — remote capability profiles
 

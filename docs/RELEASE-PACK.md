@@ -7,16 +7,16 @@ It is for preparing a GitHub Release by hand. It does not create tags, merge bra
 ## Commands
 
 ```bash
-lai release-pack --target 0.4.0-beta.14
-lai release-pack --target 0.4.0-beta.14 --json
-lai release-pack --target 0.4.0-beta.14 --with-vsix
-lai release-pack --target 0.4.0-beta.14 --out /tmp/lai-harness-release-pack-v0.4.0-beta.14
+lai release-pack --target 0.4.0-beta.15
+lai release-pack --target 0.4.0-beta.15 --json
+lai release-pack --target 0.4.0-beta.15 --with-vsix
+lai release-pack --target 0.4.0-beta.15 --out /tmp/lai-harness-release-pack-v0.4.0-beta.15
 ```
 
 By default the pack is written outside the repository under:
 
 ```text
-/tmp/lai-harness-release-pack-v0.4.0-beta.14
+/tmp/lai-harness-release-pack-v0.4.0-beta.15
 ```
 
 ## Files
@@ -28,7 +28,7 @@ A release pack contains:
 - `release-checklist.md` — copied human release checklist.
 - `github-publishing.md` — copied public publishing metadata.
 - `human-release-commands.sh` — documentation-only commands for the human operator.
-- `lai-harness-0.4.0-beta.14.vsix` — only when `--with-vsix` is used.
+- `lai-harness-0.4.0-beta.15.vsix` — only when `--with-vsix` is used.
 
 ## Safety behavior
 
@@ -43,9 +43,9 @@ A release pack contains:
 ```bash
 lai readiness
 lai workspace status --json
-lai release-check --target 0.4.0-beta.14 --json
-lai release-pack --target 0.4.0-beta.14 --with-vsix --json
+lai release-check --target 0.4.0-beta.15 --json
+lai release-pack --target 0.4.0-beta.15 --with-vsix --json
 make validate
 ```
 
-Push the feature branch and integrate it through a green PR into protected `main`. After main CI passes, sync `main`, create/push only `v0.4.0-beta.14`, verify tag CI, and then create the GitHub Release as a pre-release.
+Push the feature branch and integrate it through a green PR into protected `main`. After main CI passes, sync `main`, create/push only `v0.4.0-beta.15`, verify tag CI, and then create the GitHub Release as a pre-release.

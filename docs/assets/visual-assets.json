@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "reviewed_for_version": "0.4.0-beta.14",
+  "reviewed_for_version": "0.4.0-beta.15",
   "assets": [
     {
       "path": "core-architecture.png",
@@ -8,7 +8,8 @@
     },
     {
       "path": "private-mobile-access.png",
-      "purpose": "local control plane and private mobile access"
+      "purpose": "local control plane and private mobile access",
+      "source": "private-mobile-access.svg"
     },
     {
       "path": "release-flow.png",
