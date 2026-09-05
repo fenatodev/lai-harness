@@ -39,7 +39,7 @@ validate:
 	./scripts/validate.sh
 
 harness-score:
-	npx --yes harness-score@1.6.3 .
+	npx --yes harness-score@1.6.4 .
 
 harness-score-gate:
-	npx --yes harness-score@1.6.3 . --min-level 4
+	npx --yes harness-score@1.6.4 . --min-level 4

@@ -1,30 +1,28 @@
 # Beta readiness
 
-This document records the release posture for `0.4.0-beta.21`. This is an update-intelligence cut: it adds read-only maintenance evidence without adding update/apply authority.
+This document records the release posture for `0.4.0-beta.22`. This is an update-triage cut: it ranks persisted maintenance evidence and dogfoods one low-risk dependency update without adding update/apply authority.
 
 ## Scope
 
-`0.4.0-beta.21` adds:
+`0.4.0-beta.22` adds:
 
-- versioned trusted-source manifest under `updates/`;
-- deterministic offline `lai update plan`;
-- explicit `lai update check --remote` against fixed official metadata hosts;
-- PyPI current/latest and exact-version vulnerability evidence;
-- Harness Score version observation;
-- authenticated local llama.cpp build observation plus manual compatibility-review classification;
-- Dependabot-aware GitHub Actions status;
-- release observation for Codex, Claude Code, Qwen Code, Kimi Code, and Hermes Agent;
-- bounded/hash-bound untrusted release-note evidence;
-- durable change detection under `$LAI_DATA_DIR/update-intelligence`.
+- local-only `lai update triage` over the latest beta.21 observation;
+- deterministic priority, urgency, action, reason codes, and version scope;
+- security-first ordering for known vulnerability evidence;
+- explicit patch/minor/major/revision classification for comparable numeric versions;
+- manual compatibility review for incomparable schemes such as llama.cpp build ids versus semantic tags;
+- strict exclusion of untrusted release-note text from triage decisions and payloads;
+- Harness Score 1.6.4 adoption after measured equivalence with 1.6.3;
+- synchronized Harness Score pins across Makefile, exact Action SHA, manifest, verification workflow, and docs.
 
-No update, model, skill, package, Git ref, PR, or release is applied automatically.
+No update, model, skill, package, Git ref, PR, or release is applied automatically by `lai update`.
 
 ## Required feature-branch gate
 
 ```bash
-lai release-check --target 0.4.0-beta.21 --json
+lai release-check --target 0.4.0-beta.22 --json
 lai update plan --json
-make lint
+lai update triage --jsonmake lint
 make typecheck
 make check
 make test-dev
@@ -33,18 +31,18 @@ make harness-score-gate
 make validate
 ```
 
-Expected before merge: spec 037 complete, focused update-intelligence/network-boundary/install regressions green, current release metadata aligned with beta.21, full Python 3.11/3.12 and publication gates green, and `release-check.phase=ready_for_integration`.
+Expected before merge: spec 038 complete, focused update-triage and synchronized-pin regressions green, current release metadata aligned with beta.22, full Python 3.11/3.12 and publication gates green, and `release-check.phase=ready_for_integration`.
 
-A live `lai update check --remote` is dogfood evidence, not a CI dependency; CI uses mocked public metadata and never depends on upstream availability.
+The beta.21 live update snapshot is dogfood input for triage. CI never depends on upstream network availability; triage tests use structured local fixtures.
 
 ## Protected-main integration
 
-1. Push `feature/v0.4.0-beta.21-update-intelligence`.
+1. Push `feature/v0.4.0-beta.22-update-triage`.
 2. Open a PR into protected `main`.
 3. Require `Python 3.11`, `Python 3.12`, `Publication gates`, and `Harness Score L4`.
 4. Merge without bypassing branch protection.
 5. Fast-forward local `main` to `origin/main` and wait for merged-main CI.
-6. Require `lai release-check --target 0.4.0-beta.21 --json` to report `ready_to_tag` before tagging.
+6. Require `lai release-check --target 0.4.0-beta.22 --json` to report `ready_to_tag` before tagging.
 7. Freeze the final VSIX, wait for tag CI, then publish the exact pre-release artifact.
 
-After beta.21 is released, candidate updates discovered by the radar must enter a separate spec/branch/validation cycle. The radar itself never promotes them.
+Harness Score 1.6.4 is maintenance evidence consumed through this governed flow; future candidates follow the same pattern rather than being auto-applied.

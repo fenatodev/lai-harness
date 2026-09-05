@@ -1,3 +1,21 @@
+## [0.4.0-beta.22] - 2026-09-05
+
+### Added
+- Added local-only `lai update triage` to rank the latest persisted update observation without network or model calls.
+- Added deterministic security, compatibility, visibility, maintenance, managed, reference, and current priorities with explicit urgency/action/reason codes.
+- Added patch/minor/major/revision version-scope classification for comparable numeric versions.
+
+### Safety and maintenance
+- Known vulnerabilities outrank all ordinary maintenance signals; release-note prose is excluded from triage inputs and output.
+- Incomparable runtime version schemes remain manual compatibility review rather than guessed upgrades.
+- `lai update` still exposes no apply/install/download/upgrade/commit/push/merge/tag/PR/publication authority.
+- Updated Harness Score from 1.6.3 to 1.6.4 after both versions produced the same L4 / 100/108 result with successful exits.
+- Synchronized Harness Score 1.6.4 across Makefile, exact v1.6.4 Action SHA, update manifest, verification workflow, and current development docs.
+
+### Validation
+- Focused triage/pin regressions green; Harness Score 1.6.4 remains L4 at 100/108 (93%).
+- Full local gates: 243 tests + 85 pytest subtests; strict mypy green; publication scan clean; VSIX inspection passed.
+
 ## [0.4.0-beta.21] - 2026-09-05
 
 ### Added

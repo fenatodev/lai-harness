@@ -11,11 +11,17 @@ lai update check --remote
 lai update check --remote --json
 lai update latest
 lai update latest --json
+lai update triage
+lai update triage --json
 ```
 
-`plan` is deterministic and offline. `check` requires the explicit `--remote` flag. `latest` reads only the most recent local observation.
+`plan` is deterministic and offline. `check` requires the explicit `--remote` flag. `latest` reads only the most recent local observation. `triage` is local-only and deterministically ranks that observation without contacting the network or model.
 
 There is intentionally no `apply`, `install`, `download`, `upgrade`, `commit`, `push`, `merge`, or release-publication operation.
+
+## Offline triage
+
+`lai update triage` ranks persisted observations by structured evidence only. Known vulnerabilities are immediate security attention; incompatible version schemes require compatibility review; patch/minor/major updates receive maintenance scopes; Dependabot-managed dependencies remain managed; reference-agent changes remain informational. Release-note text is excluded from the triage payload and never affects priority.
 
 ## Trust boundary
 
