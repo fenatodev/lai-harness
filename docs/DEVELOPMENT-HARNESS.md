@@ -4,7 +4,7 @@ This repository uses a separate development harness around the `lai harness` pro
 
 ## Maturity target
 
-The repository pins `harness-score` 1.6.3 for reproducible measurements.
+The repository pins `harness-score` 1.6.4 for reproducible measurements.
 
 ```bash
 make harness-score

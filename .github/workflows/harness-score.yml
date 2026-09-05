@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Gate harness maturity
-        uses: paladini/harness-score@7cf25e00af7336f0c6d0b5e69a6f0ca7f1b4553a # v1, harness-score 1.6.3 default
+        uses: paladini/harness-score@d37e35060a77ba7665157125c809b826ce3b41ce # v1.6.4, harness-score 1.6.4 default
         with:
           min-level: "4"
           badge: ""

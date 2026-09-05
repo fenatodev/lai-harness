@@ -1,3 +1,41 @@
+## lai harness v0.4.0-beta.22 — update triage
+
+This beta turns the beta.21 maintenance radar into deterministic local triage. LAI can now distinguish a security problem from compatibility review, routine maintenance, managed dependencies, and informational upstream changes without granting itself update authority.
+
+### What changed
+
+- Added `lai update triage` / `--json`, which reads only the latest persisted update snapshot.
+- Added structured priority, urgency, recommended action, reason codes, and change scope.
+- Known vulnerability evidence is always prioritized ahead of routine version updates.
+- Comparable numeric versions are classified as patch, minor, major, revision, or unchanged; incompatible schemes remain manual review.
+- Release-note text is explicitly excluded from triage decisions and from the triage payload.
+- Updated Harness Score from 1.6.3 to 1.6.4 after a same-repository equivalence run preserved L4 / 100/108 (93%) and exit 0.
+- Pinned the Harness Score GitHub Action to exact v1.6.4 commit `d37e35060a77ba7665157125c809b826ce3b41ce` rather than a floating major tag.
+
+### Safety boundary
+
+- `triage` is offline/model-free and does not persist a second derived authority state.
+- No candidate can be downloaded, installed, applied, committed, pushed, merged, tagged, published, or converted into a PR by `lai update`.
+- Upstream prose remains untrusted evidence; only structured beta.21 metadata can influence triage.
+
+### Why this matters
+
+Long-lived update intelligence needs judgment, not just notifications. A vulnerability should interrupt normal maintenance; a patch such as Harness Score 1.6.4 can wait for a reviewed maintenance cut; a reference-agent release may be worth studying but should not become a dependency. This cut makes that distinction deterministic and dogfoods the first candidate through the same spec/CI/release path as any other change.
+
+### Validation gate
+
+```bash
+lai release-check --target 0.4.0-beta.22 --json
+lai update triage --json
+make lint
+make typecheck
+make check
+make test-dev
+make test
+make harness-score-gate
+make validate
+```
+
 ## lai harness v0.4.0-beta.21 — update intelligence
 
 This beta adds a bounded maintenance radar that can observe trusted dependency, runtime, and reference-agent metadata without becoming an updater. It turns upstream change into audit-ready evidence for a later governed spec/PR.

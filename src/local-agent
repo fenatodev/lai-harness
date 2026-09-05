@@ -23,7 +23,7 @@ import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "0.4.0-beta.21"
+VERSION = "0.4.0-beta.22"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -83,17 +83,10 @@ SEMANTIC_CODE_CONTRACT = {
         },
         {
             "id": "update-intelligence",
-            "intent": "track reviewed dependencies and trusted upstream releases through bounded model-free update evidence without automatic mutation",
+            "intent": "observe trusted dependency and reference-agent metadata, then triage structured maintenance evidence without automatic mutation",
             "paths": ["src/local-agent", "updates/sources-v1.json", "docs/UPDATE-INTELLIGENCE.md"],
-            "entrypoints": ["render_update_plan", "run_update_check", "render_update_check", "handle_update_intelligence"],
-            "terms": ["update", "upstream", "dependency", "release", "version", "vulnerability", "security", "skill", "tool", "dependabot", "pypi", "npm"],
-        },
-        {
-            "id": "update-intelligence",
-            "intent": "observe trusted dependency and reference-agent releases through bounded read-only metadata checks without applying updates",
-            "paths": ["src/local-agent", "updates/sources-v1.json", "docs/UPDATE-INTELLIGENCE.md"],
-            "entrypoints": ["render_update_plan", "run_update_check", "render_update_latest"],
-            "terms": ["update", "dependency", "upstream", "release", "vulnerability", "security", "radar", "maintenance", "version", "provenance"],
+            "entrypoints": ["render_update_plan", "run_update_check", "render_update_latest", "render_update_triage", "handle_update_intelligence"],
+            "terms": ["update", "upstream", "dependency", "release", "version", "vulnerability", "security", "radar", "triage", "urgency", "maintenance", "compatibility", "dependabot", "pypi", "npm", "provenance"],
         },
         {
             "id": "observability-recovery",
@@ -2554,6 +2547,131 @@ def classify_update_version(current, latest, *, reference=False):
     return "version_changed_manual_review"
 
 
+def update_change_scope(current, latest):
+    current_key = update_version_key(current)
+    latest_key = update_version_key(latest)
+    if not current_key or not latest_key or current_key[0] != latest_key[0]:
+        return "unknown"
+    if current_key[0] == "build":
+        return "build"
+    current_parts = tuple(current_key[1])
+    latest_parts = tuple(latest_key[1])
+    if latest_parts == current_parts:
+        return "none"
+    if latest_parts[0] != current_parts[0]:
+        return "major"
+    if latest_parts[1] != current_parts[1]:
+        return "minor"
+    if latest_parts[2] != current_parts[2]:
+        return "patch"
+    return "revision"
+
+
+def triage_update_record(record):
+    status = str(record.get("status") or "unknown")
+    security = str(record.get("security_status") or "unknown")
+    vulnerabilities = int(record.get("vulnerability_count") or 0)
+    category = str(record.get("category") or "unknown")
+    scope = update_change_scope(record.get("current_version"), record.get("latest_version"))
+    reasons = []
+
+    if security == "vulnerable" or vulnerabilities > 0:
+        priority, urgency, action = "security", "immediate", "review_security_update"
+        reasons.append("known_vulnerability")
+    elif status == "check_failed":
+        priority, urgency, action = "visibility", "medium", "investigate_source_failure"
+        reasons.append("source_check_failed")
+    elif status == "version_changed_manual_review":
+        priority, urgency, action = "compatibility", "medium", "manual_compatibility_review"
+        reasons.append("incomparable_version_scheme")
+    elif status == "update_available":
+        priority = "maintenance"
+        if scope == "patch":
+            urgency, action = "low", "schedule_maintenance"
+        elif scope == "minor":
+            urgency, action = "medium", "review_maintenance_update"
+        else:
+            urgency, action = "high", "manual_compatibility_review"
+        reasons.extend(["update_available", f"scope_{scope}"])
+    elif status in {"current_unknown", "latest_unknown"}:
+        priority, urgency, action = "visibility", "low", "improve_version_detection"
+        reasons.append(status)
+    elif status == "managed_by_dependabot":
+        priority, urgency, action = "managed", "informational", "review_managed_proposals"
+        reasons.append("managed_by_dependabot")
+    elif category == "reference-agent":
+        priority = "reference"
+        if record.get("changed_since_last_check") is True:
+            urgency, action = "informational", "evaluate_if_relevant"
+            reasons.append("reference_changed")
+        else:
+            urgency, action = "none", "observe"
+            reasons.append("reference_observed")
+    else:
+        priority, urgency, action = "current", "none", "none"
+        reasons.append(status)
+
+    return {
+        "id": str(record.get("id") or "unknown"),
+        "category": category,
+        "priority": priority,
+        "urgency": urgency,
+        "action": action,
+        "reason_codes": reasons,
+        "change_scope": scope,
+        "current_version": record.get("current_version"),
+        "latest_version": record.get("latest_version"),
+        "status": status,
+        "security_status": security,
+        "vulnerability_count": vulnerabilities,
+        "changed_since_last_check": record.get("changed_since_last_check"),
+        "source_url": str(record.get("source_url") or ""),
+    }
+
+
+def build_update_triage(summary):
+    urgency_order = {"immediate": 0, "high": 1, "medium": 2, "low": 3, "informational": 4, "none": 5}
+    priority_order = {"security": 0, "compatibility": 1, "visibility": 2, "maintenance": 3, "reference": 4, "managed": 5, "current": 6}
+    items = [triage_update_record(record) for record in summary.get("sources", []) if isinstance(record, dict)]
+    items.sort(key=lambda item: (
+        urgency_order.get(item["urgency"], 9),
+        priority_order.get(item["priority"], 9),
+        item["id"],
+    ))
+    priorities = {item["priority"] for item in items}
+    if "security" in priorities:
+        overall = "security_attention"
+    elif "compatibility" in priorities or any(item["priority"] == "visibility" and item["urgency"] == "medium" for item in items):
+        overall = "review_required"
+    elif "maintenance" in priorities:
+        overall = "maintenance_available"
+    elif any(item["priority"] == "reference" and item["changed_since_last_check"] is True for item in items):
+        overall = "reference_changes"
+    else:
+        overall = "current"
+    return {
+        "schema_version": 1,
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "mode": "offline-triage",
+        "network": "disabled",
+        "source_check_id": summary.get("check_id"),
+        "source_created_at": summary.get("created_at"),
+        "source_result_path": summary.get("result_path"),
+        "overall": overall,
+        "counts": {
+            key: sum(1 for item in items if item["priority"] == key)
+            for key in ("security", "compatibility", "visibility", "maintenance", "reference", "managed", "current")
+        },
+        "items": items,
+        "policy": {
+            "release_notes_used_for_priority": False,
+            "automatic_apply": False,
+            "model_call": False,
+        },
+    }
+
+
 def update_release_excerpt(value, limit=1600):
     text = str(value or "").replace("\x00", "")
     return text[:limit]
@@ -2972,6 +3090,36 @@ def render_update_latest(json_mode=False):
     return render_update_check(summary, json_mode=json_mode)
 
 
+def render_update_triage(json_mode=False):
+    summary = load_latest_update_summary()
+    if summary is None:
+        raise ValueError("no update intelligence result found")
+    payload = build_update_triage(summary)
+    if json_mode:
+        return json.dumps(payload, indent=2, sort_keys=True)
+    lines = [
+        "# lai update intelligence triage",
+        f"Overall: {payload['overall']}",
+        "Network: disabled",
+        f"Source check: {payload.get('source_check_id') or '[unknown]'}",
+        "",
+        "Prioritized observations:",
+    ]
+    for item in payload["items"]:
+        lines.append(
+            f"- {item['id']}: priority={item['priority']} urgency={item['urgency']} "
+            f"scope={item['change_scope']} action={item['action']}"
+        )
+    lines.extend([
+        "",
+        "Safety:",
+        "- Triage is local-only and performs no network or model call.",
+        "- Release-note text is not used to assign priority.",
+        "- Triage cannot download, install, apply, commit, push, merge, tag, or publish updates.",
+    ])
+    return "\n".join(lines)
+
+
 def handle_update_intelligence(args):
     command = args[0] if args else "plan"
     rest = args[1:] if args else []
@@ -2979,7 +3127,7 @@ def handle_update_intelligence(args):
     unexpected = [item for item in rest if item not in {"--json", "--remote"}]
     if unexpected:
         raise SystemExit(
-            "Usage: lai update [plan [--json]|check --remote [--json]|latest [--json]]"
+            "Usage: lai update [plan [--json]|check --remote [--json]|latest [--json]|triage [--json]]"
         )
     if command == "plan":
         if "--remote" in rest:
@@ -2999,8 +3147,15 @@ def handle_update_intelligence(args):
             return render_update_latest(json_mode=json_mode)
         except (OSError, ValueError) as exc:
             raise SystemExit(f"Update intelligence latest failed: {exc}") from exc
+    if command == "triage":
+        if "--remote" in rest:
+            raise SystemExit("lai update triage is local-only; remove --remote")
+        try:
+            return render_update_triage(json_mode=json_mode)
+        except (OSError, ValueError) as exc:
+            raise SystemExit(f"Update intelligence triage failed: {exc}") from exc
     raise SystemExit(
-        "Usage: lai update [plan [--json]|check --remote [--json]|latest [--json]]"
+        "Usage: lai update [plan [--json]|check --remote [--json]|latest [--json]|triage [--json]]"
     )
 
 
