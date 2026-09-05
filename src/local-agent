@@ -23,7 +23,7 @@ import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "0.4.0-beta.15"
+VERSION = "0.4.0-beta.16"
 PRODUCT_NAME = "lai harness"
 DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
 
@@ -2498,7 +2498,9 @@ def tool_project(args):
         "package.json",
         "pyproject.toml",
         "requirements.txt",
+        "requirements-dev.in",
         "requirements-dev.txt",
+        "mypy.ini",
         "uv.lock",
         "poetry.lock",
         "Pipfile",
@@ -8029,7 +8031,8 @@ CONTEXT_TEXT_SUFFIXES = {
 }
 CONTEXT_MANIFESTS = {
     "AGENTS.md", "Makefile", "package.json", "pyproject.toml",
-    "requirements.txt", "requirements-dev.txt", "go.mod", "Cargo.toml",
+    "requirements.txt", "requirements-dev.in", "requirements-dev.txt", "mypy.ini",
+    "go.mod", "Cargo.toml",
     "pom.xml", "build.gradle", "build.gradle.kts", "Dockerfile",
 }
 CONTEXT_STOPWORDS = {

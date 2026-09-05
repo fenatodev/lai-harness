@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Best-effort, repository-confined feedback for files edited by an agent."""
 
+from collections.abc import Sequence
 import json
 from pathlib import Path
 import shutil
@@ -10,7 +11,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def edited_path(payload):
+def edited_path(payload: object) -> Path | None:
     if not isinstance(payload, dict):
         return None
     value = payload.get("file_path") or payload.get("filePath")
@@ -27,7 +28,7 @@ def edited_path(payload):
     return resolved if resolved.is_file() else None
 
 
-def run(command):
+def run(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         command,
         cwd=ROOT,
@@ -38,7 +39,7 @@ def run(command):
     )
 
 
-def feedback_commands(path):
+def feedback_commands(path: Path) -> list[list[str]]:
     rel = path.relative_to(ROOT).as_posix()
     if path.suffix == ".py" or rel == "src/local-agent":
         commands = [[sys.executable, "-m", "py_compile", str(path)]]
@@ -58,8 +59,8 @@ def feedback_commands(path):
     return []
 
 
-def main():
-    diagnostics = []
+def main() -> None:
+    diagnostics: list[str] = []
     try:
         payload = json.loads(sys.stdin.read() or "{}")
         path = edited_path(payload)

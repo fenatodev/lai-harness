@@ -2,12 +2,11 @@
 
 ## Near term
 
-- Extend semantic code contracts as subsystems split out of `src/local-agent`.
+- Extend semantic code contracts and the strict type-check ratchet as subsystems split out of `src/local-agent`.
 - Extend the model-evaluation harness with automated run capture and hardware profiles.
 - Keep generic `bash` out of remote control profiles; evolve the structured `validate`/sandbox boundary from measured fixtures rather than exposing shell text.
 - Expand end-to-end fixtures for every mode and guard.
 - Add JSON schemas and configurable retention for state, metrics, and audit events.
-- Add explicit promotion/approval objects for isolated work diffs, bound to run/workspace hashes and revalidated immediately before application.
 - Add persistent remote sessions so PWA and Telegram can continue the same compacted conversation/run context.
 - Add read-only web search/fetch tools with evidence/citation metadata before any browser-action capability.
 - Add a governed MCP broker; Desktop Commander is a primary candidate, but MCP calls must pass the same capability/policy boundary.
@@ -38,6 +37,7 @@ Roadmap items are intentions, not commitments. Model redistribution and automati
 - v0.4.0-alpha.21: release preflight and public mode aliases before beta readiness.
 - v0.4.0-beta.1: first beta readiness cut with deterministic release gates and documented stabilization posture.
 - v0.4.0-beta.2: release polish with current GitHub metadata, release notes, checklist, and public VSIX artifact naming.
+- v0.4.0-beta.16: reproducible development quality sensors with a generated pinned lock, strict mypy guardrail ratchet, and CI/publication enforcement.
 - v0.4.0-beta.15: SHA-256-bound approved promotion from successful isolated work into dedicated `lai/promotion-*` Git worktrees, with repeated sandbox validation and source-drift checks.
 - v0.4.0-beta.14: isolated remote work runs with disposable safe workspaces, structured validation, Docker sandboxing, and bounded diff evidence.
 - v0.4.0-beta.13: explicit shell-free remote capability profiles with read-only `diagnose` and `release` control runs.
