@@ -1,3 +1,38 @@
+## lai harness v0.4.0 — stable core graduation
+
+`v0.4.0` freezes the first stable lai harness core after the beta stabilization line. The release keeps the local-first authority boundary intact while consolidating typed runtime boundaries, deterministic stable-release governance, faster non-redundant milestone validation, and repeated baseline-model evidence.
+
+### What changed since beta.24
+
+- Extracted configuration and spec-workflow logic into typed `src/lai_config.py` and `src/lai_specs.py`, following the beta.24 semantic-module pattern without changing public behavior.
+- Added channel-aware release governance so plain semantic versions require GitHub `prerelease=false`, while alpha/beta/rc targets continue requiring pre-release metadata.
+- Added `docs/STABLE-READINESS.md` as a finite graduation gate so deferred PWA/web/MCP/subagent/marketplace/signing work cannot silently block the stable core.
+- Added `make milestone-gate`, which keeps Ruff, pytest, Harness Score, unittest, strict mypy, publication scan, static checks, and VSIX inspection while avoiding intentional duplicate runs of the same expensive evidence.
+- Fixed persisted model-evaluation basename resolution after dogfood exposed that `lai model score first.jsonl second.jsonl` could choose a nonexistent repository path before the configured result directory.
+
+### Operational evidence
+
+- `lai readiness --json` reports `ready` with authenticated model-server health (`unauthenticated=401`, `authenticated=200`).
+- The current Ministral baseline has 10 persisted records covering all five model-backed scenarios with at least two samples per scenario and is decision-eligible at 90.8/100 aggregate score.
+- The repeated weak point remains `review-supported-findings` (55/100 twice, validation failed); the harness exposes that failure instead of treating it as success, so the default model remains unchanged rather than being promoted by optimistic prose.
+- The final pre-freeze `make milestone-gate` completed in 125.29s with 255 pytest tests + 85 subtests, 255 unittest tests, strict mypy over five files, Harness Score L4 100/108 (93%), publication scan, and VSIX inspection green.
+
+### Safety boundary
+
+- No remote generic shell, automatic model/dependency/update apply, commit, push, merge, tag, or release-publication authority was added.
+- Model-evaluation results remain local operational evidence and do not auto-select or download models.
+- Historical beta release evidence remains unchanged; this entry defines the stable candidate only.
+
+### Local freeze gate
+
+```bash
+lai readiness --json
+lai release-check --target 0.4.0 --json
+make milestone-gate
+```
+
+The GitHub release must be created only after protected-main integration and tag CI, with `draft=false`, `prerelease=false`, and the frozen VSIX digest verified by remote governance.
+
 ## lai harness v0.4.0-beta.24 — semantic contract modularization
 
 This beta starts the planned monolith reduction with a deliberately low-risk deterministic boundary. Semantic code-contract data, rendering, and semantic-reference matching now live in a dedicated typed module while the public CLI and ranking behavior remain compatible.

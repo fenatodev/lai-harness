@@ -7,7 +7,6 @@ It prepares evidence for a human-controlled GitHub Release. It does not create t
 ## Commands
 
 ```bash
-lai release-pack --target 0.4.0-beta.24 --json
 lai release-pack --target 0.4.0 --json
 lai release-pack --target <target-version> --with-vsix
 lai release-pack --target <target-version> --out /tmp/lai-harness-release-pack-<target-version>

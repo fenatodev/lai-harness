@@ -56,7 +56,7 @@ from lai_specs import (
     render_active_spec_context as _render_active_spec_context,
 )
 
-VERSION = "0.4.0-beta.24"
+VERSION = "0.4.0"
 PRODUCT_NAME = "lai harness"
 def render_config_status(config=None):
     return _render_config_status(CONFIG if config is None else config, VERSION)

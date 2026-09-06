@@ -5,7 +5,7 @@
 ![LAI protected release flow](assets/release-flow.png)
 
 ```bash
-lai release-governance --target 0.4.0-beta.24 --json
+lai release-governance --target 0.4.0 --json
 lai release-governance --target 0.4.0 --remote --json
 lai governance --remote --json
 ```
