@@ -2202,6 +2202,14 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("Python syntax check failed", result)
         self.assertIn("sample.py", result)
 
+    def test_spec_helpers_use_typed_module_with_root_aware_wrappers(self):
+        import lai_specs
+
+        self.assertIs(agent.parse_spec, lai_specs.parse_spec)
+        self.assertIs(agent.markdown_section, lai_specs.markdown_section)
+        self.assertIsNot(agent.load_active_spec, lai_specs.load_active_spec)
+        self.assertIsNot(agent.render_active_spec_context, lai_specs.render_active_spec_context)
+
     def test_parse_spec_accepts_valid_full_spec(self):
         path = self.root / "001-feature.md"
         path.write_text(make_spec_text())
@@ -2444,6 +2452,11 @@ class LocalAgentTest(unittest.TestCase):
             if item["id"] == "configuration"
         )
         self.assertEqual(configuration["paths"][0], "src/lai_config.py")
+        spec_workflow = next(
+            item for item in payload["contract"]["subsystems"]
+            if item["id"] == "spec-workflow"
+        )
+        self.assertEqual(spec_workflow["paths"][0], "src/lai_specs.py")
 
     def test_deterministic_model_eval_json_and_sample_are_parseable(self):
         result = subprocess.run(

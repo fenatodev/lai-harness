@@ -71,7 +71,7 @@ SEMANTIC_CODE_CONTRACT: SemanticCodeContract = {
         {
             "id": "spec-workflow",
             "intent": "load active specs, enforce traceability, and inject implementation requirements",
-            "paths": ["src/local-agent", ".specs/README.md", "docs/DESIGN-DECISIONS.md"],
+            "paths": ["src/lai_specs.py", "src/local-agent", ".specs/README.md", "docs/DESIGN-DECISIONS.md"],
             "entrypoints": ["parse_spec", "load_active_spec", "render_active_spec_context"],
             "terms": ["spec", "requirements", "traceability", "workflow", "status", "acceptance", "validation"],
         },

@@ -41,6 +41,7 @@ class QualitySensorsTest(unittest.TestCase):
                 ".cursor/hooks/guard_shell.py",
                 "src/lai_semantics.py",
                 "src/lai_config.py",
+                "src/lai_specs.py",
             },
         )
 

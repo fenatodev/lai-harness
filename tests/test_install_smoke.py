@@ -45,6 +45,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertTrue((bin_dir / "lai").is_file())
             self.assertTrue((bin_dir / "lai_semantics.py").is_file())
             self.assertTrue((bin_dir / "lai_config.py").is_file())
+            self.assertTrue((bin_dir / "lai_specs.py").is_file())
             self.assertTrue((bin_dir / "lai-server-start").is_file())
             self.assertTrue((bin_dir / "lai-server-stop").is_file())
             self.assertTrue((bin_dir / "lai-server-restart").is_file())
@@ -78,6 +79,17 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             )
             self.assertIn("# lai config", config.stdout)
             self.assertIn("api_key_file", config.stdout)
+
+            spec_status = subprocess.run(
+                [str(bin_dir / "lai"), "spec"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("# lai active spec", spec_status.stdout)
+            self.assertIn("Status: none", spec_status.stdout)
 
             status = subprocess.run(
                 [str(bin_dir / "lai"), "status"],

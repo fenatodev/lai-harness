@@ -37,6 +37,8 @@ Each spec declares one workflow mode:
 
 At most one numbered spec may be `active`. Multiple active specs fail closed.
 
+The deterministic parser/loader implementation lives in `src/lai_specs.py`; `src/local-agent` keeps root-aware compatibility wrappers so repository state remains authoritative.
+
 ### quick
 
 Requires:
