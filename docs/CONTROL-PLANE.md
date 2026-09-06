@@ -43,6 +43,10 @@ Requests without a valid bearer token receive `401`. Responses use JSON, disable
 
 ## State endpoints
 
+### `GET /v1/gateway-contract`
+
+Returns the stable machine-readable companion-gateway contract: schema version, supported endpoints, bearer-auth expectations, request/run/session limits, run modes, companion responsibilities, and explicit forbidden capabilities. This endpoint is authenticated and contains no tokens, API keys, host environment variables, private run transcripts, or session turn bodies. The same payload is available locally with `lai gateway-contract --json`; see [Gateway contract](GATEWAY-CONTRACT.md).
+
 ### `GET /v1/status`
 
 Returns product/repository state, Git status, active spec summary, historical-run summary, queue state, and explicit capabilities.

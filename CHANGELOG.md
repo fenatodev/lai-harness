@@ -1,3 +1,8 @@
+## [0.4.2] - 2026-09-06
+
+- Added a stable gateway contract manifest for the separate `lai-gateway` companion: deterministic `lai gateway-contract --json`, authenticated `GET /v1/gateway-contract`, schema metadata, route inventory, request/session/run limits, run modes, companion token-handling expectations, and explicit forbidden capabilities.
+- Documented the gateway contract without adding Telegram, PWA, Tailscale, messaging credentials, remote shell, direct source checkout writes, or release-publishing authority to the harness core.
+
 ## [0.4.1] - 2026-09-05
 
 ### Added

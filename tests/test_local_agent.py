@@ -2556,6 +2556,41 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("implement-small-diff", result.stdout)
         self.assertIn("does not call, start, or download a model", result.stdout)
 
+    def test_gateway_contract_cli_is_deterministic_and_secret_free(self):
+        env = {**os.environ, "LAI_DATA_DIR": str(self.base / "data")}
+        result = subprocess.run(
+            [str(SOURCE), "--gateway-contract", "--json"],
+            cwd=self.root,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=5,
+            check=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["product"], agent.PRODUCT_NAME)
+        self.assertEqual(payload["version"], agent.VERSION)
+        self.assertEqual(payload["companion"]["name"], "lai-gateway")
+        self.assertFalse(payload["capabilities"]["shell_execution"])
+        self.assertFalse(payload["capabilities"]["direct_llama_proxy"])
+        self.assertIn("control_token_or_model_api_key_disclosure", payload["forbidden_capabilities"])
+        self.assertIn("/v1/gateway-contract", [route["path"] for route in payload["routes"]])
+        self.assertNotIn("synthetic-test-key", result.stdout)
+        self.assertNotIn("llama-api-key", result.stdout)
+
+        wrapped = subprocess.run(
+            [str(SOURCE.parent / "lai"), "gateway-contract", "--json"],
+            cwd=self.root,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=5,
+            check=True,
+        )
+        self.assertEqual(json.loads(wrapped.stdout), payload)
+
+
     def test_deterministic_semantics_cli_needs_no_server(self):
         result = subprocess.run(
             [str(SOURCE), "--semantics"],
@@ -2898,7 +2933,7 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("release channel (`prerelease` or `stable`)", publishing)
         self.assertIn("expected GitHub `prerelease` flag", publishing)
         self.assertTrue(
-            release_notes.startswith(f"## lai harness v{agent.VERSION} — operational capability patch")
+            release_notes.startswith(f"## lai harness v{agent.VERSION} — gateway contract manifest")
         )
         self.assertIn("lai harness v0.4.0 — stable core graduation", release_notes)
         self.assertIn("lai harness v0.4.0-beta.24", release_notes)

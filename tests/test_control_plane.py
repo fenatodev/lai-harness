@@ -186,6 +186,32 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertEqual(status, 401)
         self.assertNotIn(self.token, json.dumps(payload))
 
+    def test_gateway_contract_endpoint_requires_auth_and_matches_local_payload(self):
+        status, unauthorized = self.request("/v1/gateway-contract")
+        self.assertEqual(status, 401)
+        self.assertEqual(unauthorized["error"]["code"], "unauthorized")
+
+        status, payload = self.request("/v1/gateway-contract", token=self.token)
+        self.assertEqual(status, 200)
+        self.assertEqual(payload, agent.control_gateway_contract_payload())
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["companion"]["name"], "lai-gateway")
+        self.assertEqual(payload["companion"]["distribution"], "separate-project")
+        self.assertEqual(payload["transport"]["bind_policy"], "loopback-only")
+        self.assertFalse(payload["capabilities"]["shell_execution"])
+        self.assertFalse(payload["capabilities"]["source_repository_write"])
+        self.assertTrue(payload["capabilities"]["persistent_sessions"])
+        self.assertIn("plan", payload["run_modes"]["read_only"])
+        self.assertIn("implement", payload["run_modes"]["work"])
+        paths = {(route["method"], route["path"]) for route in payload["routes"]}
+        self.assertIn(("GET", "/v1/gateway-contract"), paths)
+        self.assertIn(("POST", "/v1/runs"), paths)
+        self.assertIn(("POST", "/v1/sessions"), paths)
+        shown = json.dumps(payload, sort_keys=True)
+        self.assertNotIn("synthetic-control-token", shown)
+        self.assertNotIn("llama-api-key", shown)
+
+
     def test_status_readiness_and_runs_are_read_only_json(self):
         fake_status = {
             "product": agent.PRODUCT_NAME,

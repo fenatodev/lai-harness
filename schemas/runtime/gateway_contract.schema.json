@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fenatodev.github.io/lai-harness/schemas/runtime/gateway_contract.schema.json",
+  "title": "LAI gateway contract",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "product",
+    "version",
+    "repository",
+    "companion",
+    "transport",
+    "limits",
+    "run_modes",
+    "capabilities",
+    "forbidden_capabilities",
+    "routes"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "product": {"type": "string"},
+    "version": {"type": "string"},
+    "repository": {"type": "string"},
+    "companion": {"type": "object"},
+    "transport": {"type": "object"},
+    "limits": {"type": "object"},
+    "run_modes": {"type": "object"},
+    "capabilities": {"type": "object"},
+    "forbidden_capabilities": {"type": "array", "items": {"type": "string"}},
+    "routes": {"type": "array", "items": {"type": "object"}}
+  },
+  "additionalProperties": false
+}

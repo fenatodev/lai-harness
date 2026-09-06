@@ -12,7 +12,7 @@
   <a href="LICENSE"><img alt="Licença" src="https://img.shields.io/badge/license-MIT-0f766e"></a>
 </p>
 
-> **Release atual:** `v0.4.1` · patch de capacidade operacional · fluxo Linux/WSL-first · inferência local por endpoint OpenAI-compatible, desenvolvido com llama.cpp.
+> **Release atual:** `v0.4.2` · patch de contrato de gateway · fluxo Linux/WSL-first · inferência local por endpoint OpenAI-compatible, desenvolvido com llama.cpp.
 
 O lai harness foi criado para um problema específico: modelos locais pequenos perdem muita capacidade quando precisam carregar prompts gigantes, schemas genéricos e muitas rodadas de ferramentas. O projeto reduz esse overhead e coloca ao redor do modelo regras que não dependem da própria resposta do modelo: policy, specs, validação, auditoria, checkpoints e release protegido.
 
@@ -22,7 +22,7 @@ Ele complementa agentes cloud de alto contexto. O trabalho local fica rápido e 
 
 | Área | Estado atual |
 | --- | --- |
-| Versão | `0.4.1` |
+| Versão | `0.4.2` |
 | Maturidade do harness | L4 · Self-correcting · 100/108 (93%) |
 | Runtime | Python stdlib; sem dependências Python no harness |
 | Interfaces | CLI (`lai`) + extensão VS Code |
@@ -99,11 +99,12 @@ O `lai serve` cria uma fronteira HTTP autenticada somente em loopback para runs 
 ```bash
 lai control-token init
 lai serve --bind 127.0.0.1 --port 8765
+lai gateway-contract --json
 ```
 
 ![Arquitetura de acesso móvel privado](docs/assets/private-mobile-access.png)
 
-O `lai-gateway` mostrado acima é um **projeto companion separado**. Ele não faz parte da distribuição deste repositório. A função dele é oferecer PWA/Telegram privados mantendo o bearer token no PC e o control plane do harness em loopback.
+O `lai-gateway` mostrado acima é um **projeto companion separado**. Ele não faz parte da distribuição deste repositório. A função dele é oferecer PWA/Telegram privados mantendo o bearer token no PC e o control plane do harness em loopback. Use `lai gateway-contract --json` ou `GET /v1/gateway-contract` autenticado como fronteira de integração machine-readable.
 
 ## Release protegido e verificável
 
@@ -121,10 +122,10 @@ O fluxo exige:
 8. handoff convergente sem ações manuais pendentes.
 
 ```bash
-lai release-check --target 0.4.1 --json
-lai release-pack --target 0.4.1 --with-vsix --json
-lai release-governance --target 0.4.1 --remote --json
-lai project-handoff --target 0.4.1 --remote --json
+lai release-check --target 0.4.2 --json
+lai release-pack --target 0.4.2 --with-vsix --json
+lai release-governance --target 0.4.2 --remote --json
+lai project-handoff --target 0.4.2 --remote --json
 ```
 
 ## Segurança
