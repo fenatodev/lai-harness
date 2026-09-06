@@ -1,3 +1,19 @@
+## [0.4.0] - 2026-09-05
+
+### Stable core
+- Graduated the validated local-first coding harness core from the beta line without adding new remote or release authority.
+- Extracted semantic contracts, configuration, and spec workflow into typed standard-library modules while preserving source-tree and installed-runtime compatibility.
+- Added a finite stable-readiness boundary that explicitly defers PWA/web/MCP/subagent/marketplace/signing expansion from the first stable core.
+
+### Release engineering
+- Release governance now distinguishes pre-release targets from stable semantic versions and requires GitHub `prerelease=false` for `v0.4.0`.
+- Added the non-redundant `make milestone-gate` and made release preflight prefer it when available.
+- Fixed saved model-evaluation basename resolution while preserving repository/data-directory path confinement.
+
+### Evidence
+- Current baseline model evidence is decision-eligible across five scenarios with 10 records and a 90.8/100 aggregate score; the repeated review weakness remains visible rather than being masked.
+- Pre-freeze local milestone gate: 255 pytest tests + 85 subtests, 255 unittest tests, strict mypy over five files, Harness Score L4 100/108 (93%), publication scan, and VSIX inspection green.
+
 ## [0.4.0-beta.24] - 2026-09-05
 
 ### Changed

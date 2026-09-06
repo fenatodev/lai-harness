@@ -40,6 +40,8 @@ class QualitySensorsTest(unittest.TestCase):
                 ".cursor/hooks/feedback_check.py",
                 ".cursor/hooks/guard_shell.py",
                 "src/lai_semantics.py",
+                "src/lai_config.py",
+                "src/lai_specs.py",
             },
         )
 
@@ -55,6 +57,10 @@ class QualitySensorsTest(unittest.TestCase):
         self.assertIn("python -m mypy --config-file mypy.ini", ci)
         self.assertIn("ruff check src/local-agent src tests .cursor/hooks", makefile)
         self.assertIn("ruff check src/local-agent src tests .cursor/hooks", ci)
+        self.assertIn(
+            "milestone-gate: lint test-dev harness-score-gate validate",
+            makefile,
+        )
 
     def test_current_active_spec_passes_runtime_validation(self):
         active = []

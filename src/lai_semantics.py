@@ -36,7 +36,7 @@ SEMANTIC_CODE_CONTRACT: SemanticCodeContract = {
         {
             "id": "configuration",
             "intent": "resolve CLI, environment, TOML, XDG paths, server, and model settings",
-            "paths": ["src/local-agent", "src/lai", "docs/CONFIGURATION.md"],
+            "paths": ["src/lai_config.py", "src/local-agent", "src/lai", "docs/CONFIGURATION.md"],
             "entrypoints": ["load_configuration", "render_config_status", "doctor_status"],
             "terms": ["config", "configuration", "toml", "env", "xdg", "server", "host", "port", "model", "api", "key", "doctor"],
         },
@@ -71,7 +71,7 @@ SEMANTIC_CODE_CONTRACT: SemanticCodeContract = {
         {
             "id": "spec-workflow",
             "intent": "load active specs, enforce traceability, and inject implementation requirements",
-            "paths": ["src/local-agent", ".specs/README.md", "docs/DESIGN-DECISIONS.md"],
+            "paths": ["src/lai_specs.py", "src/local-agent", ".specs/README.md", "docs/DESIGN-DECISIONS.md"],
             "entrypoints": ["parse_spec", "load_active_spec", "render_active_spec_context"],
             "terms": ["spec", "requirements", "traceability", "workflow", "status", "acceptance", "validation"],
         },

@@ -85,6 +85,10 @@ mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M
 
 The first Qwen bake-off is recorded in [Model bake-off — 2026-09-05](MODEL-BAKEOFF-2026-09-05.md). It is historical evidence, not a universal claim about Qwen performance.
 
+Current repeated baseline evidence contains 10 model-backed records across all five required scenarios, with at least two samples per scenario. Aggregate score is **90.8/100** and the result is `decision_eligible`. `plan`, `debug`, `implement`, and `security` passed their repeated samples; `review-supported-findings` scored 55/100 twice with independent validation failure. That weakness remains visible and is not treated as a harness success.
+
+This evidence supports keeping Ministral as the stable default; it does not prove Ministral is universally better than other models. A replacement still requires a new candidate to win the same repeated, validated workflow.
+
 ## Out of scope
 
 This milestone does not:

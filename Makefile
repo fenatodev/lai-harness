@@ -1,6 +1,6 @@
 DEV_PYTHON := $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
-.PHONY: help test test-dev lint typecheck check validate harness-score harness-score-gate
+.PHONY: help test test-dev lint typecheck check validate milestone-gate harness-score harness-score-gate
 
 help:
 	@printf '%s\n' \
@@ -10,7 +10,8 @@ help:
 	  '  make lint          Run Ruff lint checks' \
 	  '  make typecheck     Run the strict mypy ratchet' \
 	  '  make check         Run fast deterministic static checks' \
-	  '  make validate      Run the complete publication gate' \
+	  '  make validate      Run the publication/package gate' \
+	  '  make milestone-gate Run the full non-redundant local milestone gate' \
 	  '  make harness-score Measure repository harness maturity' \
 	  '  make harness-score-gate Require L4 repository harness maturity'
 
@@ -37,6 +38,8 @@ check:
 
 validate:
 	./scripts/validate.sh
+
+milestone-gate: lint test-dev harness-score-gate validate
 
 harness-score:
 	npx --yes harness-score@1.6.4 .

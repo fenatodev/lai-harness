@@ -29,347 +29,37 @@ from lai_semantics import (
     render_semantic_code_contract as _render_semantic_code_contract,
     semantic_code_contract_payload as _semantic_code_contract_payload,
 )
+from lai_config import (
+    CONFIG_DIRECTORY_KEYS as CONFIG_DIRECTORY_KEYS,
+    CONFIG_FILE_KEYS as CONFIG_FILE_KEYS,
+    CONFIG_INTEGER_LIMITS as CONFIG_INTEGER_LIMITS,
+    CONFIG_OPTIONS as CONFIG_OPTIONS,
+    CONFIG_PATH_KEYS as CONFIG_PATH_KEYS,
+    CONFIG_VALUE_KEYS as CONFIG_VALUE_KEYS,
+    DEFAULT_MODEL as DEFAULT_MODEL,
+    config_error as config_error,
+    load_configuration as load_configuration,
+    normalize_config_path as normalize_config_path,
+    normalize_config_values as normalize_config_values,
+    path_status as path_status,
+    render_config_status as _render_config_status,
+    require_config_string as require_config_string,
+    validate_config_mapping as validate_config_mapping,
+)
+from lai_specs import (
+    SPEC_FILE_RE as SPEC_FILE_RE,
+    SPEC_MODES as SPEC_MODES,
+    SPEC_STATUSES as SPEC_STATUSES,
+    load_active_spec as _load_active_spec,
+    markdown_section as markdown_section,
+    parse_spec as parse_spec,
+    render_active_spec_context as _render_active_spec_context,
+)
 
-VERSION = "0.4.0-beta.24"
+VERSION = "0.4.0"
 PRODUCT_NAME = "lai harness"
-DEFAULT_MODEL = "mistralai/Ministral-3-8B-Instruct-2512-GGUF:Q4_K_M"
-
-CONFIG_OPTIONS = {
-    "--config": "config_file",
-    "--config-dir": "config_dir",
-    "--host": "host",
-    "--port": "port",
-    "--model": "model",
-    "--api-key-file": "api_key_file",
-    "--control-api-key-file": "control_api_key_file",
-    "--data-dir": "data_dir",
-    "--skills-dir": "skills_dir",
-    "--state-dir": "state_dir",
-    "--metrics-dir": "metrics_dir",
-    "--audit-dir": "audit_dir",
-    "--state-retention-days": "state_retention_days",
-    "--metrics-max-bytes": "metrics_max_bytes",
-    "--metrics-keep-lines": "metrics_keep_lines",
-    "--audit-max-bytes": "audit_max_bytes",
-    "--audit-keep-lines": "audit_keep_lines",
-    "--llama-server": "llama_server",
-    "--server-launcher": "server_launcher",
-    "--chat-template": "chat_template",
-}
-
-
-
-CONFIG_VALUE_KEYS = {
-    "host",
-    "port",
-    "model",
-    "config_dir",
-    "config_file",
-    "data_dir",
-    "api_key_file",
-    "control_api_key_file",
-    "skills_dir",
-    "state_dir",
-    "metrics_dir",
-    "audit_dir",
-    "state_retention_days",
-    "metrics_max_bytes",
-    "metrics_keep_lines",
-    "audit_max_bytes",
-    "audit_keep_lines",
-    "llama_server",
-    "server_launcher",
-    "chat_template",
-}
-CONFIG_FILE_KEYS = CONFIG_VALUE_KEYS - {"config_dir", "config_file"}
-CONFIG_PATH_KEYS = {
-    "config_dir",
-    "config_file",
-    "data_dir",
-    "api_key_file",
-    "control_api_key_file",
-    "skills_dir",
-    "state_dir",
-    "metrics_dir",
-    "audit_dir",
-    "llama_server",
-    "chat_template",
-}
-CONFIG_OPTIONAL_STRING_KEYS = {"host"}
-CONFIG_REQUIRED_STRING_KEYS = {"model", "server_launcher"}
-CONFIG_INTEGER_LIMITS = {
-    "state_retention_days": (1, 3650),
-    "metrics_max_bytes": (1, 1_000_000_000),
-    "metrics_keep_lines": (1, 1_000_000),
-    "audit_max_bytes": (1, 1_000_000_000),
-    "audit_keep_lines": (1, 1_000_000),
-}
-CONFIG_DIRECTORY_KEYS = {
-    "config_dir",
-    "data_dir",
-    "skills_dir",
-    "state_dir",
-    "metrics_dir",
-    "audit_dir",
-}
-
-
-def config_error(message, config_file=None):
-    if config_file:
-        raise SystemExit(f"Invalid lai config {config_file}: {message}")
-    raise SystemExit(f"Invalid lai configuration: {message}")
-
-
-def validate_config_mapping(mapping, *, config_file=None, file_scope=False):
-    allowed = CONFIG_FILE_KEYS if file_scope else CONFIG_VALUE_KEYS
-    unknown = sorted(set(mapping) - allowed)
-    if unknown:
-        joined = ", ".join(unknown)
-        config_error(f"unknown key(s): {joined}", config_file)
-
-
-def require_config_string(key, value, *, config_file=None, optional=False):
-    if value is None and optional:
-        return None
-    if not isinstance(value, str):
-        config_error(f"{key} must be a string", config_file)
-    if not value.strip():
-        config_error(f"{key} must not be empty", config_file)
-    if "\x00" in value:
-        config_error(f"{key} must not contain NUL bytes", config_file)
-    return value
-
-
-def normalize_config_path(key, value, *, config_file=None):
-    if value is None:
-        return None
-    if not isinstance(value, (str, os.PathLike)):
-        config_error(f"{key} must be a filesystem path string", config_file)
-    text = str(value)
-    if not text.strip():
-        config_error(f"{key} must not be empty", config_file)
-    if "\x00" in text:
-        config_error(f"{key} must not contain NUL bytes", config_file)
-    return Path(text).expanduser()
-
-
-def normalize_config_values(values, *, config_file=None, file_scope=False):
-    validate_config_mapping(values, config_file=config_file, file_scope=file_scope)
-    normalized = dict(values)
-
-    if "port" in normalized:
-        raw_port = normalized["port"]
-        if isinstance(raw_port, bool):
-            config_error("port must be an integer from 1 to 65535", config_file)
-        try:
-            normalized["port"] = int(raw_port)
-        except (TypeError, ValueError):
-            config_error("port must be an integer from 1 to 65535", config_file)
-        if not 1 <= normalized["port"] <= 65535:
-            config_error("port must be an integer from 1 to 65535", config_file)
-
-    for key, (minimum, maximum) in CONFIG_INTEGER_LIMITS.items():
-        if key not in normalized:
-            continue
-        raw_value = normalized[key]
-        if isinstance(raw_value, bool):
-            config_error(f"{key} must be an integer from {minimum} to {maximum}", config_file)
-        try:
-            normalized[key] = int(raw_value)
-        except (TypeError, ValueError):
-            config_error(f"{key} must be an integer from {minimum} to {maximum}", config_file)
-        if not minimum <= normalized[key] <= maximum:
-            config_error(f"{key} must be an integer from {minimum} to {maximum}", config_file)
-
-    for key in CONFIG_REQUIRED_STRING_KEYS:
-        if key in normalized:
-            normalized[key] = require_config_string(
-                key, normalized[key], config_file=config_file,
-            )
-
-    for key in CONFIG_OPTIONAL_STRING_KEYS:
-        if key in normalized:
-            normalized[key] = require_config_string(
-                key, normalized[key], config_file=config_file, optional=True,
-            )
-            if normalized[key] is not None:
-                host = normalized[key]
-                if any(ch.isspace() for ch in host) or "://" in host or "/" in host:
-                    config_error(
-                        "host must be a hostname or IP address, not a URL or path",
-                        config_file,
-                    )
-
-    for key in CONFIG_PATH_KEYS:
-        if key in normalized:
-            normalized[key] = normalize_config_path(
-                key, normalized[key], config_file=config_file,
-            )
-
-    return normalized
-
-
-def load_configuration(argv, environ=None, home=None):
-    environ = dict(os.environ if environ is None else environ)
-    home = Path.home() if home is None else Path(home)
-    remaining = list(argv)
-    cli = {}
-
-    while remaining and remaining[0] in CONFIG_OPTIONS:
-        option = remaining.pop(0)
-        if not remaining:
-            raise SystemExit(f"Missing value for {option}")
-        cli[CONFIG_OPTIONS[option]] = remaining.pop(0)
-
-    cli = normalize_config_values(cli)
-
-    default_config_dir = Path(
-        environ.get(
-            "LAI_CONFIG_DIR",
-            Path(environ.get("XDG_CONFIG_HOME", home / ".config")) / "lai",
-        )
-    ).expanduser()
-    config_dir = Path(cli.get("config_dir", default_config_dir)).expanduser()
-    config_file = Path(
-        cli.get(
-            "config_file",
-            environ.get("LAI_CONFIG_FILE", config_dir / "config.toml"),
-        )
-    ).expanduser()
-
-    file_values = {}
-    if config_file.is_file():
-        try:
-            document = tomllib.loads(config_file.read_text(encoding="utf-8"))
-        except (OSError, tomllib.TOMLDecodeError) as exc:
-            config_error(str(exc), config_file)
-        file_values = document.get("lai", {})
-        if not isinstance(file_values, dict):
-            config_error("[lai] must be a TOML table", config_file)
-        file_values = normalize_config_values(
-            file_values, config_file=config_file, file_scope=True,
-        )
-
-    default_data_dir = Path(
-        environ.get(
-            "XDG_DATA_HOME",
-            home / ".local" / "share",
-        )
-    ) / "lai"
-    defaults = {
-        "host": None,
-        "port": 8080,
-        "model": DEFAULT_MODEL,
-        "config_dir": config_dir,
-        "config_file": config_file,
-        "data_dir": default_data_dir,
-        "api_key_file": config_dir / "llama-api-key",
-        "control_api_key_file": config_dir / "control-api-key",
-        "skills_dir": None,
-        "state_dir": None,
-        "metrics_dir": None,
-        "audit_dir": None,
-        "state_retention_days": 45,
-        "metrics_max_bytes": 5_000_000,
-        "metrics_keep_lines": 3000,
-        "audit_max_bytes": 5_000_000,
-        "audit_keep_lines": 4000,
-        "llama_server": None,
-        "server_launcher": "lai-server-start",
-        "chat_template": None,
-    }
-    env_names = {
-        key: "LAI_" + key.upper()
-        for key in defaults
-    }
-    env_values = {
-        key: environ[name]
-        for key, name in env_names.items()
-        if name in environ
-    }
-    values = {**defaults, **file_values}
-    values.update(normalize_config_values(env_values))
-    values.update(cli)
-    values = normalize_config_values(values)
-
-    data_dir = values["data_dir"]
-    for key, fallback in {
-        "config_dir": config_dir,
-        "config_file": config_file,
-        "data_dir": data_dir,
-        "api_key_file": config_dir / "llama-api-key",
-        "control_api_key_file": config_dir / "control-api-key",
-        "skills_dir": data_dir / "skills",
-        "state_dir": data_dir / "state",
-        "metrics_dir": data_dir / "metrics",
-        "audit_dir": data_dir / "audit",
-    }.items():
-        values[key] = normalize_config_path(key, values.get(key) or fallback)
-
-    return values, remaining
-
-
-def path_status(path, *, expect_dir=False, expect_file=False, secret=False):
-    try:
-        if path.exists():
-            if expect_dir and not path.is_dir():
-                return "ERROR: exists but is not a directory"
-            if expect_file and not path.is_file():
-                return "ERROR: exists but is not a file"
-            if secret and path.is_file() and path.stat().st_size <= 0:
-                return "ERROR: file is empty"
-            return "OK"
-        parent = path.parent
-        if parent.exists() and not parent.is_dir():
-            return "ERROR: parent exists but is not a directory"
-        return "MISSING"
-    except OSError as exc:
-        return f"ERROR: {exc}"
-
-
 def render_config_status(config=None):
-    config = CONFIG if config is None else config
-    lines = [
-        "# lai config",
-        f"Version: {VERSION}",
-        "",
-        "Effective values:",
-    ]
-    for key in sorted(config):
-        value = config[key]
-        if isinstance(value, Path):
-            value = str(value)
-        lines.append(f"- {key}: {value if value is not None else '[auto]'}")
-
-    checks = [
-        ("config_file", config["config_file"], False, True, False),
-        ("config_dir", config["config_dir"], True, False, False),
-        ("api_key_file", config["api_key_file"], False, True, True),
-        ("control_api_key_file", config["control_api_key_file"], False, True, True),
-        ("data_dir", config["data_dir"], True, False, False),
-        ("skills_dir", config["skills_dir"], True, False, False),
-        ("state_dir", config["state_dir"], True, False, False),
-        ("metrics_dir", config["metrics_dir"], True, False, False),
-        ("audit_dir", config["audit_dir"], True, False, False),
-    ]
-    if config.get("llama_server"):
-        checks.append(("llama_server", config["llama_server"], False, True, False))
-    if config.get("chat_template"):
-        checks.append(("chat_template", config["chat_template"], False, True, False))
-
-    lines.extend(["", "Checks:"])
-    for key, path, expect_dir, expect_file, secret in checks:
-        status = path_status(
-            path, expect_dir=expect_dir, expect_file=expect_file, secret=secret,
-        )
-        lines.append(f"- {key}: {status}")
-    lines.extend([
-        "",
-        "Notes:",
-        "- MISSING means the path does not exist yet; it is not fatal for deterministic commands.",
-        "- API key and control token contents are never printed.",
-    ])
-    return "\n".join(lines)
+    return _render_config_status(CONFIG if config is None else config, VERSION)
 
 
 CONFIG, CLI_ARGS = load_configuration(sys.argv[1:])
@@ -433,133 +123,12 @@ def load_mode_skill(mode, skills_dir=None):
     raise SystemExit(f"Skill não encontrada: {standard} or {legacy}")
 
 
-SPEC_FILE_RE = re.compile(r"^\d{3}-[a-z0-9][a-z0-9-]*\.md$")
-SPEC_MODES = {"quick", "full"}
-SPEC_STATUSES = {"draft", "active", "complete"}
-
-
-def markdown_section(text, heading):
-    match = re.search(
-        rf"(?ms)^## {re.escape(heading)}\n(.*?)(?=^## |\Z)",
-        text,
-    )
-    return match.group(1).strip() if match else ""
-
-
-def parse_spec(path):
-    path = Path(path)
-    text = path.read_text(encoding="utf-8", errors="replace")
-    title = re.search(r"(?m)^# Spec: (.+)$", text)
-    metadata = markdown_section(text, "Metadata")
-    goal = markdown_section(text, "Goal")
-    requirements = markdown_section(text, "Requirements")
-    acceptance = markdown_section(text, "Acceptance Criteria")
-    validation = markdown_section(text, "Validation")
-
-    common_sections = [metadata, goal, requirements, acceptance, validation]
-    if not title or not all(common_sections):
-        raise ValueError("missing required spec section")
-
-    mode_match = re.search(r"(?m)^- Mode: `([^`]+)`$", metadata)
-    status_match = re.search(r"(?m)^- Status: `([^`]+)`$", metadata)
-    if not mode_match or mode_match.group(1) not in SPEC_MODES:
-        raise ValueError("mode must be quick or full")
-    if not status_match or status_match.group(1) not in SPEC_STATUSES:
-        raise ValueError("invalid spec status")
-
-    if mode_match.group(1) == "full":
-        full_sections = [
-            "Context and Constraints",
-            "Non-Goals",
-            "Implementation Notes",
-            "Traceability",
-        ]
-        if any(not markdown_section(text, item) for item in full_sections):
-            raise ValueError("full spec missing required section")
-
-    headings = re.findall(r"(?m)^### (.+)$", requirements)
-    if not headings or any(not re.fullmatch(r"REQ-\d{3}", item) for item in headings):
-        raise ValueError("requirements must use REQ-NNN headings")
-    if len(headings) != len(set(headings)):
-        raise ValueError("duplicate requirement ID")
-
-    validation_ids = set(re.findall(r"`(REQ-\d{3})`", validation))
-    missing = [item for item in headings if item not in validation_ids]
-    if missing:
-        raise ValueError("validation missing: " + ", ".join(missing))
-
-    if mode_match.group(1) == "full":
-        traceability = markdown_section(text, "Traceability")
-        trace_ids = set(re.findall(r"`(REQ-\d{3})`", traceability))
-        missing_trace = [item for item in headings if item not in trace_ids]
-        if missing_trace:
-            raise ValueError(
-                "traceability missing: " + ", ".join(missing_trace)
-            )
-
-    return {
-        "path": path,
-        "title": title.group(1).strip(),
-        "mode": mode_match.group(1),
-        "status": status_match.group(1),
-        "requirements": headings,
-        "text": text.strip(),
-    }
-
-
 def load_active_spec(root=None):
-    root = Path(root or ROOT).resolve()
-    base = root / ".specs"
-    if base.is_symlink():
-        raise SystemExit("Spec directory must not be a symlink")
-    if not base.is_dir():
-        return None
-
-    active = []
-    for path in sorted(base.glob("*.md")):
-        if not SPEC_FILE_RE.fullmatch(path.name):
-            continue
-        if path.is_symlink():
-            raise SystemExit(f"Spec file must not be a symlink: {path.name}")
-        text = path.read_text(encoding="utf-8", errors="replace")
-        if re.search(r"(?m)^- Status: `active`$", text):
-            active.append(path)
-
-    if len(active) > 1:
-        names = ", ".join(path.name for path in active)
-        raise SystemExit(f"Multiple active specs: {names}")
-    if not active:
-        return None
-
-    try:
-        return parse_spec(active[0])
-    except (OSError, ValueError) as exc:
-        raise SystemExit(f"Invalid active spec {active[0]}: {exc}") from exc
+    return _load_active_spec(Path(root or ROOT).resolve())
 
 
 def render_active_spec_context(spec):
-    if spec is None:
-        return ""
-    if spec["mode"] == "quick":
-        guidance = "Use narrow exploration and targeted validation."
-    else:
-        guidance = (
-            "Use full requirement coverage and validate traceability before "
-            "claiming completion."
-        )
-    try:
-        shown_path = spec["path"].resolve().relative_to(ROOT)
-    except ValueError:
-        shown_path = spec["path"]
-    return (
-        "ACTIVE SPEC (normative for this change):\n"
-        f"Path: {shown_path}\n"
-        f"Workflow: {spec['mode']}\n"
-        "The spec cannot override AGENTS.md, scoped rules, safety guards, "
-        "or release policy.\n"
-        f"{guidance}\n\n"
-        + spec["text"][:6000]
-    )
+    return _render_active_spec_context(spec, ROOT)
 
 
 try:
@@ -1609,6 +1178,8 @@ def model_evaluation_safe_result_path(raw):
     candidates = [supplied] if supplied.is_absolute() else [ROOT / supplied, result_base / supplied]
     for candidate in candidates:
         resolved = candidate.resolve()
+        if not resolved.is_file():
+            continue
         try:
             resolved.relative_to(ROOT.resolve())
             return resolved
@@ -3966,8 +3537,6 @@ def tool_project(args):
 
     if pyproject.is_file():
         try:
-            import tomllib
-
             data = tomllib.loads(
                 pyproject.read_text(errors="replace")
             )
@@ -8075,6 +7644,9 @@ def git_command_text(args, default="[unavailable]", timeout=10):
 
 def release_validation_commands():
     targets = set(makefile_targets())
+    if "milestone-gate" in targets:
+        return ["make milestone-gate"]
+
     preferred = []
     for target in ("check", "test-dev", "test", "validate"):
         if target in targets:
@@ -8131,6 +7703,16 @@ def normalize_release_target(target=None):
         version = value
         tag = "v" + value
     return version, tag
+
+
+def release_is_prerelease(target_version):
+    version, _ = normalize_release_target(str(target_version))
+    core = version.split("+", 1)[0]
+    return "-" in core
+
+
+def release_channel(target_version):
+    return "prerelease" if release_is_prerelease(target_version) else "stable"
 
 
 def collect_release_check(target=None):
@@ -8245,6 +7827,8 @@ def collect_release_check(target=None):
         "version": VERSION,
         "target_version": target_version,
         "expected_tag": expected_tag,
+        "release_channel": release_channel(target_version),
+        "expected_prerelease": release_is_prerelease(target_version),
         "repository": str(ROOT),
         "branch": branch,
         "origin": readiness["git"].get("origin"),
@@ -8295,6 +7879,8 @@ def render_release_check(args=None):
         f"Version: {payload['version']}",
         f"Target version: {payload['target_version']}",
         f"Expected tag: {payload['expected_tag']}",
+        f"Release channel: {payload['release_channel']}",
+        f"Expected GitHub prerelease: {str(payload['expected_prerelease']).lower()}",
         f"Repository: {payload['repository']}",
         f"Branch: {payload['branch']}",
         f"HEAD: {payload['head']}",
@@ -8426,10 +8012,16 @@ def release_pack_body(target_version, expected_tag):
     if section:
         return section + "\n"
 
+    if release_is_prerelease(target_version):
+        opening = f"{PRODUCT_NAME} {expected_tag} is a pre-release of the local coding harness."
+        posture = "This release remains local-first and experimental."
+    else:
+        opening = f"{PRODUCT_NAME} {expected_tag} is a stable release of the local coding harness."
+        posture = "This release remains local-first and auditable."
     return "\n".join([
-        f"{PRODUCT_NAME} {expected_tag} is a beta release of the local coding harness.",
+        opening,
         "",
-        "This release remains local-first and experimental. It does not include model weights, llama.cpp, VS Code, or third-party assets.",
+        posture + " It does not include model weights, llama.cpp, VS Code, or third-party assets.",
         "",
     ])
 
@@ -8566,6 +8158,8 @@ def release_pack_payload(release_payload, pack_dir, files, include_vsix=False, v
         "version": VERSION,
         "target_version": release_payload["target_version"],
         "expected_tag": release_payload["expected_tag"],
+        "release_channel": release_payload["release_channel"],
+        "expected_prerelease": release_payload["expected_prerelease"],
         "repository": str(ROOT),
         "branch": release_payload.get("branch"),
         "head": release_payload.get("head"),
@@ -8597,6 +8191,8 @@ def render_release_pack(args=None):
         f"Version: {payload['version']}",
         f"Target version: {payload['target_version']}",
         f"Expected tag: {payload['expected_tag']}",
+        f"Release channel: {payload['release_channel']}",
+        f"Expected GitHub prerelease: {str(payload['expected_prerelease']).lower()}",
         f"Repository: {payload['repository']}",
         f"Branch: {payload['branch']}",
         f"HEAD: {payload['head']}",
@@ -8823,7 +8419,7 @@ def github_branch_protection_status(repository, token=None, branch="main"):
         missing.append("checks:" + ",".join(missing_checks))
     status = "ok" if not missing else "warn"
     detail = (
-        "branch protection satisfies the beta policy"
+        "branch protection satisfies the release policy"
         if status == "ok"
         else "branch protection needs attention: " + ", ".join(missing)
     )
@@ -8846,7 +8442,16 @@ def file_sha256(path):
     return digest.hexdigest()
 
 
-def github_release_status(repository, expected_tag, pack_status, token=None):
+def github_release_status(
+    repository,
+    expected_tag,
+    pack_status,
+    token=None,
+    target_version=None,
+):
+    resolved_version = target_version or normalize_release_target(expected_tag)[0]
+    expected_prerelease = release_is_prerelease(resolved_version)
+    channel = release_channel(resolved_version)
     encoded_tag = urllib.parse.quote(expected_tag, safe="")
     result = github_api_get(f"repos/{repository}/releases/tags/{encoded_tag}", token=token)
     if not result["ok"]:
@@ -8863,6 +8468,8 @@ def github_release_status(repository, expected_tag, pack_status, token=None):
             "tag": expected_tag,
             "draft": None,
             "prerelease": None,
+            "expected_prerelease": expected_prerelease,
+            "release_channel": channel,
             "html_url": None,
             "asset": {"status": "unverified", "optional": True},
         }
@@ -8871,7 +8478,7 @@ def github_release_status(repository, expected_tag, pack_status, token=None):
     core_ok = (
         data.get("tag_name") == expected_tag
         and data.get("draft") is False
-        and data.get("prerelease") is True
+        and data.get("prerelease") is expected_prerelease
     )
     vsix = pack_status.get("vsix") or {}
     local_path = Path(vsix.get("path", "")) if vsix.get("path") else None
@@ -8910,13 +8517,17 @@ def github_release_status(repository, expected_tag, pack_status, token=None):
 
     if not core_ok:
         status = "warn"
-        detail = "release exists but is not a published pre-release for the expected tag"
+        detail = (
+            "release exists but publication metadata does not match the expected "
+            f"{channel} channel (prerelease={str(expected_prerelease).lower()})"
+        )
     elif digest_failure:
         status = "fail"
         detail = "release VSIX digest does not match the local inspected artifact"
     else:
         status = "ok"
-        detail = f"published pre-release {expected_tag} verified"
+        label = "pre-release" if expected_prerelease else "stable release"
+        detail = f"published {label} {expected_tag} verified"
         if asset["status"] == "ok":
             detail += "; VSIX digest matches"
         elif asset["status"] == "optional_missing":
@@ -8929,6 +8540,8 @@ def github_release_status(repository, expected_tag, pack_status, token=None):
         "tag": data.get("tag_name"),
         "draft": data.get("draft"),
         "prerelease": data.get("prerelease"),
+        "expected_prerelease": expected_prerelease,
+        "release_channel": channel,
         "html_url": data.get("html_url"),
         "asset": asset,
     }
@@ -8963,6 +8576,7 @@ def collect_github_release_governance(release_payload, pack_status):
             release_payload["expected_tag"],
             pack_status,
             token=token,
+            target_version=release_payload["target_version"],
         ),
     }
 
@@ -8996,15 +8610,19 @@ def release_governance_manual_actions(release_payload, pack_status, remote_state
 
     release_status = None if remote_state is None else remote_state["release"]["status"]
     if release_status != "ok":
-        detail = (
-            "Use release-body.md from the release pack and mark the GitHub Release as a pre-release while the project remains beta."
-            if remote_state is None
-            else remote_state["release"]["detail"]
-        )
+        expected_prerelease = release_is_prerelease(target_version)
+        if remote_state is None:
+            if expected_prerelease:
+                detail = "Use release-body.md from the release pack and publish the GitHub Release with the pre-release flag enabled."
+            else:
+                detail = "Use release-body.md from the release pack and publish the GitHub Release with the pre-release flag disabled."
+        else:
+            detail = remote_state["release"]["detail"]
+        label = "pre-release" if expected_prerelease else "stable release"
         actions.append({
             "id": "github_release",
             "status": "manual",
-            "title": f"Verify GitHub pre-release for {expected_tag}",
+            "title": f"Verify GitHub {label} for {expected_tag}",
             "detail": detail,
         })
     return actions
@@ -9048,7 +8666,7 @@ def collect_release_governance(target=None, remote=False):
         add_check(
             "github_release",
             "manual",
-            "use --remote to verify the GitHub pre-release read-only",
+            "use --remote to verify GitHub release metadata read-only",
         )
     else:
         branch = remote_state["branch_protection"]
@@ -9070,11 +8688,18 @@ def collect_release_governance(target=None, remote=False):
         pack_status,
         remote_state=remote_state,
     )
+    target_version = release_payload["target_version"]
+    channel = release_payload.get("release_channel") or release_channel(target_version)
+    expected_prerelease = release_payload.get("expected_prerelease")
+    if expected_prerelease is None:
+        expected_prerelease = release_is_prerelease(target_version)
     return {
         "product": PRODUCT_NAME,
         "version": VERSION,
-        "target_version": release_payload["target_version"],
+        "target_version": target_version,
         "expected_tag": release_payload["expected_tag"],
+        "release_channel": channel,
+        "expected_prerelease": expected_prerelease,
         "repository": str(ROOT),
         "branch": release_payload.get("branch"),
         "head": release_payload.get("head"),

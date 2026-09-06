@@ -32,6 +32,10 @@ Release-mode runs preload a read-only release preflight context built from `lai 
 Use `lai release-check --json` for a model-free release gate after `lai readiness` reports a clean, ready repository.
 
 
-## Beta readiness
+## Historical beta readiness
 
-For beta cuts, use `lai readiness`, `lai release-check --target 0.4.0-beta.24 --json`, `make validate`, and the checks in [Beta readiness](BETA-READINESS.md). The beta gate is deterministic and does not tag, merge, push, upload, or publish artifacts. Use `lai release-pack` afterwards to prepare local release files outside the repository.
+[Beta readiness](BETA-READINESS.md) is retained as beta.24 release evidence. It is not the active graduation checklist.
+
+## Stable readiness
+
+The first stable `v0.4.0` has a finite graduation gate in [Stable readiness](STABLE-READINESS.md). Roadmap expansion such as PWA/Telegram persistence, web tools, MCP, marketplace distribution, and subagent orchestration is not implicitly required for the stable core. At final graduation, use `lai release-check --target 0.4.0 --json`; it must identify the `stable` release channel and GitHub `prerelease=false`.

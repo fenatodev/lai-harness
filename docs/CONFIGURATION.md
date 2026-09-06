@@ -10,6 +10,8 @@ lai config
 
 The report does not call or start the model server. It prints effective values and path status checks. API key and control-plane token contents are never printed.
 
+The deterministic configuration implementation lives in `src/lai_config.py`; `src/local-agent` keeps compatibility imports and runtime initialization while the module remains standard-library-only and independently type-checked.
+
 ## TOML schema
 
 `config.toml` supports only the `[lai]` table and these keys:

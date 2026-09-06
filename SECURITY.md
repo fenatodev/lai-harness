@@ -6,8 +6,8 @@ Do not open a public issue for a suspected vulnerability. Use GitHub's private v
 
 ## Supported versions
 
-Until the project reaches a stable release, only the latest published minor version receives security fixes.
+After the first stable release, the latest published `0.4.x` patch line receives security fixes. Pre-release builds are supported only when explicitly identified as the active test line.
 
 ## Operational warning
 
-LAI is an experimental developer tool, not a security sandbox. Its shell tool runs with the launching user's permissions. Use least privilege, isolate valuable credentials, keep backups, inspect changes, and never expose the model server without authentication and network controls.
+LAI is a developer tool, not a security sandbox. Its shell tool runs with the launching user's permissions. Use least privilege, isolate valuable credentials, keep backups, inspect changes, and never expose the model server without authentication and network controls.
