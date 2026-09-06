@@ -2623,6 +2623,37 @@ class LocalAgentTest(unittest.TestCase):
         )
         self.assertIn("average_score: 100.0", result.stdout)
 
+    def test_model_eval_score_resolves_saved_result_basename(self):
+        data_dir = self.base / "data"
+        result_dir = data_dir / "model-eval"
+        result_dir.mkdir(parents=True)
+        record = {
+            "model": "saved-model",
+            "scenario": "plan-repo-change",
+            "outcome": "pass",
+            "validation": "pass",
+            "latency_ms": 10,
+            "prompt_tokens": 1,
+            "completion_tokens": 1,
+            "tool_calls": 1,
+            "truncation_retries": 0,
+            "policy_blocks": 0,
+            "hallucination_flags": 0,
+        }
+        (result_dir / "saved.jsonl").write_text(json.dumps(record) + "\n")
+
+        result = subprocess.run(
+            [str(SOURCE), "--model-eval", "score", "saved.jsonl"],
+            cwd=self.root,
+            env={**os.environ, "LAI_DATA_DIR": str(data_dir)},
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+
+        self.assertIn("## saved-model", result.stdout)
+        self.assertIn("average_score: 100.0", result.stdout)
+
     def test_model_eval_score_rejects_bad_paths_and_records(self):
         outside = self.base / "outside.jsonl"
         outside.write_text("{}\n")

@@ -1178,6 +1178,8 @@ def model_evaluation_safe_result_path(raw):
     candidates = [supplied] if supplied.is_absolute() else [ROOT / supplied, result_base / supplied]
     for candidate in candidates:
         resolved = candidate.resolve()
+        if not resolved.is_file():
+            continue
         try:
             resolved.relative_to(ROOT.resolve())
             return resolved
