@@ -2,15 +2,14 @@
 
 ## Near term
 
-- Graduate the core to `v0.4.0` when `docs/STABLE-READINESS.md` is fully green; do not make PWA/Telegram persistence, web tools, MCP, marketplace distribution, subagents, or signing implicit blockers for the first stable core.
-- Use milestone-based release cadence during stabilization: keep specs and commits small with focused local feedback, run the expensive non-redundant milestone gate only at coherent freeze points, and batch protected-main PR/tag/release work until the milestone is stable.
-- Keep beta.23 update-evidence convergence under dogfood; only add further maintenance automation when repeated evidence justifies it and the reviewed spec/PR boundary remains intact.
+- Treat `v0.4.0` as the stable core baseline. Keep post-stable work milestone-based: small specs/commits, focused local feedback, one expensive non-redundant gate at coherent freeze points, and batched protected-main PR/tag/release work only when a milestone is stable.
+- Keep update-evidence convergence under dogfood across stable upgrades; only add further maintenance automation when repeated evidence justifies it and the reviewed spec/PR boundary remains intact.
 - Continue incremental subsystem extraction from `src/local-agent`, using beta.24 semantic contracts as the typed/module-installation pattern and ratcheting mypy only over code that has earned strict coverage.
 - Expand automated model-evaluation fixtures from observed dogfood failures and use repeated evidence before any default-model change.
 - Keep generic `bash` out of remote control profiles; evolve the structured `validate`/sandbox boundary from measured fixtures rather than exposing shell text.
 - Expand end-to-end fixtures for every mode and guard.
-- Add persistent remote sessions so PWA and Telegram can continue the same compacted conversation/run context.
-- Add read-only web search/fetch tools with evidence/citation metadata before any browser-action capability.
+- Dogfood repository-scoped persistent remote sessions with `lai-gateway`; add lifecycle/delete/compaction controls only from measured gateway needs, without expanding remote authority.
+- Dogfood read-only public web search/fetch evidence with SSRF/redirect/content bounds; expand providers or extraction only from measured failures before any browser-action capability.
 - Add a governed MCP broker; Desktop Commander is a primary candidate, but MCP calls must pass the same capability/policy boundary.
 
 ## Adjacent projects
@@ -24,8 +23,8 @@
 - Add more focused mode skills only after they prove distinct from diagnose, ci-fix, release, and existing modes.
 - Add interactive approval UI and scoped approval grants for `ASK` operations.
 - Add gateway approval UX for promotion, then guarded commit/push/PR actions on promoted feature worktrees.
-- Add persistent multi-turn sessions shared by PWA and Telegram.
-- Add read-only web search/fetch with evidence and hostile-content boundaries.
+- Evolve persistent-session lifecycle, explicit deletion, compaction quality, and gateway-side user/session mapping after real mobile dogfood.
+- Evolve read-only web evidence from dogfood before considering any stateful/browser-action capability.
 - Add an MCP broker for allowlisted tools such as Desktop Commander under the same policy layer.
 - Add deterministic wave orchestration for subagents/delegates using explicit dependencies and disjoint file ownership.
 - Add quality-gate ratchets: measure as warning, enforce no-regression, then promote to required gate when debt reaches zero.
@@ -35,6 +34,7 @@
 
 Roadmap items are intentions, not commitments. Model redistribution and automatic downloading are deliberately out of scope.
 
+- v0.4.0: first stable core with protected release governance, bounded remote work/promotion, typed runtime-module ratchets, update intelligence, repeated model evaluation, and a finite stable-readiness gate.
 - v0.4.0-alpha.20: sanitized run export bundle with `lai run export`.
 - v0.4.0-alpha.21: release preflight and public mode aliases before beta readiness.
 - v0.4.0-beta.1: first beta readiness cut with deterministic release gates and documented stabilization posture.

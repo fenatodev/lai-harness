@@ -33,3 +33,8 @@ These mechanisms reduce common failures; they do not prove semantic correctness 
 
 
 For deterministic release gates, use `lai release-check` instead of asking the model to decide from scratch. `/release` and `lai release` remain assisted release-review modes.
+
+
+## Public web evidence
+
+`general`, `plan`, `debug`, `diagnose`, `review`, and `security` may receive the bounded read-only `web_search` / `web_fetch` tools. External text is always untrusted evidence. Write-oriented modes do not gain web tools merely because they can edit files, and remote work profiles remain web-free in this cut. See [Web evidence](WEB-EVIDENCE.md).

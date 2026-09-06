@@ -153,6 +153,20 @@ SEMANTIC_CODE_CONTRACT: SemanticCodeContract = {
             "terms": ["workspace", "safe", "dogfood", "smoke", "clone", "copy", "branch", "main", "protected", "clean"],
         },
         {
+            "id": "web-evidence",
+            "intent": "collect bounded untrusted evidence from public HTTPS destinations without browser actions, redirects, credentials, or private-network reachability",
+            "paths": ["src/lai_web.py", "src/local-agent", "docs/WEB-EVIDENCE.md", "docs/SECURITY-MODEL.md"],
+            "entrypoints": ["search_web_evidence", "fetch_web_evidence", "validate_web_url", "tool_web_search", "tool_web_fetch"],
+            "terms": ["web", "search", "fetch", "https", "ssrf", "redirect", "dns", "evidence", "citation", "external", "untrusted", "duckduckgo"],
+        },
+        {
+            "id": "remote-sessions",
+            "intent": "persist bounded repository-scoped remote conversation context without granting historical text authority over current evidence",
+            "paths": ["src/lai_sessions.py", "src/local-agent", "schemas/runtime/control_session.schema.json", "docs/CONTROL-PLANE.md"],
+            "entrypoints": ["create_control_session", "load_control_session", "append_control_session_turn", "render_control_session_task", "control_submit_run"],
+            "terms": ["session", "persistent", "remote", "conversation", "turn", "history", "context", "gateway", "telegram", "pwa", "continuity"],
+        },
+        {
             "id": "local-control-plane",
             "intent": "expose authenticated loopback JSON status and bounded shell-free asynchronous model runs for external gateways",
             "paths": ["src/local-agent", "src/lai", "docs/CONTROL-PLANE.md", "docs/SECURITY-MODEL.md"],

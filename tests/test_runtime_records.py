@@ -64,6 +64,7 @@ class RuntimeRecordsTest(unittest.TestCase):
             "audit_event.schema.json",
             "workspace_state.schema.json",
             "checkpoint.schema.json",
+            "control_session.schema.json",
         }
         self.assertEqual({path.name for path in schema_dir.glob("*.json")}, expected)
         for name in sorted(expected):

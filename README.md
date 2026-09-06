@@ -13,7 +13,7 @@
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-0f766e"></a>
 </p>
 
-> **Current release:** `v0.4.0` · first stable core · Linux/WSL-first · local inference through an OpenAI-compatible endpoint such as llama.cpp.
+> **Current release:** `v0.4.1` · operational capability patch · Linux/WSL-first · local inference through an OpenAI-compatible endpoint such as llama.cpp.
 
 lai harness makes constrained local models more useful by giving them a smaller, more deterministic operating environment. Instead of relying on a huge prompt and a generic shell, it combines mode-specific tools, repository-aware context, explicit policy decisions, validation gates, persistent state, and a release workflow that can be audited from feature branch to the final GitHub Release.
 
@@ -23,12 +23,12 @@ It complements high-context cloud agents rather than trying to replace them: loc
 
 | Area | Current posture |
 | --- | --- |
-| Product version | `0.4.0` |
+| Product version | `0.4.1` |
 | Harness maturity | L4 · Self-correcting · 100/108 (93%) |
 | Runtime | Python standard library; no Python package dependencies in the harness |
 | Primary surfaces | CLI (`lai`) + VS Code extension |
 | Local model path | OpenAI-compatible HTTP; developed with llama.cpp + user-supplied GGUF |
-| Remote control | Authenticated loopback control plane; isolated work runs plus hash-bound promotion into dedicated feature worktrees; no remote shell or direct active-checkout write |
+| Remote control | Authenticated loopback control plane; persistent repository-scoped sessions, isolated work runs, and hash-bound promotion; no remote shell or direct active-checkout write |
 | Release discipline | Protected `main`, required CI, annotated tag, tag CI, channel-aware release/digest verification |
 
 Harness Score is used as an external repository-maturity ratchet, not as a security certification.
@@ -42,6 +42,7 @@ lai harness is built around four ideas:
 - **Reduce model overhead.** Mode-specific tools, bounded context, semantic subsystem hints, batch inspection, and transactional patching keep the model focused.
 - **Make safety deterministic where possible.** `ALLOW` / `ASK` / `DENY` policy, hooks, protected-branch checks, release preflight, and explicit remote capability profiles run outside the model.
 - **Turn failures into evidence.** Validation, acceptance, sanity, readiness, metrics, run history, checkpoints, and forensic audit records make state inspectable instead of implicit.
+- **Treat the public web as hostile evidence.** Selected research modes can search/fetch bounded public HTTPS text with SSRF/redirect controls; external content never becomes authority.
 - **Treat release engineering as part of the harness.** A change is not “done” because the model says so; it must cross local gates, protected CI, synchronized `main`, tag CI, artifact verification, and governance checks.
 
 ## Architecture
@@ -153,7 +154,7 @@ Detailed contracts are in [Modes](docs/MODES.md).
 
 ## Local control plane and private mobile access
 
-`lai serve` adds an authenticated loopback-only HTTP boundary for asynchronous control runs. Read-only modes remain shell-free; isolated `implement`, `fix`, `refactor`, and `ci-fix` runs write only to disposable safe workspaces and validate inside a constrained Docker sandbox. Beta.15 adds an explicit promotion boundary: only a successful work run with an unchanged clean source baseline can expose a SHA-256-bound proposal, and an approved hash is revalidated before the exact patch is applied to a dedicated `lai/promotion-*` feature worktree. The active source checkout remains unchanged. The control plane still does **not** expose a generic remote shell, commit, push, merge, release publication, or the llama.cpp port directly.
+`lai serve` adds an authenticated loopback-only HTTP boundary for asynchronous control runs. Repository-scoped persistent sessions let a private gateway continue bounded coding context across runs/server restarts; historical turns are stored locally with restrictive permissions and are injected only as untrusted context. Read-only modes remain shell-free; isolated `implement`, `fix`, `refactor`, and `ci-fix` runs write only to disposable safe workspaces and validate inside a constrained Docker sandbox. Promotion remains a separate SHA-256-bound action into dedicated `lai/promotion-*` feature worktrees. The active source checkout remains unchanged. The control plane still does **not** expose a generic remote shell, commit, push, merge, release publication, or the llama.cpp port directly.
 
 ```bash
 lai control-token init
@@ -182,10 +183,10 @@ The release process is intentionally stricter than a normal local package build:
 8. require a converged project handoff with no remaining manual actions.
 
 ```bash
-lai release-check --target 0.4.0 --json
-lai release-pack --target 0.4.0 --with-vsix --json
-lai release-governance --target 0.4.0 --remote --json
-lai project-handoff --target 0.4.0 --remote --json
+lai release-check --target 0.4.1 --json
+lai release-pack --target 0.4.1 --with-vsix --json
+lai release-governance --target 0.4.1 --remote --json
+lai project-handoff --target 0.4.1 --remote --json
 ```
 
 See [Stable readiness](docs/STABLE-READINESS.md), [Release governance](docs/RELEASE-GOVERNANCE.md), [Release checklist](docs/RELEASE-CHECKLIST.md), and [Release notes](docs/RELEASE-NOTES.md).
@@ -206,7 +207,7 @@ Use write-capable modes only in trusted, backed-up or disposable workspaces unde
 | Understand the architecture | [Architecture](docs/ARCHITECTURE.md) · [Development harness](docs/DEVELOPMENT-HARNESS.md) |
 | Learn modes and context | [Modes](docs/MODES.md) · [Context intelligence](docs/CONTEXT-INTELLIGENCE.md) · [Semantic contracts](docs/SEMANTIC-CODE-CONTRACTS.md) |
 | Inspect runs and recovery | [Run history](docs/RUN-HISTORY.md) · [Run export](docs/RUN-EXPORT.md) · [Runtime records](docs/RUNTIME-RECORDS.md) · [Recovery](docs/RECOVERY.md) |
-| Track safe maintenance | [Update intelligence](docs/UPDATE-INTELLIGENCE.md) · [Model evaluation](docs/MODEL-EVALUATION.md) |
+| Track safe maintenance/research | [Update intelligence](docs/UPDATE-INTELLIGENCE.md) · [Model evaluation](docs/MODEL-EVALUATION.md) · [Web evidence](docs/WEB-EVIDENCE.md) |
 | Operate the control plane | [Control plane](docs/CONTROL-PLANE.md) · [Security model](docs/SECURITY-MODEL.md) |
 | Release safely | [Stable readiness](docs/STABLE-READINESS.md) · [Stable readiness](docs/STABLE-READINESS.md) · [Release preflight](docs/RELEASE-PREFLIGHT.md) · [Release governance](docs/RELEASE-GOVERNANCE.md) |
 | Follow the project | [Roadmap](ROADMAP.md) · [Changelog](CHANGELOG.md) · [Development journey](docs/DEVELOPMENT-JOURNEY.md) |

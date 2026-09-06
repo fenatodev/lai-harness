@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fenatodev/lai-harness/schemas/runtime/control_session.schema.json",
+  "title": "LAI control session",
+  "type": "object",
+  "required": ["schema_version", "session_id", "repository", "created_at", "updated_at", "turns"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "session_id": {"type": "string", "pattern": "^cs-[0-9a-f]{16}$"},
+    "repository": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string"},
+    "updated_at": {"type": "string"},
+    "turns": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "required": ["control_run_id", "mode", "status", "task", "assistant", "created_at", "finished_at"],
+        "properties": {
+          "control_run_id": {"type": "string"},
+          "mode": {"type": "string"},
+          "status": {"type": "string"},
+          "task": {"type": "string", "maxLength": 1200},
+          "assistant": {"type": "string", "maxLength": 1800},
+          "created_at": {"type": "string"},
+          "finished_at": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

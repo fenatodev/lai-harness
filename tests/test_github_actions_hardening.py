@@ -34,6 +34,16 @@ class GitHubActionsHardeningTest(unittest.TestCase):
                 seen.add(name)
         self.assertEqual(seen, set(EXPECTED))
 
+    def test_ci_avoids_duplicate_feature_branch_push_runs(self):
+        ci = (WORKFLOWS / "ci.yml").read_text()
+        trigger = ci.split("permissions:", 1)[0]
+        self.assertIn("pull_request:", trigger)
+        self.assertIn("branches: [main]", trigger)
+        self.assertIn('tags: ["v*"]', trigger)
+        self.assertNotIn("on:\n  push:\n  pull_request:", trigger)
+        self.assertIn('name: Python ${{ matrix.python-version }}', ci)
+        self.assertIn("name: Publication gates", ci)
+
     def test_publication_uses_node24_without_package_cache(self):
         ci = (WORKFLOWS / "ci.yml").read_text()
         self.assertIn('node-version: "24"', ci)

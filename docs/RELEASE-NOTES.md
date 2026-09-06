@@ -1,3 +1,33 @@
+## lai harness v0.4.1 — operational capability patch
+
+`v0.4.1` packages the first post-stable operational increment after `v0.4.0`. It adds practical remote-session continuity, bounded read-only web evidence for research workflows, and removes observed duplicate CI work without loosening release governance or model authority.
+
+### What changed
+
+- Scoped the main CI workflow so feature branches with pull requests are validated by the PR workflow without an extra generic branch-push CI run; `main` and `v*` release tags still run CI.
+- Added persistent authenticated control-plane sessions backed by bounded, atomic, versioned files under the LAI data directory.
+- Session-bound runs receive only compact, clearly untrusted historical context; unknown sessions fail before child process spawn, and persistence failures are visible.
+- Added `web_search` and `web_fetch` evidence tools for selected research modes.
+- Added `src/lai_web.py`, bounded SSRF-resistant public HTTPS fetch/search evidence, DuckDuckGo Lite search parsing, semantic navigation, install support, and strict mypy coverage.
+
+### Safety boundary
+
+- No model download, model switch, dependency install, generic remote shell, commit, push, merge, tag, or release-publication authority was added.
+- Web evidence is HTTPS `GET` only, port 443 only, no credentials, no cookies, no caller-defined headers/body, no redirects, no browser automation, no JavaScript execution, no forms, and no file downloads.
+- DNS answers must be globally routable; the TLS socket connects to one validated public IP while authenticating the original hostname.
+- External web text is marked `untrusted_external_content=true` and cannot override user instructions, specs, policy, repository evidence, or safety boundaries.
+- Remote write-capable profiles and release mode do not receive web tools in this release.
+
+### Validation gate
+
+```bash
+lai readiness --json
+lai release-check --target 0.4.1 --json
+make milestone-gate
+```
+
+Pre-freeze local evidence: focused mocked web/network tests, install/control/quality regressions, bounded live public fetch/search dogfood, 271 pytest tests + 97 subtests, 271 unittest tests, strict mypy over seven files, Harness Score L4 100/108 (93%), publication scan, and VSIX inspection green.
+
 ## lai harness v0.4.0 — stable core graduation
 
 `v0.4.0` freezes the first stable lai harness core after the beta stabilization line. The release keeps the local-first authority boundary intact while consolidating typed runtime boundaries, deterministic stable-release governance, faster non-redundant milestone validation, and repeated baseline-model evidence.

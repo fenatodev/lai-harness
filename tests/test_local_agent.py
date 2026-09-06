@@ -335,6 +335,50 @@ class LocalAgentTest(unittest.TestCase):
                 policy = agent.evaluate_tool_policy("bash", {"command": command})
                 self.assertEqual(policy["decision"], expected)
 
+    def test_web_tools_are_read_only_policy_and_return_untrusted_evidence(self):
+        search_payload = {
+            "query": "example",
+            "provider": "duckduckgo-lite",
+            "provider_url": "https://lite.duckduckgo.com/lite/?q=example",
+            "resolved_ips": ["93.184.216.34"],
+            "connected_ip": "93.184.216.34",
+            "status": 200,
+            "fetched_at": "2026-09-06T02:00:00Z",
+            "result_count": 1,
+            "results": [{"title": "Example", "url": "https://example.com/", "snippet": "sample"}],
+            "response_sha256": "a" * 64,
+            "untrusted_external_content": True,
+        }
+        fetch_payload = {
+            "requested_url": "https://example.com/",
+            "url": "https://example.com/",
+            "host": "example.com",
+            "resolved_ips": ["93.184.216.34"],
+            "connected_ip": "93.184.216.34",
+            "status": 200,
+            "content_type": "text/plain",
+            "fetched_at": "2026-09-06T02:00:00Z",
+            "sha256": "b" * 64,
+            "body_bytes": 6,
+            "text": "sample",
+            "truncated": False,
+            "untrusted_external_content": True,
+        }
+        audits = []
+        with mock.patch.object(agent, "search_web_evidence", return_value=search_payload), \
+                mock.patch.object(agent, "fetch_web_evidence", return_value=fetch_payload), \
+                mock.patch.object(agent, "record_audit_event", side_effect=audits.append):
+            searched = agent.tool_web_search({"query": "example"})
+            fetched = agent.tool_web_fetch({"url": "https://example.com/"})
+        self.assertIn("EXTERNAL WEB EVIDENCE (UNTRUSTED)", searched)
+        self.assertIn("EXTERNAL WEB EVIDENCE (UNTRUSTED)", fetched)
+        self.assertEqual(agent.evaluate_tool_policy("web_search", {"query": "x"}, mode="review")["decision"], "ALLOW")
+        self.assertEqual(agent.evaluate_tool_policy("web_fetch", {"url": "https://example.com"}, mode="security")["decision"], "ALLOW")
+        self.assertNotIn("sample", json.dumps(audits))
+        self.assertNotIn("https://example.com/", json.dumps(audits))
+        self.assertIn("query_sha256", audits[0])
+        self.assertIn("url_sha256", audits[1])
+
     def test_policy_check_renders_deterministic_non_execution_evidence(self):
         payload = json.loads(
             agent.render_policy_check(
@@ -889,6 +933,8 @@ class LocalAgentTest(unittest.TestCase):
             },
             "overall": "ready",
         }
+
+        expected_tag = f"v{agent.VERSION}"
         state = {
             "head": "aaa111",
             "origin_main": "bbb222",
@@ -906,33 +952,33 @@ class LocalAgentTest(unittest.TestCase):
                 return state["exact_tag"]
             if args == ["describe", "--tags", "--abbrev=0"]:
                 return state["latest_tag"]
-            if args == ["rev-parse", "v0.4.0^{}"]:
+            if args == ["rev-parse", f"{expected_tag}^{{}}"]:
                 return state["tag_target"]
             return default
 
         with mock.patch.object(agent, "collect_readiness_status", return_value=readiness), \
                 mock.patch.object(agent, "git_command_text", side_effect=fake_git), \
                 mock.patch.object(agent, "release_validation_commands", return_value=["make validate"]):
-            candidate = agent.collect_release_check("0.4.0")
+            candidate = agent.collect_release_check(agent.VERSION)
             self.assertEqual(candidate["phase"], "ready_for_integration")
             self.assertFalse(candidate["tag_ready"])
 
             readiness["git"]["branch"] = "main"
             state["origin_main"] = state["head"]
-            taggable = agent.collect_release_check("0.4.0")
+            taggable = agent.collect_release_check(agent.VERSION)
             self.assertEqual(taggable["phase"], "ready_to_tag")
             self.assertTrue(taggable["tag_ready"])
             self.assertEqual(taggable["origin_main"], state["head"])
 
             state["origin_main"] = "different333"
-            divergent = agent.collect_release_check("0.4.0")
+            divergent = agent.collect_release_check(agent.VERSION)
             self.assertEqual(divergent["overall"], "blocked")
             self.assertEqual(divergent["phase"], "blocked")
             self.assertFalse(divergent["tag_ready"])
 
             state["origin_main"] = state["head"]
             state["tag_target"] = "old444"
-            wrong_tag = agent.collect_release_check("0.4.0")
+            wrong_tag = agent.collect_release_check(agent.VERSION)
             self.assertEqual(wrong_tag["overall"], "blocked")
             self.assertEqual(wrong_tag["phase"], "blocked")
             self.assertIn("old444", next(
@@ -940,8 +986,8 @@ class LocalAgentTest(unittest.TestCase):
             ))
 
             state["tag_target"] = state["head"]
-            state["exact_tag"] = "v0.4.0"
-            released = agent.collect_release_check("0.4.0")
+            state["exact_tag"] = expected_tag
+            released = agent.collect_release_check(agent.VERSION)
             self.assertEqual(released["overall"], "ready")
             self.assertEqual(released["phase"], "released")
             self.assertFalse(released["tag_ready"])
@@ -2551,6 +2597,16 @@ class LocalAgentTest(unittest.TestCase):
             if item["id"] == "spec-workflow"
         )
         self.assertEqual(spec_workflow["paths"][0], "src/lai_specs.py")
+        remote_sessions = next(
+            item for item in payload["contract"]["subsystems"]
+            if item["id"] == "remote-sessions"
+        )
+        self.assertEqual(remote_sessions["paths"][0], "src/lai_sessions.py")
+        web_evidence = next(
+            item for item in payload["contract"]["subsystems"]
+            if item["id"] == "web-evidence"
+        )
+        self.assertEqual(web_evidence["paths"][0], "src/lai_web.py")
 
     def test_deterministic_model_eval_json_and_sample_are_parseable(self):
         result = subprocess.run(
@@ -2842,8 +2898,9 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("release channel (`prerelease` or `stable`)", publishing)
         self.assertIn("expected GitHub `prerelease` flag", publishing)
         self.assertTrue(
-            release_notes.startswith("## lai harness v0.4.0 — stable core graduation")
+            release_notes.startswith(f"## lai harness v{agent.VERSION} — operational capability patch")
         )
+        self.assertIn("lai harness v0.4.0 — stable core graduation", release_notes)
         self.assertIn("lai harness v0.4.0-beta.24", release_notes)
         self.assertIn("<target-version>", release_checklist)
         self.assertIn("pre-release flag", release_checklist)

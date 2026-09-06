@@ -1,6 +1,6 @@
 # Runtime records
 
-LAI persists local workspace state, metrics, audit events, and recovery checkpoints outside the repository. Beta.18 makes those formats explicit contracts before persistent remote sessions depend on them.
+LAI persists local workspace state, metrics, audit events, recovery checkpoints, and repository-scoped remote-session records outside the repository. The formats are explicit, versioned contracts so persisted context never becomes implicit authority.
 
 ## Schema versions
 
@@ -12,10 +12,13 @@ Machine-readable contracts live in `schemas/runtime/`:
 - `metric_event.schema.json`
 - `audit_event.schema.json`
 - `checkpoint.schema.json`
+- `control_session.schema.json`
 
 The runtime remains Python-standard-library-only. JSON Schema documents are contracts and test fixtures; LAI does not install a JSON Schema validator at runtime.
 
-Legacy unversioned workspace, metric, and audit records remain readable. Unsupported future metric/audit versions are ignored. Unsupported workspace/checkpoint versions fail closed rather than being injected into current context or recovery.
+Legacy unversioned workspace, metric, and audit records remain readable. Unsupported future metric/audit versions are ignored. Unsupported workspace/checkpoint/control-session versions fail closed rather than being injected into current context or recovery.
+
+Control sessions live under `$LAI_DATA_DIR/control-sessions`, are bound to one canonical repository root, retain at most 12 compact turns per session, and keep at most 100 session files. Their historical text is advisory/untrusted and current repository evidence always wins.
 
 ## Retention
 

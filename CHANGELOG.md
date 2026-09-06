@@ -1,3 +1,17 @@
+## [0.4.1] - 2026-09-05
+
+### Added
+- Added persistent authenticated control-plane sessions with bounded, versioned, repository-external state so remote clients can continue multi-turn work without gaining shell, Git, model-management, or source-checkout authority.
+- Added bounded read-only public web evidence tools for selected research modes, with SSRF-resistant HTTPS-only fetch/search boundaries and explicit untrusted-content markers.
+
+### Changed
+- Scoped CI push triggers to `main` and `v*` tags while preserving pull-request, post-merge, and release-tag validation, avoiding duplicate feature-branch CI runs.
+- Expanded the strict mypy ratchet to seven files by adding the session and web evidence modules.
+
+### Safety and evidence
+- Remote write-capable profiles and release mode do not receive web tools; web evidence is GET-only, public-HTTPS-only, redirect-free, credential-free, cookie-free, bounded, and never trusted as policy or repository authority.
+- Full milestone gate: 271 pytest tests + 97 subtests, 271 unittest tests, strict mypy over seven files, Harness Score L4 100/108 (93%), publication scan, and VSIX inspection green.
+
 ## [0.4.0] - 2026-09-05
 
 ### Stable core
