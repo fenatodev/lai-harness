@@ -1982,6 +1982,13 @@ class LocalAgentTest(unittest.TestCase):
         agent.CONFIG["api_key_file"] = key_file
         self.assertEqual(agent.llama_api_key(), "synthetic-test-key")
 
+    def test_configuration_helpers_are_reexported_from_typed_module(self):
+        import lai_config
+
+        self.assertIs(agent.load_configuration, lai_config.load_configuration)
+        self.assertIs(agent.path_status, lai_config.path_status)
+        self.assertEqual(agent.DEFAULT_MODEL, lai_config.DEFAULT_MODEL)
+
     def test_configuration_precedence_cli_over_env_over_toml_over_defaults(self):
         config_dir = self.root / "config"
         config_dir.mkdir()
@@ -2432,6 +2439,11 @@ class LocalAgentTest(unittest.TestCase):
             if item["id"] == "semantic-code-contracts"
         )
         self.assertIn("src/lai_semantics.py", semantic["paths"])
+        configuration = next(
+            item for item in payload["contract"]["subsystems"]
+            if item["id"] == "configuration"
+        )
+        self.assertEqual(configuration["paths"][0], "src/lai_config.py")
 
     def test_deterministic_model_eval_json_and_sample_are_parseable(self):
         result = subprocess.run(

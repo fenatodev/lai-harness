@@ -36,7 +36,7 @@ SEMANTIC_CODE_CONTRACT: SemanticCodeContract = {
         {
             "id": "configuration",
             "intent": "resolve CLI, environment, TOML, XDG paths, server, and model settings",
-            "paths": ["src/local-agent", "src/lai", "docs/CONFIGURATION.md"],
+            "paths": ["src/lai_config.py", "src/local-agent", "src/lai", "docs/CONFIGURATION.md"],
             "entrypoints": ["load_configuration", "render_config_status", "doctor_status"],
             "terms": ["config", "configuration", "toml", "env", "xdg", "server", "host", "port", "model", "api", "key", "doctor"],
         },

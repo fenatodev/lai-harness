@@ -44,6 +44,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertIn("Installed lai harness", install.stdout)
             self.assertTrue((bin_dir / "lai").is_file())
             self.assertTrue((bin_dir / "lai_semantics.py").is_file())
+            self.assertTrue((bin_dir / "lai_config.py").is_file())
             self.assertTrue((bin_dir / "lai-server-start").is_file())
             self.assertTrue((bin_dir / "lai-server-stop").is_file())
             self.assertTrue((bin_dir / "lai-server-restart").is_file())
@@ -66,6 +67,17 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             self.assertIn("lai harness", version.stdout)
+
+            config = subprocess.run(
+                [str(bin_dir / "lai"), "config"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("# lai config", config.stdout)
+            self.assertIn("api_key_file", config.stdout)
 
             status = subprocess.run(
                 [str(bin_dir / "lai"), "status"],
