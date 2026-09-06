@@ -99,11 +99,12 @@ O `lai serve` cria uma fronteira HTTP autenticada somente em loopback para runs 
 ```bash
 lai control-token init
 lai serve --bind 127.0.0.1 --port 8765
+lai gateway-contract --json
 ```
 
 ![Arquitetura de acesso móvel privado](docs/assets/private-mobile-access.png)
 
-O `lai-gateway` mostrado acima é um **projeto companion separado**. Ele não faz parte da distribuição deste repositório. A função dele é oferecer PWA/Telegram privados mantendo o bearer token no PC e o control plane do harness em loopback.
+O `lai-gateway` mostrado acima é um **projeto companion separado**. Ele não faz parte da distribuição deste repositório. A função dele é oferecer PWA/Telegram privados mantendo o bearer token no PC e o control plane do harness em loopback. Use `lai gateway-contract --json` ou `GET /v1/gateway-contract` autenticado como fronteira de integração machine-readable.
 
 ## Release protegido e verificável
 

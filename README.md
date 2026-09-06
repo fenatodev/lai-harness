@@ -159,11 +159,12 @@ Detailed contracts are in [Modes](docs/MODES.md).
 ```bash
 lai control-token init
 lai serve --bind 127.0.0.1 --port 8765
+lai gateway-contract --json
 ```
 
 ![LAI private mobile access architecture](docs/assets/private-mobile-access.png)
 
-The `lai-gateway` shown above is a **separate companion project**, not part of this repository or its runtime distribution. It is being developed to provide a private PWA/Telegram interface while keeping the LAI bearer token on the machine and the harness control plane on loopback.
+The `lai-gateway` shown above is a **separate companion project**, not part of this repository or its runtime distribution. It is being developed to provide a private PWA/Telegram interface while keeping the LAI bearer token on the machine and the harness control plane on loopback. Use `lai gateway-contract --json` or authenticated `GET /v1/gateway-contract` as the machine-readable integration boundary.
 
 See [Local control plane](docs/CONTROL-PLANE.md) and [Security model](docs/SECURITY-MODEL.md).
 

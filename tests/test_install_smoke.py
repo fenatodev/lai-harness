@@ -91,6 +91,22 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertIn("# lai config", config.stdout)
             self.assertIn("api_key_file", config.stdout)
 
+            gateway_contract = subprocess.run(
+                [str(bin_dir / "lai"), "gateway-contract", "--json"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            gateway_payload = json.loads(gateway_contract.stdout)
+            self.assertEqual(gateway_payload["schema_version"], 1)
+            self.assertEqual(gateway_payload["companion"]["name"], "lai-gateway")
+            self.assertIn(
+                "/v1/gateway-contract",
+                [route["path"] for route in gateway_payload["routes"]],
+            )
+
             spec_status = subprocess.run(
                 [str(bin_dir / "lai"), "spec"],
                 cwd=sample_repo,

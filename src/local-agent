@@ -4334,6 +4334,7 @@ CONTROL_RUN_QUEUE_LIMIT = 4
 CONTROL_RUN_RETAIN_LIMIT = 20
 CONTROL_RUN_OUTPUT_LIMIT_BYTES = 64 * 1024
 CONTROL_RUN_DIFF_LIMIT_BYTES = 32 * 1024
+GATEWAY_CONTRACT_SCHEMA_VERSION = 1
 CONTROL_PROMOTION_PATCH_LIMIT_BYTES = 512 * 1024
 CONTROL_PROMOTION_MAX_PATHS = 100
 CONTROL_PROMOTION_VALIDATION_OUTPUT_LIMIT_BYTES = 16 * 1024
@@ -4537,6 +4538,104 @@ def control_bind_is_loopback(bind):
     except ValueError:
         return False
     return address.version == 4 and address.is_loopback
+
+
+
+def control_gateway_contract_payload():
+    """Return the stable companion-gateway contract without secrets or transcripts."""
+    routes = [
+        {"method": "GET", "path": "/v1/gateway-contract", "auth_required": True, "purpose": "discover this stable gateway contract"},
+        {"method": "GET", "path": "/v1/status", "auth_required": True, "purpose": "read current product, repository, queue, and capability status"},
+        {"method": "GET", "path": "/v1/readiness", "auth_required": True, "purpose": "read deterministic readiness checks"},
+        {"method": "GET", "path": "/v1/runs?limit=N", "auth_required": True, "purpose": "list bounded historical control-run summaries"},
+        {"method": "POST", "path": "/v1/runs", "auth_required": True, "purpose": "enqueue a bounded asynchronous control run"},
+        {"method": "GET", "path": "/v1/runs/{control_run_id}", "auth_required": True, "purpose": "read one control-run result"},
+        {"method": "DELETE", "path": "/v1/runs/{control_run_id}", "auth_required": True, "purpose": "request cancellation for a queued or active control run"},
+        {"method": "GET", "path": "/v1/runs/{control_run_id}/promotion", "auth_required": True, "purpose": "inspect a hash-bound safe-workspace promotion proposal"},
+        {"method": "POST", "path": "/v1/runs/{control_run_id}/promotion", "auth_required": True, "purpose": "promote an approved exact patch hash into a dedicated feature worktree"},
+        {"method": "DELETE", "path": "/v1/runs/{control_run_id}/promotion", "auth_required": True, "purpose": "method-reserved promotion route; no destructive promotion delete is exposed"},
+        {"method": "POST", "path": "/v1/sessions", "auth_required": True, "purpose": "create a repository-scoped persistent session"},
+        {"method": "GET", "path": "/v1/sessions?limit=N", "auth_required": True, "purpose": "list bounded persistent-session summaries without turn bodies"},
+        {"method": "GET", "path": "/v1/sessions/{session_id}", "auth_required": True, "purpose": "read one repository-scoped session with retained compact turns"},
+        {"method": "POST", "path": "/v1/policy-check", "auth_required": True, "purpose": "classify one tool request without execution"},
+    ]
+    return {
+        "schema_version": GATEWAY_CONTRACT_SCHEMA_VERSION,
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "repository": str(ROOT),
+        "companion": {
+            "name": "lai-gateway",
+            "distribution": "separate-project",
+            "role": "private client adapter for PWA, Telegram, or private-network transports",
+            "token_handling": "keep the LAI control bearer token server-side; never send it to browsers, chat clients, logs, or model prompts",
+        },
+        "transport": {
+            "server": "lai serve",
+            "bind_policy": "loopback-only",
+            "default_bind": CONTROL_API_DEFAULT_BIND,
+            "default_port": CONTROL_API_DEFAULT_PORT,
+            "auth": "Authorization: Bearer <control-api-token>",
+            "content_type": "application/json; charset=utf-8",
+            "cache_control": "no-store",
+        },
+        "limits": {
+            "request_body_max_bytes": CONTROL_API_MAX_BODY_BYTES,
+            "run_queue_limit": CONTROL_RUN_QUEUE_LIMIT,
+            "run_retain_limit": CONTROL_RUN_RETAIN_LIMIT,
+            "run_output_limit_bytes": CONTROL_RUN_OUTPUT_LIMIT_BYTES,
+            "run_diff_limit_bytes": CONTROL_RUN_DIFF_LIMIT_BYTES,
+            "session_max_turns": CONTROL_SESSION_MAX_TURNS,
+            "session_context_max_chars": CONTROL_SESSION_CONTEXT_LIMIT,
+        },
+        "run_modes": {
+            "read_only": sorted(CONTROL_RUN_READ_ONLY_MODES),
+            "work": sorted(CONTROL_RUN_WORK_MODES),
+            "all": sorted(CONTROL_RUN_ALLOWED_MODES),
+        },
+        "capabilities": {
+            "model_execution": True,
+            "policy_classification": True,
+            "async_read_only_runs": True,
+            "async_work_runs": True,
+            "persistent_sessions": True,
+            "approved_workspace_promotion": True,
+            "source_repository_write": False,
+            "sandbox_workspace_write": True,
+            "shell_execution": False,
+            "direct_llama_proxy": False,
+        },
+        "forbidden_capabilities": [
+            "generic_remote_shell",
+            "direct_source_checkout_write",
+            "dependency_installation",
+            "host_environment_override",
+            "commit_push_merge_or_pull_request_authority",
+            "tag_or_release_publication_authority",
+            "browser_automation_or_javascript_execution",
+            "direct_llama_cpp_exposure_to_remote_clients",
+            "control_token_or_model_api_key_disclosure",
+        ],
+        "routes": routes,
+    }
+
+
+def render_gateway_contract(json_mode=False):
+    payload = control_gateway_contract_payload()
+    if json_mode:
+        return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    lines = [
+        "# lai gateway contract",
+        f"Version: {payload['version']}",
+        f"Schema version: {payload['schema_version']}",
+        "Companion: lai-gateway (separate project)",
+        "Transport: lai serve, loopback-only, bearer-authenticated JSON",
+        "Run modes: " + ", ".join(payload["run_modes"]["all"]),
+        "Forbidden: " + ", ".join(payload["forbidden_capabilities"]),
+        "",
+        "Use --json for the stable machine-readable contract.",
+    ]
+    return "\n".join(lines)
 
 
 def control_status_payload(server=None):
@@ -5761,6 +5860,9 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlsplit(self.path)
         if parsed.path == "/v1/status":
             self._json(200, control_status_payload(self.server))
+            return
+        if parsed.path == "/v1/gateway-contract":
+            self._json(200, control_gateway_contract_payload())
             return
         if parsed.path == "/v1/readiness":
             self._json(200, collect_readiness_status())
@@ -11300,6 +11402,10 @@ def main():
 
     if args and args[0] == "--control-serve":
         run_control_server(args[1:])
+        return
+
+    if args and args[0] == "--gateway-contract":
+        print(render_gateway_contract(json_mode="--json" in args[1:]))
         return
 
     if args and args[0] == "--policy-check":
