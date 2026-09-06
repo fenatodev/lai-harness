@@ -102,7 +102,7 @@ Control-run children use fixed argv, `shell=False`, disabled stdin, a dedicated 
 
 ### Read-only runs
 
-Read-only runs execute against the source checkout with capability-reduced inspection tools. They cannot receive write tools or `bash`.
+Read-only runs execute against the source checkout with capability-reduced inspection tools. They cannot receive write tools or `bash`. `plan`, `review`, `security`, and `diagnose` may additionally receive `web_search` / `web_fetch`, which are restricted to bounded public HTTPS evidence under the SSRF/redirect rules in [Web evidence](WEB-EVIDENCE.md). `release` deliberately does not receive model-directed web tools.
 
 ### Work runs
 

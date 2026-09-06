@@ -9,7 +9,7 @@
 - Keep generic `bash` out of remote control profiles; evolve the structured `validate`/sandbox boundary from measured fixtures rather than exposing shell text.
 - Expand end-to-end fixtures for every mode and guard.
 - Dogfood repository-scoped persistent remote sessions with `lai-gateway`; add lifecycle/delete/compaction controls only from measured gateway needs, without expanding remote authority.
-- Add read-only web search/fetch tools with evidence/citation metadata before any browser-action capability.
+- Dogfood read-only public web search/fetch evidence with SSRF/redirect/content bounds; expand providers or extraction only from measured failures before any browser-action capability.
 - Add a governed MCP broker; Desktop Commander is a primary candidate, but MCP calls must pass the same capability/policy boundary.
 
 ## Adjacent projects
@@ -24,7 +24,7 @@
 - Add interactive approval UI and scoped approval grants for `ASK` operations.
 - Add gateway approval UX for promotion, then guarded commit/push/PR actions on promoted feature worktrees.
 - Evolve persistent-session lifecycle, explicit deletion, compaction quality, and gateway-side user/session mapping after real mobile dogfood.
-- Add read-only web search/fetch with evidence and hostile-content boundaries.
+- Evolve read-only web evidence from dogfood before considering any stateful/browser-action capability.
 - Add an MCP broker for allowlisted tools such as Desktop Commander under the same policy layer.
 - Add deterministic wave orchestration for subagents/delegates using explicit dependencies and disjoint file ownership.
 - Add quality-gate ratchets: measure as warning, enforce no-regression, then promote to required gate when debt reaches zero.

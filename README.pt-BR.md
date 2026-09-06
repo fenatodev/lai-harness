@@ -131,6 +131,8 @@ lai project-handoff --target 0.4.0 --remote --json
 
 O lai harness **não é uma sandbox**. As ferramentas de arquivo ficam confinadas à raiz do repositório e a inspeção Git dedicada é somente leitura, mas `bash` local permitido ainda executa com as permissões do usuário. A policy governa ações; ela não substitui isolamento do sistema operacional.
 
+Evidência web também é estreita por design: modos de pesquisa selecionados podem usar busca/fetch HTTPS públicos, somente leitura, com bloqueio de rede privada, redirects e credenciais; todo conteúdo externo é marcado como não confiável. Veja [Web evidence](docs/WEB-EVIDENCE.md).
+
 O controle remoto é mais estreito por design. Runs de leitura recebem apenas ferramentas de inspeção. Runs de work recebem ferramentas de arquivo confinadas ao workspace + `validate`, trabalham numa cópia isolada e retornam evidência limitada. Promotion é uma ação determinística separada: aprovação vinculada ao hash do patch, nova validação `full` na sandbox, verificação de SHA/branch/estado limpo da origem, criação de feature worktree dedicada e verificação do hash após `git apply`. O checkout ativo não é editado. A sandbox continua sem rede, HOME do host ou socket Docker.
 
 Use modos de escrita somente em workspaces confiáveis, com backup ou descartáveis, sob conta de menor privilégio. Nunca publique chaves, tokens de controle, sessões persistidas, estados, métricas, auditoria, modelos ou handoffs reais; não envie credenciais como texto de sessão.

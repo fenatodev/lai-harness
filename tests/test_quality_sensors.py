@@ -43,6 +43,7 @@ class QualitySensorsTest(unittest.TestCase):
                 "src/lai_config.py",
                 "src/lai_specs.py",
                 "src/lai_sessions.py",
+                "src/lai_web.py",
             },
         )
 

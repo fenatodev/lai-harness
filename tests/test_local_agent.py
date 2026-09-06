@@ -335,6 +335,50 @@ class LocalAgentTest(unittest.TestCase):
                 policy = agent.evaluate_tool_policy("bash", {"command": command})
                 self.assertEqual(policy["decision"], expected)
 
+    def test_web_tools_are_read_only_policy_and_return_untrusted_evidence(self):
+        search_payload = {
+            "query": "example",
+            "provider": "duckduckgo-lite",
+            "provider_url": "https://lite.duckduckgo.com/lite/?q=example",
+            "resolved_ips": ["93.184.216.34"],
+            "connected_ip": "93.184.216.34",
+            "status": 200,
+            "fetched_at": "2026-09-06T02:00:00Z",
+            "result_count": 1,
+            "results": [{"title": "Example", "url": "https://example.com/", "snippet": "sample"}],
+            "response_sha256": "a" * 64,
+            "untrusted_external_content": True,
+        }
+        fetch_payload = {
+            "requested_url": "https://example.com/",
+            "url": "https://example.com/",
+            "host": "example.com",
+            "resolved_ips": ["93.184.216.34"],
+            "connected_ip": "93.184.216.34",
+            "status": 200,
+            "content_type": "text/plain",
+            "fetched_at": "2026-09-06T02:00:00Z",
+            "sha256": "b" * 64,
+            "body_bytes": 6,
+            "text": "sample",
+            "truncated": False,
+            "untrusted_external_content": True,
+        }
+        audits = []
+        with mock.patch.object(agent, "search_web_evidence", return_value=search_payload), \
+                mock.patch.object(agent, "fetch_web_evidence", return_value=fetch_payload), \
+                mock.patch.object(agent, "record_audit_event", side_effect=audits.append):
+            searched = agent.tool_web_search({"query": "example"})
+            fetched = agent.tool_web_fetch({"url": "https://example.com/"})
+        self.assertIn("EXTERNAL WEB EVIDENCE (UNTRUSTED)", searched)
+        self.assertIn("EXTERNAL WEB EVIDENCE (UNTRUSTED)", fetched)
+        self.assertEqual(agent.evaluate_tool_policy("web_search", {"query": "x"}, mode="review")["decision"], "ALLOW")
+        self.assertEqual(agent.evaluate_tool_policy("web_fetch", {"url": "https://example.com"}, mode="security")["decision"], "ALLOW")
+        self.assertNotIn("sample", json.dumps(audits))
+        self.assertNotIn("https://example.com/", json.dumps(audits))
+        self.assertIn("query_sha256", audits[0])
+        self.assertIn("url_sha256", audits[1])
+
     def test_policy_check_renders_deterministic_non_execution_evidence(self):
         payload = json.loads(
             agent.render_policy_check(
@@ -2556,6 +2600,11 @@ class LocalAgentTest(unittest.TestCase):
             if item["id"] == "remote-sessions"
         )
         self.assertEqual(remote_sessions["paths"][0], "src/lai_sessions.py")
+        web_evidence = next(
+            item for item in payload["contract"]["subsystems"]
+            if item["id"] == "web-evidence"
+        )
+        self.assertEqual(web_evidence["paths"][0], "src/lai_web.py")
 
     def test_deterministic_model_eval_json_and_sample_are_parseable(self):
         result = subprocess.run(

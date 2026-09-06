@@ -42,6 +42,7 @@ lai harness is built around four ideas:
 - **Reduce model overhead.** Mode-specific tools, bounded context, semantic subsystem hints, batch inspection, and transactional patching keep the model focused.
 - **Make safety deterministic where possible.** `ALLOW` / `ASK` / `DENY` policy, hooks, protected-branch checks, release preflight, and explicit remote capability profiles run outside the model.
 - **Turn failures into evidence.** Validation, acceptance, sanity, readiness, metrics, run history, checkpoints, and forensic audit records make state inspectable instead of implicit.
+- **Treat the public web as hostile evidence.** Selected research modes can search/fetch bounded public HTTPS text with SSRF/redirect controls; external content never becomes authority.
 - **Treat release engineering as part of the harness.** A change is not “done” because the model says so; it must cross local gates, protected CI, synchronized `main`, tag CI, artifact verification, and governance checks.
 
 ## Architecture
@@ -206,7 +207,7 @@ Use write-capable modes only in trusted, backed-up or disposable workspaces unde
 | Understand the architecture | [Architecture](docs/ARCHITECTURE.md) · [Development harness](docs/DEVELOPMENT-HARNESS.md) |
 | Learn modes and context | [Modes](docs/MODES.md) · [Context intelligence](docs/CONTEXT-INTELLIGENCE.md) · [Semantic contracts](docs/SEMANTIC-CODE-CONTRACTS.md) |
 | Inspect runs and recovery | [Run history](docs/RUN-HISTORY.md) · [Run export](docs/RUN-EXPORT.md) · [Runtime records](docs/RUNTIME-RECORDS.md) · [Recovery](docs/RECOVERY.md) |
-| Track safe maintenance | [Update intelligence](docs/UPDATE-INTELLIGENCE.md) · [Model evaluation](docs/MODEL-EVALUATION.md) |
+| Track safe maintenance/research | [Update intelligence](docs/UPDATE-INTELLIGENCE.md) · [Model evaluation](docs/MODEL-EVALUATION.md) · [Web evidence](docs/WEB-EVIDENCE.md) |
 | Operate the control plane | [Control plane](docs/CONTROL-PLANE.md) · [Security model](docs/SECURITY-MODEL.md) |
 | Release safely | [Stable readiness](docs/STABLE-READINESS.md) · [Stable readiness](docs/STABLE-READINESS.md) · [Release preflight](docs/RELEASE-PREFLIGHT.md) · [Release governance](docs/RELEASE-GOVERNANCE.md) |
 | Follow the project | [Roadmap](ROADMAP.md) · [Changelog](CHANGELOG.md) · [Development journey](docs/DEVELOPMENT-JOURNEY.md) |

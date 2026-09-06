@@ -483,7 +483,7 @@ class ControlPlaneTest(unittest.TestCase):
 
         self.assertEqual(
             agent.tool_names_for_mode("diagnose", remote_control_child=True),
-            {"project", "read", "inspect", "search", "list", "git"},
+            {"project", "read", "inspect", "search", "list", "git", "web_search", "web_fetch"},
         )
         self.assertEqual(
             agent.tool_names_for_mode("release", remote_control_child=True),
@@ -497,10 +497,19 @@ class ControlPlaneTest(unittest.TestCase):
             agent.tool_names_for_mode("fix", remote_control_child=True),
             {"project", "read", "search", "list", "git", "edit", "validate"},
         )
+        for mode in {"plan", "review", "security", "diagnose"}:
+            names = agent.tool_names_for_mode(mode, remote_control_child=True)
+            self.assertIn("web_search", names, mode)
+            self.assertIn("web_fetch", names, mode)
+        self.assertNotIn(
+            "web_fetch", agent.tool_names_for_mode("release", remote_control_child=True)
+        )
         for mode in agent.CONTROL_RUN_WORK_MODES:
             names = agent.tool_names_for_mode(mode, remote_control_child=True)
             self.assertIn("validate", names, mode)
             self.assertNotIn("bash", names, mode)
+            self.assertNotIn("web_search", names, mode)
+            self.assertNotIn("web_fetch", names, mode)
 
     def test_structured_validation_uses_fixed_argv_without_shell(self):
         (self.root / "Makefile").write_text(

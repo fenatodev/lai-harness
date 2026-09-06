@@ -11,6 +11,7 @@ The user, installed LAI code, configured source repository, local model endpoint
 - The llama.cpp API key is read from a private external file and sent as a Bearer header.
 - `lai serve` uses a separate bearer token, restrictive token-file permissions, loopback-only binding, bounded JSON bodies, serialized asynchronous runs, bounded queue/output, and fixed child process groups.
 - Persistent control sessions are repository-scoped, schema-versioned, atomically written outside the repository, mode-restricted on disk, and bounded by session/turn/text/context limits. Historical turns are injected only as explicitly untrusted context and never as policy or current-file evidence.
+- Read-only web evidence is HTTPS/443/GET-only, validates every DNS answer as globally routable, pins the TLS connection to a validated IP while verifying the original hostname, sends no credentials/cookies, rejects redirects/compression/binary content, and bounds body/text size. External text is always labeled untrusted.
 - Read-only control profiles never receive generic `bash` or file-write tools.
 - Remote work profiles (`implement`, `fix`, `refactor`, `ci-fix`) execute only in unique disposable safe workspaces copied from tracked source-repository contents; the source checkout is not their working tree.
 - Work profiles never receive generic `bash` or Git mutation tools. They receive repository-confined file tools plus the structured `validate` capability.
@@ -42,7 +43,7 @@ The source checkout is still readable by the parent control server when it creat
 
 The local interactive `bash` tool remains unsandboxed and runs accepted commands with the LAI user's OS permissions. Command inspection is governance, not complete shell containment: aliases, wrappers, alternate interpreters/executables, shell features, or unlisted commands can bypass intent. This local limitation is why generic `bash` remains absent from all remote control profiles.
 
-Prompt injection from repository files or retained session text, malicious tracked project code, malicious dependencies invoked by validation, symlink races, endpoint interception on an untrusted network, extension-host compromise, model hallucination, and sensitive content in session/state/audit/checkpoint/diff output remain possible. Repository filenames/text can bias context ranking; rankings are advisory only. Passing validation proves only the executed checks, not general correctness or security.
+Prompt injection from repository files, retained session text, or public web content, malicious tracked project code, malicious dependencies invoked by validation, symlink races, endpoint interception on an untrusted network, extension-host compromise, model hallucination, and sensitive content in session/state/audit/checkpoint/diff output remain possible. Repository filenames/text can bias context ranking; rankings are advisory only. Passing validation proves only the executed checks, not general correctness or security.
 
 ## Safe deployment guidance
 
