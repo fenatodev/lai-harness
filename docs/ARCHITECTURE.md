@@ -25,7 +25,7 @@ The diagram is a documentation overview; runtime code, policy, and the security 
 
 ### Python harness
 
-`src/local-agent` uses only Python's standard library. It owns prompting, centralized policy evaluation, tool dispatch, mode gates, output limits, endpoint authentication, persistence, and audit correlation.
+`src/local-agent` uses only Python's standard library. It owns prompting, centralized policy evaluation, tool dispatch, mode gates, output limits, endpoint authentication, persistence, and audit correlation. Beta.24 begins incremental modularization: typed semantic code-contract data/rendering/matching live in `src/lai_semantics.py` and are imported by the runtime. This is the template for future low-risk subsystem extraction rather than a big-bang package rewrite.
 
 ### Local control plane
 

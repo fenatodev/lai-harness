@@ -2,12 +2,15 @@ import importlib.util
 from importlib.machinery import SourceFileLoader
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 
 
 ROOT = Path(__file__).parents[1]
 SOURCE = ROOT / "src" / "local-agent"
+if str(SOURCE.parent) not in sys.path:
+    sys.path.insert(0, str(SOURCE.parent))
 SPEC = importlib.util.spec_from_loader(
     "lai_runtime_records_agent",
     SourceFileLoader("lai_runtime_records_agent", str(SOURCE)),

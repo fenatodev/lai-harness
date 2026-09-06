@@ -3,6 +3,7 @@ from importlib.machinery import SourceFileLoader
 import hashlib
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -10,6 +11,8 @@ from unittest import mock
 
 ROOT = Path(__file__).parents[1]
 SOURCE = ROOT / "src" / "local-agent"
+if str(SOURCE.parent) not in sys.path:
+    sys.path.insert(0, str(SOURCE.parent))
 SPEC = importlib.util.spec_from_loader(
     "lai_update_intelligence_agent",
     SourceFileLoader("lai_update_intelligence_agent", str(SOURCE)),

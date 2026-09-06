@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import socket
 import subprocess
+import sys
 import tempfile
 import unittest
 import urllib.error
@@ -14,6 +15,8 @@ from fake_llama_server import FakeLlamaServer
 
 
 SOURCE = Path(__file__).parents[1] / "src" / "local-agent"
+if str(SOURCE.parent) not in sys.path:
+    sys.path.insert(0, str(SOURCE.parent))
 SPEC = importlib.util.spec_from_loader(
     "lai_fake_server_agent",
     SourceFileLoader("lai_fake_server_agent", str(SOURCE)),
