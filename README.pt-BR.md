@@ -27,7 +27,7 @@ Ele complementa agentes cloud de alto contexto. O trabalho local fica rápido e 
 | Runtime | Python stdlib; sem dependências Python no harness |
 | Interfaces | CLI (`lai`) + extensão VS Code |
 | Modelo local | HTTP OpenAI-compatible; desenvolvido com llama.cpp + GGUF do usuário |
-| Controle remoto | Control plane autenticado em loopback; work isolado + promotion hashada para feature worktree dedicada, sem shell remoto nem escrita no checkout ativo |
+| Controle remoto | Control plane autenticado em loopback; sessões persistentes por repositório, work isolado + promotion hashada, sem shell remoto nem escrita no checkout ativo |
 | Release | `main` protegida, CI obrigatório, tag anotada, tag CI e verificação de digest |
 
 Harness Score é usado como ratchet externo de maturidade do repositório, não como certificação de segurança.
@@ -94,7 +94,7 @@ Leia [Installation](docs/INSTALLATION.md) e [Quick start](docs/QUICKSTART.md) an
 
 ## Controle local e acesso móvel privado
 
-O `lai serve` cria uma fronteira HTTP autenticada somente em loopback para runs assíncronos. Modos de leitura continuam sem shell; `implement`, `fix`, `refactor` e `ci-fix` trabalham em safe workspaces descartáveis e validam dentro de uma sandbox Docker. A beta.15 acrescenta uma fronteira separada de promotion: somente um run `succeeded`, com source baseline limpo e inalterado, gera uma proposta vinculada ao SHA-256 exato do patch. Após aprovação, o LAI revalida e aplica o patch em uma feature worktree `lai/promotion-*`; o checkout ativo continua intocado. Não há shell remoto genérico, commit, push, merge ou publicação de release por essa API.
+O `lai serve` cria uma fronteira HTTP autenticada somente em loopback para runs assíncronos. Sessões persistentes vinculadas ao repositório permitem que um gateway privado continue contexto compacto entre runs e reinícios do servidor; o histórico fica local, limitado e entra no modelo apenas como contexto não confiável. Modos de leitura continuam sem shell; `implement`, `fix`, `refactor` e `ci-fix` trabalham em safe workspaces descartáveis e validam dentro de uma sandbox Docker. Promotion continua sendo uma ação separada, vinculada ao SHA-256 exato do patch e aplicada somente em feature worktree `lai/promotion-*`; o checkout ativo continua intocado. Não há shell remoto genérico, commit, push, merge ou publicação de release por essa API.
 
 ```bash
 lai control-token init
@@ -133,7 +133,7 @@ O lai harness **não é uma sandbox**. As ferramentas de arquivo ficam confinada
 
 O controle remoto é mais estreito por design. Runs de leitura recebem apenas ferramentas de inspeção. Runs de work recebem ferramentas de arquivo confinadas ao workspace + `validate`, trabalham numa cópia isolada e retornam evidência limitada. Promotion é uma ação determinística separada: aprovação vinculada ao hash do patch, nova validação `full` na sandbox, verificação de SHA/branch/estado limpo da origem, criação de feature worktree dedicada e verificação do hash após `git apply`. O checkout ativo não é editado. A sandbox continua sem rede, HOME do host ou socket Docker.
 
-Use modos de escrita somente em workspaces confiáveis, com backup ou descartáveis, sob conta de menor privilégio. Nunca publique chaves, tokens de controle, estados, métricas, auditoria, modelos ou handoffs reais.
+Use modos de escrita somente em workspaces confiáveis, com backup ou descartáveis, sob conta de menor privilégio. Nunca publique chaves, tokens de controle, sessões persistidas, estados, métricas, auditoria, modelos ou handoffs reais; não envie credenciais como texto de sessão.
 
 ## Limitações atuais
 

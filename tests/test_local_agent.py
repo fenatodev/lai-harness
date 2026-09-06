@@ -2551,6 +2551,11 @@ class LocalAgentTest(unittest.TestCase):
             if item["id"] == "spec-workflow"
         )
         self.assertEqual(spec_workflow["paths"][0], "src/lai_specs.py")
+        remote_sessions = next(
+            item for item in payload["contract"]["subsystems"]
+            if item["id"] == "remote-sessions"
+        )
+        self.assertEqual(remote_sessions["paths"][0], "src/lai_sessions.py")
 
     def test_deterministic_model_eval_json_and_sample_are_parseable(self):
         result = subprocess.run(

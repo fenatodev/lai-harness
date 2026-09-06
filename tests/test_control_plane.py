@@ -232,6 +232,148 @@ class ControlPlaneTest(unittest.TestCase):
             self.assertEqual(status_code, 200)
             self.assertEqual(payload["runs"][0]["run_id"], "run-1")
 
+    def test_persistent_session_endpoints_create_list_get_and_reopen(self):
+        status, payload = self.request(
+            "/v1/sessions", method="POST", token=self.token, body={}
+        )
+        self.assertEqual(status, 201)
+        session_id = payload["session"]["session_id"]
+        self.assertRegex(session_id, r"^cs-[0-9a-f]{16}$")
+        self.assertEqual(payload["session"]["turn_count"], 0)
+
+        status, control_status = self.request("/v1/status", token=self.token)
+        self.assertEqual(status, 200)
+        self.assertTrue(control_status["capabilities"]["persistent_sessions"])
+        self.assertEqual(
+            control_status["capabilities"]["session_max_turns"],
+            agent.CONTROL_SESSION_MAX_TURNS,
+        )
+
+        status, listed = self.request("/v1/sessions?limit=1", token=self.token)
+        self.assertEqual(status, 200)
+        self.assertEqual(listed["sessions"][0]["session_id"], session_id)
+        self.assertNotIn("turns", listed["sessions"][0])
+
+        status, shown = self.request(f"/v1/sessions/{session_id}", token=self.token)
+        self.assertEqual(status, 200)
+        self.assertEqual(shown["session"]["session_id"], session_id)
+        self.assertEqual(shown["session"]["turns"], [])
+
+        extra = agent.create_control_server("127.0.0.1", 0, token=self.token)
+        try:
+            reopened = agent.control_session_payload(extra, session_id)
+            self.assertEqual(reopened["session"]["session_id"], session_id)
+        finally:
+            extra.server_close()
+
+    def test_session_bound_runs_reuse_bounded_untrusted_history(self):
+        calls = []
+
+        class FakeProcess:
+            def __init__(self, argv, **kwargs):
+                calls.append(list(argv))
+                self.returncode = 0
+                result = f"session answer {len(calls)}\n".encode()
+                kwargs["stdout"].write(result)
+                kwargs["stderr"].write(b"")
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def terminate(self):
+                self.returncode = -15
+
+            def kill(self):
+                self.returncode = -9
+
+        status, created = self.request(
+            "/v1/sessions", method="POST", token=self.token, body={}
+        )
+        self.assertEqual(status, 201)
+        session_id = created["session"]["session_id"]
+
+        with mock.patch.object(agent.subprocess, "Popen", FakeProcess):
+            status, first = self.request(
+                "/v1/runs", method="POST", token=self.token,
+                body={"mode": "plan", "task": "first remote question", "session_id": session_id},
+            )
+            self.assertEqual(status, 202)
+            first_final = self.wait_run(first["run"]["control_run_id"], "succeeded")
+            self.assertTrue(first_final["session_persisted"])
+            self.assertEqual(first_final["session_turns_used"], 0)
+
+            status, second = self.request(
+                "/v1/runs", method="POST", token=self.token,
+                body={"mode": "plan", "task": "second remote question", "session_id": session_id},
+            )
+            self.assertEqual(status, 202)
+            second_final = self.wait_run(second["run"]["control_run_id"], "succeeded")
+
+        self.assertEqual(calls[0][3], "first remote question")
+        second_task = calls[1][3]
+        self.assertIn("UNTRUSTED HISTORICAL CONTEXT", second_task)
+        self.assertIn("first remote question", second_task)
+        self.assertIn("session answer 1", second_task)
+        self.assertTrue(second_task.endswith("CURRENT REQUEST:\nsecond remote question"))
+        self.assertEqual(second_final["session_id"], session_id)
+        self.assertEqual(second_final["session_turns_used"], 1)
+        self.assertGreater(second_final["session_context_chars"], 0)
+        self.assertTrue(second_final["session_persisted"])
+
+        status, shown = self.request(f"/v1/sessions/{session_id}", token=self.token)
+        self.assertEqual(status, 200)
+        self.assertEqual(shown["session"]["turn_count"], 2)
+
+        extra = agent.create_control_server("127.0.0.1", 0, token=self.token)
+        try:
+            reopened = agent.control_session_payload(extra, session_id)
+            self.assertEqual(reopened["session"]["turn_count"], 2)
+            self.assertIn(
+                "first remote question",
+                reopened["session"]["turns"][0]["task"],
+            )
+        finally:
+            extra.server_close()
+
+    def test_unknown_session_is_rejected_before_spawn_and_persistence_failure_fails_run(self):
+        with mock.patch.object(agent.subprocess, "Popen") as popen:
+            status, payload = self.request(
+                "/v1/runs", method="POST", token=self.token,
+                body={"mode": "plan", "task": "do not run", "session_id": "cs-9999999999999999"},
+            )
+        self.assertEqual(status, 404)
+        self.assertEqual(payload["error"]["code"], "session_not_found")
+        popen.assert_not_called()
+
+        status, created = self.request(
+            "/v1/sessions", method="POST", token=self.token, body={}
+        )
+        session_id = created["session"]["session_id"]
+
+        class InstantProcess:
+            def __init__(self, argv, **kwargs):
+                self.returncode = 0
+                kwargs["stdout"].write(b"useful answer\n")
+                kwargs["stderr"].write(b"")
+            def poll(self): return self.returncode
+            def wait(self, timeout=None): return self.returncode
+            def terminate(self): self.returncode = -15
+            def kill(self): self.returncode = -9
+
+        with mock.patch.object(agent.subprocess, "Popen", InstantProcess), \
+                mock.patch.object(agent, "append_control_session_turn", side_effect=OSError("disk full")):
+            status, submitted = self.request(
+                "/v1/runs", method="POST", token=self.token,
+                body={"mode": "plan", "task": "persist me", "session_id": session_id},
+            )
+            self.assertEqual(status, 202)
+            final = self.wait_run(submitted["run"]["control_run_id"], "failed")
+        self.assertFalse(final["session_persisted"])
+        self.assertIn("control session persistence failed", final["stderr"])
+
     def test_policy_endpoint_classifies_without_execution(self):
         status, payload = self.request(
             "/v1/policy-check",

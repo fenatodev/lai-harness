@@ -28,7 +28,7 @@ It complements high-context cloud agents rather than trying to replace them: loc
 | Runtime | Python standard library; no Python package dependencies in the harness |
 | Primary surfaces | CLI (`lai`) + VS Code extension |
 | Local model path | OpenAI-compatible HTTP; developed with llama.cpp + user-supplied GGUF |
-| Remote control | Authenticated loopback control plane; isolated work runs plus hash-bound promotion into dedicated feature worktrees; no remote shell or direct active-checkout write |
+| Remote control | Authenticated loopback control plane; persistent repository-scoped sessions, isolated work runs, and hash-bound promotion; no remote shell or direct active-checkout write |
 | Release discipline | Protected `main`, required CI, annotated tag, tag CI, channel-aware release/digest verification |
 
 Harness Score is used as an external repository-maturity ratchet, not as a security certification.
@@ -153,7 +153,7 @@ Detailed contracts are in [Modes](docs/MODES.md).
 
 ## Local control plane and private mobile access
 
-`lai serve` adds an authenticated loopback-only HTTP boundary for asynchronous control runs. Read-only modes remain shell-free; isolated `implement`, `fix`, `refactor`, and `ci-fix` runs write only to disposable safe workspaces and validate inside a constrained Docker sandbox. Beta.15 adds an explicit promotion boundary: only a successful work run with an unchanged clean source baseline can expose a SHA-256-bound proposal, and an approved hash is revalidated before the exact patch is applied to a dedicated `lai/promotion-*` feature worktree. The active source checkout remains unchanged. The control plane still does **not** expose a generic remote shell, commit, push, merge, release publication, or the llama.cpp port directly.
+`lai serve` adds an authenticated loopback-only HTTP boundary for asynchronous control runs. Repository-scoped persistent sessions let a private gateway continue bounded coding context across runs/server restarts; historical turns are stored locally with restrictive permissions and are injected only as untrusted context. Read-only modes remain shell-free; isolated `implement`, `fix`, `refactor`, and `ci-fix` runs write only to disposable safe workspaces and validate inside a constrained Docker sandbox. Promotion remains a separate SHA-256-bound action into dedicated `lai/promotion-*` feature worktrees. The active source checkout remains unchanged. The control plane still does **not** expose a generic remote shell, commit, push, merge, release publication, or the llama.cpp port directly.
 
 ```bash
 lai control-token init

@@ -2,7 +2,7 @@
 
 `lai serve` exposes a small authenticated HTTP/JSON control surface for local integrations such as `lai-gateway`, a private PWA, Telegram, or a Tailscale proxy.
 
-Beta.15 keeps the server loopback-only and supports two explicit run classes plus a separate approved-promotion action:
+The stable core keeps the server loopback-only and supports persistent repository-scoped sessions, two explicit run classes, and a separate approved-promotion action:
 
 - shell-free read-only runs: `plan`, `review`, `security`, `diagnose`, `release`;
 - isolated work runs: `implement`, `fix`, `refactor`, `ci-fix`.
@@ -47,9 +47,9 @@ Requests without a valid bearer token receive `401`. Responses use JSON, disable
 
 Returns product/repository state, Git status, active spec summary, historical-run summary, queue state, and explicit capabilities.
 
-Beta.15 reports `model_execution=true`, `shell_execution=false`, and `repository_write=false` for the source checkout. It also reports `sandbox_workspace_write=true`, `async_work_runs=true`, the configured validation sandbox image, sandbox readiness, and the allowed remote modes.
+The current control surface reports `model_execution=true`, `shell_execution=false`, `repository_write=false`, and `persistent_sessions=true` for the source checkout. It also reports `sandbox_workspace_write=true`, `async_work_runs=true`, the configured validation sandbox image, sandbox readiness, bounded session limits, and the allowed remote modes.
 
-`repository_write=false` is deliberate: a remote work run can mutate only its disposable safe workspace. Beta.15 additionally reports `approved_workspace_promotion=true` with `promotion_target=dedicated-feature-worktree`; promotion creates a separate Git worktree/branch and still does not edit the active source checkout.
+`repository_write=false` is deliberate: a remote work run can mutate only its disposable safe workspace. The server additionally reports `approved_workspace_promotion=true` with `promotion_target=dedicated-feature-worktree`; promotion creates a separate Git worktree/branch and still does not edit the active source checkout.
 
 ### `GET /v1/readiness`
 
@@ -59,6 +59,16 @@ Reuses the deterministic `lai readiness` collector. It may probe the configured 
 
 Returns up to 50 sanitized historical run summaries from the existing observability store. This remains the historical list endpoint.
 
+### Persistent sessions
+
+`POST /v1/sessions` with an empty JSON object creates a repository-scoped session and returns a generated `cs-<16 hex>` identifier. `GET /v1/sessions?limit=N` lists bounded summaries for the currently served repository, and `GET /v1/sessions/<session_id>` returns the retained compact turns. Every route remains bearer-authenticated.
+
+Session state lives under `$LAI_DATA_DIR/control-sessions` as schema-versioned JSON, outside the repository. The directory is restricted to mode `0700`; session files are atomically replaced and restricted to `0600`. Each file is bound to the canonical repository root, so a session from another checkout is treated as unavailable rather than injected across projects. At most 100 session files are retained, each session keeps at most 12 turns, stored tasks are capped at 1200 characters, stored assistant text at 1800 characters, and prior context injected into a later run is capped at 6000 characters.
+
+Historical session text is explicitly **untrusted context**. It may be stale, contain model mistakes, or include hostile instructions. The harness labels it accordingly and states that it cannot override the current request, `AGENTS.md`, active specs, policy, safety guards, or current repository evidence. A session-bound run does not become terminal-successful until its compact turn has been persisted; persistence failure is surfaced as a failed run instead of silently losing continuity.
+
+The harness does not automatically copy environment variables, bearer tokens, model API keys, or full tool traces into the session record. User-provided task/output text can still contain sensitive information, so gateways should never send credentials as conversation text and operators should treat `$LAI_DATA_DIR/control-sessions` as private local state.
+
 ### `POST /v1/policy-check`
 
 Classifies one tool request through the same deterministic `ALLOW` / `ASK` / `DENY` policy used by the harness. It always returns `executed: false`.
@@ -67,21 +77,24 @@ Classifies one tool request through the same deterministic `ALLOW` / `ASK` / `DE
 
 ### `POST /v1/runs`
 
-Accepts exactly:
+Accepts `mode` and `task`, plus an optional persistent `session_id`:
 
 ```json
 {
-  "mode": "implement",
-  "task": "add the requested regression test and validate the change"
+  "mode": "plan",
+  "task": "continue the previous architecture discussion",
+  "session_id": "cs-0123456789abcdef"
 }
 ```
+
+Without `session_id`, the run remains one-shot and follows the existing behavior. With `session_id`, the session must already exist for the current repository; unknown or cross-repository IDs are rejected before child-process spawn.
 
 Allowed run modes in beta.15:
 
 - read-only: `plan`, `review`, `security`, `diagnose`, `release`;
 - work: `implement`, `fix`, `refactor`, `ci-fix`.
 
-The task must be non-empty and at most 4000 characters. Unknown fields are rejected. The client cannot supply an executable, shell command, cwd, argv prefix, environment override, validation command, container image, or Docker options.
+The task must be non-empty and at most 4000 characters. Unknown fields other than the optional `session_id` are rejected. The client cannot supply an executable, shell command, cwd, argv prefix, environment override, validation command, container image, or Docker options.
 
 Accepted work returns `202` with a generated `control_run_id`. One worker serializes model use and at most four additional requests may wait in the queue. A full queue returns `429`.
 
@@ -135,7 +148,7 @@ The harness never pulls a sandbox image automatically. If Docker or the configur
 
 Returns `queued`, `running`, `succeeded`, `failed`, or `cancelled` plus timestamps, exit code, bounded stdout/stderr, truncation flags, and the tool-profile name.
 
-For work runs it additionally returns the isolated workspace path, bounded Git status, changed paths, bounded diff, and a diff-truncation flag. The full submitted task is not persisted as a new control-plane transcript record.
+For work runs it additionally returns the isolated workspace path, bounded Git status, changed paths, bounded diff, and a diff-truncation flag. Session-bound runs also return `session_id`, the number of prior turns used, historical-context character count, and whether the terminal turn was persisted. One-shot runs still do not create a control-plane transcript; session-bound runs persist only the bounded compact turn described above.
 
 ### `DELETE /v1/runs/<control_run_id>`
 
@@ -143,7 +156,7 @@ Cancels only that queued/running control run. A queued run is cancelled before s
 
 ## Explicitly not exposed
 
-Beta.15 still has no HTTP capability for:
+The control plane still has no HTTP capability for:
 
 - arbitrary shell or arbitrary executable invocation;
 - direct writes to or branch switching of the active source checkout;
@@ -157,9 +170,10 @@ Beta.15 still has no HTTP capability for:
 
 ```text
 phone -> Telegram/PWA -> lai-gateway -> Tailscale/private proxy -> 127.0.0.1:8765 -> lai harness
-                                                        |-> read-only run
+                                                        |-> persistent session -> read-only/work run
+                                                        |                    `-> bounded untrusted turn context
                                                         `-> isolated work workspace -> sandbox validate -> patch hash
                                                                                          -> approved promotion -> feature worktree
 ```
 
-`lai-gateway` is intentionally a separate project. Messaging credentials, mobile sessions, notification delivery, and commercial/social automation do not belong in the harness core.
+`lai-gateway` is intentionally a separate project. Messaging credentials, transport/user mapping, notification delivery, and commercial/social automation do not belong in the harness core. The harness stores only repository-scoped coding-session continuity behind its loopback bearer boundary.
