@@ -1,3 +1,29 @@
+## lai harness v0.4.2 — gateway contract manifest
+
+`v0.4.2` packages the gateway contract boundary for companion mobile/private-client work. It does not ship `lai-gateway` itself; it gives that separate project a stable machine-readable contract instead of forcing endpoint assumptions to be copied from prose.
+
+### What changed
+
+- Added `lai gateway-contract --json` for deterministic local discovery of the companion-gateway contract.
+- Added authenticated `GET /v1/gateway-contract` to the loopback control plane.
+- Added `schemas/runtime/gateway_contract.schema.json` and `docs/GATEWAY-CONTRACT.md`.
+- Documented supported control-plane routes, bearer-auth expectations, request/run/session limits, run modes, companion responsibilities, and explicit forbidden capabilities.
+
+### Safety boundary
+
+- No Telegram, PWA, Tailscale, OAuth, webhook, notification, or messaging dependency was added to `lai-harness`.
+- No generic remote shell, direct source-checkout write, dependency installation, commit, push, merge, PR, tag, release-publication, browser automation, JavaScript execution, direct llama.cpp proxy, or token disclosure authority was added.
+- The endpoint is bearer-authenticated and does not include control tokens, model API keys, secret file contents, host environment variables, private run transcripts, or persistent-session turn bodies.
+
+### Release commands
+
+```bash
+lai release-check --target 0.4.2 --json
+lai release-pack --target 0.4.2 --with-vsix --json
+lai release-governance --target 0.4.2 --remote --json
+lai project-handoff --target 0.4.2 --remote --json
+```
+
 ## lai harness v0.4.1 — operational capability patch
 
 `v0.4.1` packages the first post-stable operational increment after `v0.4.0`. It adds practical remote-session continuity, bounded read-only web evidence for research workflows, and removes observed duplicate CI work without loosening release governance or model authority.
