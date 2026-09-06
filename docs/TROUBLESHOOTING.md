@@ -2,7 +2,7 @@
 
 ## Server does not start
 
-Run `lai doctor`. Confirm `LAI_HOST`, `LAI_PORT`, the Windows launcher path, and that the selected `llama-server` supports API-key authentication. Inspect private server logs locally; do not paste secrets into issues.
+Run `lai doctor`. Confirm `LAI_HOST`, `LAI_PORT`, the Windows launcher path when startup is needed, and that the selected `llama-server` supports `--api-key-file`. Inspect private server logs locally; do not paste secrets into issues.
 
 ## HTTP 401
 
@@ -22,7 +22,7 @@ Re-run `scripts/install-local.sh` or apply executable permission to the installe
 
 ## Model fails to load
 
-Check available RAM/VRAM, model identifier/path, quantization, context size, and the server log. lai harness does not manage model downloads or licenses.
+Check available RAM/VRAM, model identifier/path, quantization, context size, and the server log. For local GGUF files in WSL/Windows, set `LAI_MODEL` to the Windows-visible path and tune `LAI_CTX_SIZE` and `LAI_GPU_LAYERS`; the small local-code smoke path used 4096 context and CPU layers. lai harness does not manage model downloads or licenses.
 
 ## VS Code does not show @lai
 

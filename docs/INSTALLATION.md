@@ -57,13 +57,17 @@ Supported settings include:
 | `LAI_AUDIT_DIR` | `$LAI_DATA_DIR/audit` | Audit JSONL |
 | `LAI_SERVER_LAUNCHER` | `lai-server-start` | Command invoked when readiness fails |
 | `LAI_LLAMA_SERVER` | unset | Server executable passed to the launcher |
+| `LAI_API_KEY_FILE_WINDOWS` | unset | Windows path to the llama.cpp key file used by `start-secure.ps1` |
+| `LAI_CTX_SIZE` | `4096` in `start-secure.ps1` | Context size passed to Windows `llama-server` |
+| `LAI_GPU_LAYERS` | `0` in `start-secure.ps1` | GPU layer count passed to Windows `llama-server` |
+| `LAI_PARALLEL` | `1` in `start-secure.ps1` | Parallel slot count passed to Windows `llama-server` |
 | `LAI_CHAT_TEMPLATE` | unset | User-supplied authorized template |
 
 ## llama.cpp on Windows with WSL
 
-For WSL with a Windows-hosted `llama-server`, copy `scripts/start-secure.ps1` to a private Windows location. In Windows, set `LAI_LLAMA_SERVER`, `LAI_API_KEY_FILE_WINDOWS`, and optionally `LAI_MODEL` and `LAI_LOG_DIR`. In WSL, set `LAI_WINDOWS_LAUNCHER` to that script's Windows path.
+For WSL with a Windows-hosted `llama-server`, copy `scripts/start-secure.ps1` to a private Windows location. In Windows, set `LAI_LLAMA_SERVER`, `LAI_API_KEY_FILE_WINDOWS`, and optionally `LAI_MODEL`, `LAI_LOG_DIR`, `LAI_CTX_SIZE`, `LAI_GPU_LAYERS`, and `LAI_PARALLEL`. In WSL, set `LAI_WINDOWS_LAUNCHER` to that script's Windows path when the launcher must start the Windows process. If the model server is already running and enforces authentication, `scripts/ministral-start` reports that state without requiring the launcher variable.
 
-The reference launcher requires an API-auth-capable `llama-server`, requests `--no-webui` and metrics when supported, and uses the development profile recorded in the benchmark document. Adjust context and GPU settings for your hardware. Do not reuse an internet-facing bind without firewall and authentication review.
+The reference launcher requires `llama-server` support for `--api-key-file`, requests `--no-webui` and metrics when supported, and supports both local GGUF file paths and Hugging Face model identifiers through `LAI_MODEL`. Adjust context and GPU settings for your hardware. Do not reuse an internet-facing bind without firewall and authentication review.
 
 For Linux-native or remote OpenAI-compatible servers, set `LAI_HOST`, `LAI_PORT`, and `LAI_API_KEY_FILE` directly and use `lai doctor` rather than the Windows launcher. The repository intentionally does not include a model or chat template. Supply compatible files under their own license terms.
 
