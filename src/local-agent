@@ -75,7 +75,7 @@ from lai_web import (
     search_web_evidence as search_web_evidence,
 )
 
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 PRODUCT_NAME = "lai harness"
 def render_config_status(config=None):
     return _render_config_status(CONFIG if config is None else config, VERSION)

@@ -12,7 +12,7 @@
   <a href="LICENSE"><img alt="Licença" src="https://img.shields.io/badge/license-MIT-0f766e"></a>
 </p>
 
-> **Release atual:** `v0.4.0` · primeiro core estável · fluxo Linux/WSL-first · inferência local por endpoint OpenAI-compatible, desenvolvido com llama.cpp.
+> **Release atual:** `v0.4.1` · patch de capacidade operacional · fluxo Linux/WSL-first · inferência local por endpoint OpenAI-compatible, desenvolvido com llama.cpp.
 
 O lai harness foi criado para um problema específico: modelos locais pequenos perdem muita capacidade quando precisam carregar prompts gigantes, schemas genéricos e muitas rodadas de ferramentas. O projeto reduz esse overhead e coloca ao redor do modelo regras que não dependem da própria resposta do modelo: policy, specs, validação, auditoria, checkpoints e release protegido.
 
@@ -22,7 +22,7 @@ Ele complementa agentes cloud de alto contexto. O trabalho local fica rápido e 
 
 | Área | Estado atual |
 | --- | --- |
-| Versão | `0.4.0` |
+| Versão | `0.4.1` |
 | Maturidade do harness | L4 · Self-correcting · 100/108 (93%) |
 | Runtime | Python stdlib; sem dependências Python no harness |
 | Interfaces | CLI (`lai`) + extensão VS Code |
@@ -121,10 +121,10 @@ O fluxo exige:
 8. handoff convergente sem ações manuais pendentes.
 
 ```bash
-lai release-check --target 0.4.0 --json
-lai release-pack --target 0.4.0 --with-vsix --json
-lai release-governance --target 0.4.0 --remote --json
-lai project-handoff --target 0.4.0 --remote --json
+lai release-check --target 0.4.1 --json
+lai release-pack --target 0.4.1 --with-vsix --json
+lai release-governance --target 0.4.1 --remote --json
+lai project-handoff --target 0.4.1 --remote --json
 ```
 
 ## Segurança

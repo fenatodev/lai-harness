@@ -933,6 +933,8 @@ class LocalAgentTest(unittest.TestCase):
             },
             "overall": "ready",
         }
+
+        expected_tag = f"v{agent.VERSION}"
         state = {
             "head": "aaa111",
             "origin_main": "bbb222",
@@ -950,33 +952,33 @@ class LocalAgentTest(unittest.TestCase):
                 return state["exact_tag"]
             if args == ["describe", "--tags", "--abbrev=0"]:
                 return state["latest_tag"]
-            if args == ["rev-parse", "v0.4.0^{}"]:
+            if args == ["rev-parse", f"{expected_tag}^{{}}"]:
                 return state["tag_target"]
             return default
 
         with mock.patch.object(agent, "collect_readiness_status", return_value=readiness), \
                 mock.patch.object(agent, "git_command_text", side_effect=fake_git), \
                 mock.patch.object(agent, "release_validation_commands", return_value=["make validate"]):
-            candidate = agent.collect_release_check("0.4.0")
+            candidate = agent.collect_release_check(agent.VERSION)
             self.assertEqual(candidate["phase"], "ready_for_integration")
             self.assertFalse(candidate["tag_ready"])
 
             readiness["git"]["branch"] = "main"
             state["origin_main"] = state["head"]
-            taggable = agent.collect_release_check("0.4.0")
+            taggable = agent.collect_release_check(agent.VERSION)
             self.assertEqual(taggable["phase"], "ready_to_tag")
             self.assertTrue(taggable["tag_ready"])
             self.assertEqual(taggable["origin_main"], state["head"])
 
             state["origin_main"] = "different333"
-            divergent = agent.collect_release_check("0.4.0")
+            divergent = agent.collect_release_check(agent.VERSION)
             self.assertEqual(divergent["overall"], "blocked")
             self.assertEqual(divergent["phase"], "blocked")
             self.assertFalse(divergent["tag_ready"])
 
             state["origin_main"] = state["head"]
             state["tag_target"] = "old444"
-            wrong_tag = agent.collect_release_check("0.4.0")
+            wrong_tag = agent.collect_release_check(agent.VERSION)
             self.assertEqual(wrong_tag["overall"], "blocked")
             self.assertEqual(wrong_tag["phase"], "blocked")
             self.assertIn("old444", next(
@@ -984,8 +986,8 @@ class LocalAgentTest(unittest.TestCase):
             ))
 
             state["tag_target"] = state["head"]
-            state["exact_tag"] = "v0.4.0"
-            released = agent.collect_release_check("0.4.0")
+            state["exact_tag"] = expected_tag
+            released = agent.collect_release_check(agent.VERSION)
             self.assertEqual(released["overall"], "ready")
             self.assertEqual(released["phase"], "released")
             self.assertFalse(released["tag_ready"])
@@ -2896,8 +2898,9 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("release channel (`prerelease` or `stable`)", publishing)
         self.assertIn("expected GitHub `prerelease` flag", publishing)
         self.assertTrue(
-            release_notes.startswith("## lai harness v0.4.0 — stable core graduation")
+            release_notes.startswith(f"## lai harness v{agent.VERSION} — operational capability patch")
         )
+        self.assertIn("lai harness v0.4.0 — stable core graduation", release_notes)
         self.assertIn("lai harness v0.4.0-beta.24", release_notes)
         self.assertIn("<target-version>", release_checklist)
         self.assertIn("pre-release flag", release_checklist)
