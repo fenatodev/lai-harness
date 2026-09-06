@@ -1,3 +1,28 @@
+## lai harness v0.4.3 — runtime startup hardening
+
+`v0.4.3` packages the Windows/WSL llama.cpp startup hardening needed for repeatable local-model operation with the companion gateway. It keeps the Harness control-plane boundary unchanged while making the authenticated model-server launcher safer and more useful for local GGUF files.
+
+### What changed
+
+- Hardened `scripts/ministral-start` and `scripts/ministral-doctor` so authenticated `/props` probes read the llama.cpp key from file without placing the key in shell `curl` arguments.
+- `scripts/ministral-start` now accepts an already-running authenticated model server without requiring `LAI_WINDOWS_LAUNCHER`; the launcher variable is needed only when a new Windows process must be started.
+- `scripts/start-secure.ps1` accepts local GGUF paths through `LAI_MODEL`, keeps Hugging Face `-hf` fallback for model identifiers, exposes `LAI_CTX_SIZE`, `LAI_GPU_LAYERS`, and `LAI_PARALLEL`, and requires `--api-key-file` support instead of falling back to `--api-key`.
+- Documented the validated small local-code path using a Windows-hosted Qwen2.5-Coder GGUF server with 4096 context and CPU layers.
+
+### Safety boundary
+
+- No model download, public bind, token printing, generic shell authority, commit, push, merge, tag, release publication, gateway route, or remote-write authority was added.
+- The PowerShell launcher now fails closed when `llama-server` lacks `--api-key-file`; it no longer falls back to placing the key value in process arguments.
+
+### Release commands
+
+```bash
+lai release-check --target 0.4.3 --json
+lai release-pack --target 0.4.3 --with-vsix --json
+lai release-governance --target 0.4.3 --remote --json
+lai project-handoff --target 0.4.3 --remote --json
+```
+
 ## lai harness v0.4.2 — gateway contract manifest
 
 `v0.4.2` packages the gateway contract boundary for companion mobile/private-client work. It does not ship `lai-gateway` itself; it gives that separate project a stable machine-readable contract instead of forcing endpoint assumptions to be copied from prose.
@@ -23,18 +48,6 @@ lai release-pack --target 0.4.2 --with-vsix --json
 lai release-governance --target 0.4.2 --remote --json
 lai project-handoff --target 0.4.2 --remote --json
 ```
-
-## Unreleased — runtime startup hardening
-
-### What changed
-
-- Hardened `scripts/ministral-start` and `scripts/ministral-doctor` so authenticated `/props` probes read the llama.cpp key from file without placing the key in shell `curl` arguments.
-- `scripts/ministral-start` now accepts an already-running authenticated model server without requiring `LAI_WINDOWS_LAUNCHER`; the launcher variable is needed only when a new Windows process must be started.
-- `scripts/start-secure.ps1` accepts local GGUF paths through `LAI_MODEL`, keeps Hugging Face `-hf` fallback for model identifiers, exposes `LAI_CTX_SIZE`, `LAI_GPU_LAYERS`, and `LAI_PARALLEL`, and requires `--api-key-file` support instead of falling back to `--api-key`.
-
-### Safety boundary
-
-- No model download, public bind, token printing, generic shell authority, commit, push, merge, tag, or release publication was added.
 
 ## lai harness v0.4.1 — operational capability patch
 
