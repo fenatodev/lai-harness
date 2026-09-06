@@ -153,6 +153,7 @@ Os diagramas são apoio de documentação; código, testes, policy e security mo
 
 - [Roadmap](ROADMAP.md)
 - [Changelog](CHANGELOG.md)
+- [Stable readiness](docs/STABLE-READINESS.md)
 - [Beta readiness](docs/BETA-READINESS.md)
 - [Release governance](docs/RELEASE-GOVERNANCE.md)
 - [Development journey](docs/DEVELOPMENT-JOURNEY.md)

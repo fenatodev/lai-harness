@@ -15,7 +15,7 @@
 
 > **Current release:** `v0.4.0-beta.24` · experimental beta · Linux/WSL-first · local inference through an OpenAI-compatible endpoint such as llama.cpp.
 
-lai harness makes constrained local models more useful by giving them a smaller, more deterministic operating environment. Instead of relying on a huge prompt and a generic shell, it combines mode-specific tools, repository-aware context, explicit policy decisions, validation gates, persistent state, and a release workflow that can be audited from feature branch to GitHub pre-release.
+lai harness makes constrained local models more useful by giving them a smaller, more deterministic operating environment. Instead of relying on a huge prompt and a generic shell, it combines mode-specific tools, repository-aware context, explicit policy decisions, validation gates, persistent state, and a release workflow that can be audited from feature branch to the final GitHub Release.
 
 It complements high-context cloud agents rather than trying to replace them: local runs stay bounded and inexpensive, while `project-handoff` can carry verified context into another agent or future session.
 
@@ -29,7 +29,7 @@ It complements high-context cloud agents rather than trying to replace them: loc
 | Primary surfaces | CLI (`lai`) + VS Code extension |
 | Local model path | OpenAI-compatible HTTP; developed with llama.cpp + user-supplied GGUF |
 | Remote control | Authenticated loopback control plane; isolated work runs plus hash-bound promotion into dedicated feature worktrees; no remote shell or direct active-checkout write |
-| Release discipline | Protected `main`, required CI, annotated tag, tag CI, prerelease digest verification |
+| Release discipline | Protected `main`, required CI, annotated tag, tag CI, channel-aware release/digest verification |
 
 Harness Score is used as an external repository-maturity ratchet, not as a security certification.
 
@@ -188,7 +188,7 @@ lai release-governance --target 0.4.0-beta.24 --remote --json
 lai project-handoff --target 0.4.0-beta.24 --remote --json
 ```
 
-See [Release governance](docs/RELEASE-GOVERNANCE.md), [Release checklist](docs/RELEASE-CHECKLIST.md), and [Release notes](docs/RELEASE-NOTES.md).
+See [Stable readiness](docs/STABLE-READINESS.md), [Release governance](docs/RELEASE-GOVERNANCE.md), [Release checklist](docs/RELEASE-CHECKLIST.md), and [Release notes](docs/RELEASE-NOTES.md).
 
 ## Security boundary
 
@@ -208,7 +208,7 @@ Use write-capable modes only in trusted, backed-up or disposable workspaces unde
 | Inspect runs and recovery | [Run history](docs/RUN-HISTORY.md) · [Run export](docs/RUN-EXPORT.md) · [Runtime records](docs/RUNTIME-RECORDS.md) · [Recovery](docs/RECOVERY.md) |
 | Track safe maintenance | [Update intelligence](docs/UPDATE-INTELLIGENCE.md) · [Model evaluation](docs/MODEL-EVALUATION.md) |
 | Operate the control plane | [Control plane](docs/CONTROL-PLANE.md) · [Security model](docs/SECURITY-MODEL.md) |
-| Release safely | [Beta readiness](docs/BETA-READINESS.md) · [Release preflight](docs/RELEASE-PREFLIGHT.md) · [Release governance](docs/RELEASE-GOVERNANCE.md) |
+| Release safely | [Stable readiness](docs/STABLE-READINESS.md) · [Beta readiness](docs/BETA-READINESS.md) · [Release preflight](docs/RELEASE-PREFLIGHT.md) · [Release governance](docs/RELEASE-GOVERNANCE.md) |
 | Follow the project | [Roadmap](ROADMAP.md) · [Changelog](CHANGELOG.md) · [Development journey](docs/DEVELOPMENT-JOURNEY.md) |
 
 ## Experimental results

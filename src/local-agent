@@ -7642,6 +7642,9 @@ def git_command_text(args, default="[unavailable]", timeout=10):
 
 def release_validation_commands():
     targets = set(makefile_targets())
+    if "milestone-gate" in targets:
+        return ["make milestone-gate"]
+
     preferred = []
     for target in ("check", "test-dev", "test", "validate"):
         if target in targets:
@@ -7698,6 +7701,16 @@ def normalize_release_target(target=None):
         version = value
         tag = "v" + value
     return version, tag
+
+
+def release_is_prerelease(target_version):
+    version, _ = normalize_release_target(str(target_version))
+    core = version.split("+", 1)[0]
+    return "-" in core
+
+
+def release_channel(target_version):
+    return "prerelease" if release_is_prerelease(target_version) else "stable"
 
 
 def collect_release_check(target=None):
@@ -7812,6 +7825,8 @@ def collect_release_check(target=None):
         "version": VERSION,
         "target_version": target_version,
         "expected_tag": expected_tag,
+        "release_channel": release_channel(target_version),
+        "expected_prerelease": release_is_prerelease(target_version),
         "repository": str(ROOT),
         "branch": branch,
         "origin": readiness["git"].get("origin"),
@@ -7862,6 +7877,8 @@ def render_release_check(args=None):
         f"Version: {payload['version']}",
         f"Target version: {payload['target_version']}",
         f"Expected tag: {payload['expected_tag']}",
+        f"Release channel: {payload['release_channel']}",
+        f"Expected GitHub prerelease: {str(payload['expected_prerelease']).lower()}",
         f"Repository: {payload['repository']}",
         f"Branch: {payload['branch']}",
         f"HEAD: {payload['head']}",
@@ -7993,10 +8010,16 @@ def release_pack_body(target_version, expected_tag):
     if section:
         return section + "\n"
 
+    if release_is_prerelease(target_version):
+        opening = f"{PRODUCT_NAME} {expected_tag} is a pre-release of the local coding harness."
+        posture = "This release remains local-first and experimental."
+    else:
+        opening = f"{PRODUCT_NAME} {expected_tag} is a stable release of the local coding harness."
+        posture = "This release remains local-first and auditable."
     return "\n".join([
-        f"{PRODUCT_NAME} {expected_tag} is a beta release of the local coding harness.",
+        opening,
         "",
-        "This release remains local-first and experimental. It does not include model weights, llama.cpp, VS Code, or third-party assets.",
+        posture + " It does not include model weights, llama.cpp, VS Code, or third-party assets.",
         "",
     ])
 
@@ -8133,6 +8156,8 @@ def release_pack_payload(release_payload, pack_dir, files, include_vsix=False, v
         "version": VERSION,
         "target_version": release_payload["target_version"],
         "expected_tag": release_payload["expected_tag"],
+        "release_channel": release_payload["release_channel"],
+        "expected_prerelease": release_payload["expected_prerelease"],
         "repository": str(ROOT),
         "branch": release_payload.get("branch"),
         "head": release_payload.get("head"),
@@ -8164,6 +8189,8 @@ def render_release_pack(args=None):
         f"Version: {payload['version']}",
         f"Target version: {payload['target_version']}",
         f"Expected tag: {payload['expected_tag']}",
+        f"Release channel: {payload['release_channel']}",
+        f"Expected GitHub prerelease: {str(payload['expected_prerelease']).lower()}",
         f"Repository: {payload['repository']}",
         f"Branch: {payload['branch']}",
         f"HEAD: {payload['head']}",
@@ -8390,7 +8417,7 @@ def github_branch_protection_status(repository, token=None, branch="main"):
         missing.append("checks:" + ",".join(missing_checks))
     status = "ok" if not missing else "warn"
     detail = (
-        "branch protection satisfies the beta policy"
+        "branch protection satisfies the release policy"
         if status == "ok"
         else "branch protection needs attention: " + ", ".join(missing)
     )
@@ -8413,7 +8440,16 @@ def file_sha256(path):
     return digest.hexdigest()
 
 
-def github_release_status(repository, expected_tag, pack_status, token=None):
+def github_release_status(
+    repository,
+    expected_tag,
+    pack_status,
+    token=None,
+    target_version=None,
+):
+    resolved_version = target_version or normalize_release_target(expected_tag)[0]
+    expected_prerelease = release_is_prerelease(resolved_version)
+    channel = release_channel(resolved_version)
     encoded_tag = urllib.parse.quote(expected_tag, safe="")
     result = github_api_get(f"repos/{repository}/releases/tags/{encoded_tag}", token=token)
     if not result["ok"]:
@@ -8430,6 +8466,8 @@ def github_release_status(repository, expected_tag, pack_status, token=None):
             "tag": expected_tag,
             "draft": None,
             "prerelease": None,
+            "expected_prerelease": expected_prerelease,
+            "release_channel": channel,
             "html_url": None,
             "asset": {"status": "unverified", "optional": True},
         }
@@ -8438,7 +8476,7 @@ def github_release_status(repository, expected_tag, pack_status, token=None):
     core_ok = (
         data.get("tag_name") == expected_tag
         and data.get("draft") is False
-        and data.get("prerelease") is True
+        and data.get("prerelease") is expected_prerelease
     )
     vsix = pack_status.get("vsix") or {}
     local_path = Path(vsix.get("path", "")) if vsix.get("path") else None
@@ -8477,13 +8515,17 @@ def github_release_status(repository, expected_tag, pack_status, token=None):
 
     if not core_ok:
         status = "warn"
-        detail = "release exists but is not a published pre-release for the expected tag"
+        detail = (
+            "release exists but publication metadata does not match the expected "
+            f"{channel} channel (prerelease={str(expected_prerelease).lower()})"
+        )
     elif digest_failure:
         status = "fail"
         detail = "release VSIX digest does not match the local inspected artifact"
     else:
         status = "ok"
-        detail = f"published pre-release {expected_tag} verified"
+        label = "pre-release" if expected_prerelease else "stable release"
+        detail = f"published {label} {expected_tag} verified"
         if asset["status"] == "ok":
             detail += "; VSIX digest matches"
         elif asset["status"] == "optional_missing":
@@ -8496,6 +8538,8 @@ def github_release_status(repository, expected_tag, pack_status, token=None):
         "tag": data.get("tag_name"),
         "draft": data.get("draft"),
         "prerelease": data.get("prerelease"),
+        "expected_prerelease": expected_prerelease,
+        "release_channel": channel,
         "html_url": data.get("html_url"),
         "asset": asset,
     }
@@ -8530,6 +8574,7 @@ def collect_github_release_governance(release_payload, pack_status):
             release_payload["expected_tag"],
             pack_status,
             token=token,
+            target_version=release_payload["target_version"],
         ),
     }
 
@@ -8563,15 +8608,19 @@ def release_governance_manual_actions(release_payload, pack_status, remote_state
 
     release_status = None if remote_state is None else remote_state["release"]["status"]
     if release_status != "ok":
-        detail = (
-            "Use release-body.md from the release pack and mark the GitHub Release as a pre-release while the project remains beta."
-            if remote_state is None
-            else remote_state["release"]["detail"]
-        )
+        expected_prerelease = release_is_prerelease(target_version)
+        if remote_state is None:
+            if expected_prerelease:
+                detail = "Use release-body.md from the release pack and publish the GitHub Release with the pre-release flag enabled."
+            else:
+                detail = "Use release-body.md from the release pack and publish the GitHub Release with the pre-release flag disabled."
+        else:
+            detail = remote_state["release"]["detail"]
+        label = "pre-release" if expected_prerelease else "stable release"
         actions.append({
             "id": "github_release",
             "status": "manual",
-            "title": f"Verify GitHub pre-release for {expected_tag}",
+            "title": f"Verify GitHub {label} for {expected_tag}",
             "detail": detail,
         })
     return actions
@@ -8615,7 +8664,7 @@ def collect_release_governance(target=None, remote=False):
         add_check(
             "github_release",
             "manual",
-            "use --remote to verify the GitHub pre-release read-only",
+            "use --remote to verify GitHub release metadata read-only",
         )
     else:
         branch = remote_state["branch_protection"]
@@ -8637,11 +8686,18 @@ def collect_release_governance(target=None, remote=False):
         pack_status,
         remote_state=remote_state,
     )
+    target_version = release_payload["target_version"]
+    channel = release_payload.get("release_channel") or release_channel(target_version)
+    expected_prerelease = release_payload.get("expected_prerelease")
+    if expected_prerelease is None:
+        expected_prerelease = release_is_prerelease(target_version)
     return {
         "product": PRODUCT_NAME,
         "version": VERSION,
-        "target_version": release_payload["target_version"],
+        "target_version": target_version,
         "expected_tag": release_payload["expected_tag"],
+        "release_channel": channel,
+        "expected_prerelease": expected_prerelease,
         "repository": str(ROOT),
         "branch": release_payload.get("branch"),
         "head": release_payload.get("head"),

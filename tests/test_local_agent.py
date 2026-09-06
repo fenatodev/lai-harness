@@ -795,6 +795,7 @@ class LocalAgentTest(unittest.TestCase):
                 "test-dev:\n\t.venv/bin/python -m pytest -q\n"
                 "test:\n\tpython3 -m unittest discover -s tests -v\n"
                 "validate:\n\t./scripts/validate.sh\n"
+                "milestone-gate: test-dev validate\n"
             )
             agent.SKILLS_DIR = Path(__file__).parents[1] / ".agents" / "skills"
             agent.METRICS_DIR = self.base / "data" / "metrics"
@@ -814,10 +815,11 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("RELEASE PREFLIGHT", context)
         self.assertIn("Version: 0.4.0-beta.24", context)
         self.assertIn("Readiness overall:", context)
-        self.assertIn("- make check", context)
-        self.assertIn("- make test-dev", context)
-        self.assertIn("- make test", context)
-        self.assertIn("- make validate", context)
+        self.assertIn("- make milestone-gate", context)
+        self.assertNotIn("- make check\n", context)
+        self.assertNotIn("- make test-dev\n", context)
+        self.assertNotIn("- make test\n", context)
+        self.assertNotIn("- make validate\n", context)
         self.assertIn("Do not probe ad-hoc pytest/python commands", context)
 
     def test_release_check_is_deterministic_and_read_only(self):
@@ -942,6 +944,14 @@ class LocalAgentTest(unittest.TestCase):
             self.assertEqual(released["phase"], "released")
             self.assertFalse(released["tag_ready"])
 
+    def test_release_channel_distinguishes_prerelease_and_stable_targets(self):
+        for version in ("0.4.0-alpha.1", "0.4.0-beta.24", "0.4.0-rc.1"):
+            self.assertTrue(agent.release_is_prerelease(version), version)
+            self.assertEqual(agent.release_channel(version), "prerelease")
+        for version in ("0.4.0", "v0.4.0", "0.4.0+build.7"):
+            self.assertFalse(agent.release_is_prerelease(version), version)
+            self.assertEqual(agent.release_channel(version), "stable")
+
     def test_release_pack_writes_local_files_without_repo_mutation(self):
         data_dir = self.base / "data"
         env = {**os.environ, "LAI_DATA_DIR": str(data_dir)}
@@ -992,6 +1002,8 @@ class LocalAgentTest(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertEqual(payload["version"], "0.4.0-beta.24")
         self.assertEqual(payload["expected_tag"], "v0.4.0-beta.24")
+        self.assertEqual(payload["release_channel"], "prerelease")
+        self.assertTrue(payload["expected_prerelease"])
         self.assertEqual(payload["pack_dir"], str(out_dir.resolve()))
         self.assertFalse(payload["with_vsix"])
         for key in ("summary", "release_body", "checklist", "publishing", "commands"):
@@ -1057,13 +1069,20 @@ class LocalAgentTest(unittest.TestCase):
         )
 
         fallback = agent.release_pack_body("0.4.0-beta.999", "v0.4.0-beta.999")
-        self.assertIn("v0.4.0-beta.999 is a beta release", fallback)
+        self.assertIn("v0.4.0-beta.999 is a pre-release", fallback)
+        self.assertIn("experimental", fallback)
         self.assertNotIn("ten body", fallback)
         self.assertNotIn("stale legacy body", fallback)
         self.assertEqual(
             agent.release_pack_title("0.4.0-beta.999"),
             "v0.4.0-beta.999 — lai harness release",
         )
+
+        stable = agent.release_pack_body("0.4.0", "v0.4.0")
+        self.assertIn("v0.4.0 is a stable release", stable)
+        self.assertIn("local-first and auditable", stable)
+        self.assertNotIn("experimental", stable)
+        self.assertNotIn("beta release", stable)
 
     def test_release_governance_reports_manual_publication_actions(self):
         data_dir = self.base / "data"
@@ -1227,6 +1246,79 @@ class LocalAgentTest(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["asset"]["status"], "ok")
         self.assertTrue(result["asset"]["digest_match"])
+
+    def test_remote_release_requires_channel_matching_prerelease_flag(self):
+        vsix = self.base / "lai-harness-0.4.0.vsix"
+        vsix.write_bytes(b"stable-vsix")
+        digest = agent.file_sha256(vsix)
+        pack = {"vsix": {"path": str(vsix), "present": True, "optional": True}}
+        stable = {
+            "tag_name": "v0.4.0",
+            "draft": False,
+            "prerelease": False,
+            "html_url": "https://github.com/fenatodev/lai-harness/releases/tag/v0.4.0",
+            "assets": [{"name": vsix.name, "digest": f"sha256:{digest}"}],
+        }
+        with mock.patch.object(
+            agent,
+            "github_api_get",
+            return_value={"ok": True, "status": 200, "data": stable, "error": ""},
+        ):
+            result = agent.github_release_status(
+                "fenatodev/lai-harness",
+                "v0.4.0",
+                pack,
+                token="secret",
+                target_version="0.4.0",
+            )
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["release_channel"], "stable")
+        self.assertFalse(result["expected_prerelease"])
+        self.assertTrue(result["asset"]["digest_match"])
+        self.assertIn("stable release", result["detail"])
+
+        wrong = dict(stable, prerelease=True)
+        with mock.patch.object(
+            agent,
+            "github_api_get",
+            return_value={"ok": True, "status": 200, "data": wrong, "error": ""},
+        ):
+            mismatch = agent.github_release_status(
+                "fenatodev/lai-harness",
+                "v0.4.0",
+                pack,
+                token="secret",
+                target_version="0.4.0",
+            )
+        self.assertEqual(mismatch["status"], "warn")
+        self.assertIn("prerelease=false", mismatch["detail"])
+
+        bad_digest = dict(
+            stable,
+            assets=[{"name": vsix.name, "digest": "sha256:" + "0" * 64}],
+        )
+        with mock.patch.object(
+            agent,
+            "github_api_get",
+            return_value={"ok": True, "status": 200, "data": bad_digest, "error": ""},
+        ):
+            digest_mismatch = agent.github_release_status(
+                "fenatodev/lai-harness",
+                "v0.4.0",
+                pack,
+                token="secret",
+                target_version="0.4.0",
+            )
+        self.assertEqual(digest_mismatch["status"], "fail")
+        self.assertFalse(digest_mismatch["asset"]["digest_match"])
+
+    def test_release_governance_manual_action_respects_stable_channel(self):
+        payload = {"target_version": "0.4.0", "expected_tag": "v0.4.0"}
+        pack = {"status": "ok"}
+        actions = agent.release_governance_manual_actions(payload, pack)
+        release = next(item for item in actions if item["id"] == "github_release")
+        self.assertIn("stable release", release["title"])
+        self.assertIn("pre-release flag disabled", release["detail"])
 
     def test_remote_governance_clears_verified_github_actions(self):
         release_payload = {
@@ -2703,21 +2795,26 @@ class LocalAgentTest(unittest.TestCase):
             self.assertIn(expected, text)
             self.assertNotIn("https://github.com/fenatodev/lai-local-agent.git", text)
 
-    def test_public_publishing_surface_uses_current_beta_identity(self):
+    def test_public_publishing_surface_is_channel_aware_and_current_release_is_documented(self):
         repo = Path(__file__).parents[1]
         publishing = (repo / "docs" / "GITHUB-PUBLISHING.md").read_text(encoding="utf-8")
         release_notes = (repo / "docs" / "RELEASE-NOTES.md").read_text(encoding="utf-8")
         release_checklist = (repo / "docs" / "RELEASE-CHECKLIST.md").read_text(encoding="utf-8")
         release_pack = (repo / "docs" / "RELEASE-PACK.md").read_text(encoding="utf-8")
+        stable_readiness = (repo / "docs" / "STABLE-READINESS.md").read_text(encoding="utf-8")
         package_script = (repo / "scripts" / "package-vsix.sh").read_text(encoding="utf-8")
         validate_script = (repo / "scripts" / "validate.sh").read_text(encoding="utf-8")
 
         self.assertIn("**Name:** `lai-harness`", publishing)
-        self.assertIn("lai harness v0.4.0-beta.24", publishing)
+        self.assertIn("release channel (`prerelease` or `stable`)", publishing)
+        self.assertIn("expected GitHub `prerelease` flag", publishing)
         self.assertIn("lai harness v0.4.0-beta.24", release_notes)
-        self.assertIn("v0.4.0-beta.24", release_checklist)
-        self.assertIn("lai release-pack", release_pack)
-        self.assertIn("lai-harness-0.4.0-beta.24.vsix", release_pack)
+        self.assertIn("<target-version>", release_checklist)
+        self.assertIn("pre-release flag", release_checklist)
+        self.assertIn("release_channel=stable", release_pack)
+        self.assertIn("expected_prerelease=false", release_pack)
+        self.assertIn("Explicitly deferred from the v0.4.0 gate", stable_readiness)
+        self.assertIn("not blockers", stable_readiness)
         self.assertNotIn("Release v0.3.0", publishing)
         self.assertNotIn("**Name:** `lai-local-agent`", publishing)
         self.assertIn("/tmp/lai-harness-${version}.vsix", package_script)

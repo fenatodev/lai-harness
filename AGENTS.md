@@ -38,22 +38,24 @@ Use the narrowest relevant check while developing.
 - `make lint` — Ruff lint checks.
 - `make typecheck` — strict mypy ratchet on the currently typed guardrail modules.
 - `make check` — deterministic static/syntax checks.
-- `make validate` — complete publication gate.
+- `make validate` — publication/package gate; includes unittest, typecheck, static checks, publication scan, and VSIX inspection.
+- `make milestone-gate` — full local milestone/release gate; adds Ruff, pytest, and Harness Score without rerunning overlapping checks separately.
 - `make harness-score` — pinned repository harness maturity measurement.
 - `make harness-score-gate` — require Harness Score L4 for repository harness changes.
 
-`make validate` invokes the complete publication gate, including the current strict type-check ratchet. `requirements-dev.in` is the human-maintained development-sensor manifest and `requirements.txt` is its generated pinned lock; the runtime installer must remain third-party-dependency-free.
+`make milestone-gate` is the canonical expensive local gate. Use it once at a milestone/release boundary rather than chaining overlapping targets. `make validate` remains the publication/package sub-gate and includes the current strict type-check ratchet. `requirements-dev.in` is the human-maintained development-sensor manifest and `requirements.txt` is its generated pinned lock; the runtime installer must remain third-party-dependency-free.
 
 ## Development Workflow
 
 1. Work on a dedicated branch. A stabilization milestone may contain multiple small, independently validated specs and commits.
 2. Inspect before assuming.
 3. Make the smallest coherent change.
-4. Run focused regression tests first when behavior changes.
-5. Run the full suite only after focused checks pass.
-6. Run deterministic static checks before installation.
-7. Do not install changed harness code until validation is green.
-8. Keep release mutations human-controlled. Do not bump the public version, generate release metadata, tag, or publish for every internal spec; prepare one release only when the milestone is coherent and stable.
+4. Use the cheapest trustworthy feedback loop first: focused regression tests and only the static/type/lint checks relevant to touched code.
+5. Do not run the full suite after every edit or every small local commit. Run `make milestone-gate` once when a coherent milestone/spec batch is ready to freeze, or earlier only when risk/evidence justifies it.
+6. Batch expensive equivalent work: do not run targets separately when `make milestone-gate` already covers the same evidence.
+7. Do not install changed harness code until the relevant validation is green.
+8. Keep PR, merge, version bump, tag, release-pack publication, remote governance, and GitHub release work at the milestone boundary; do not repeat them per internal spec.
+9. Stop adding roadmap scope once the active milestone exit criteria are satisfied. New work must close a required criterion or address concrete failure evidence.
 
 ## Spec-Driven Workflow
 
@@ -121,9 +123,9 @@ Documentation/config-only work should run the relevant syntax/static checks and 
 
 Runtime behavior changes require focused regression coverage before the full suite.
 
-Before release, run the complete publication gate:
+At milestone/release freeze, run the complete non-redundant local gate once:
 
-- `make validate`
+- `make milestone-gate`
 
 ## Model evaluation records
 

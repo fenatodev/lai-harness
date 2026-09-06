@@ -19,7 +19,7 @@ Every handoff records the local/offline governance result. With `--remote`, it a
 
 - remote governance overall status;
 - verified protected-main state;
-- GitHub pre-release state;
+- GitHub release state and channel;
 - credential source metadata, never the credential value;
 - local and remote VSIX digest evidence when available.
 
