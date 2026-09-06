@@ -459,6 +459,30 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertIn("Authentication: OK", doctor.stdout)
 
 
+    def test_server_start_allows_already_running_secure_server_without_windows_launcher(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            key_file = root / "key"
+            key_file.write_text("synthetic-test-key")
+
+            with FakeLlamaServer() as secure_server:
+                result = subprocess.run(
+                    [str(REPO / "scripts" / "ministral-start")],
+                    env={
+                        **os.environ,
+                        "LAI_HOST": secure_server.host,
+                        "LAI_PORT": str(secure_server.port),
+                        "LAI_API_KEY_FILE": str(key_file),
+                    },
+                    text=True,
+                    capture_output=True,
+                )
+
+            self.assertEqual(result.returncode, 0)
+            self.assertIn("already running securely", result.stdout)
+            self.assertNotIn("LAI_WINDOWS_LAUNCHER", result.stderr)
+            self.assertNotIn("synthetic-test-key", result.stdout + result.stderr)
+
     def test_server_start_requires_authentication_enforcement(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
@@ -506,6 +530,28 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 "Refusing insecure LAI model server",
                 insecure.stderr,
             )
+
+    def test_model_server_scripts_do_not_put_api_keys_in_curl_arguments(self):
+        start_source = (REPO / "scripts" / "ministral-start").read_text(encoding="utf-8")
+        doctor_source = (REPO / "scripts" / "ministral-doctor").read_text(encoding="utf-8")
+        combined = start_source + "\n" + doctor_source
+
+        self.assertNotIn('api_key="$(tr -d', combined)
+        self.assertNotIn('Authorization: Bearer ${api_key}', combined)
+        self.assertIn('python3 - "$host" "$port" "$key_file"', start_source)
+        self.assertIn('python3 - "$host" "$port" "$key_file"', doctor_source)
+
+    def test_windows_secure_launcher_accepts_local_model_files_without_key_argument_fallback(self):
+        source = (REPO / "scripts" / "start-secure.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("Test-Path -LiteralPath $model -PathType Leaf", source)
+        self.assertIn('$argsList += @("--model", $model)', source)
+        self.assertIn('$argsList += @("-hf", $model, "--no-mmproj")', source)
+        self.assertIn('$ctxSize = if ($env:LAI_CTX_SIZE)', source)
+        self.assertIn('$gpuLayers = if ($env:LAI_GPU_LAYERS)', source)
+        self.assertIn('$argsList += @("--api-key-file", $keyFile)', source)
+        self.assertNotIn('Get-Content $keyFile -Raw', source)
+        self.assertNotIn('$argsList += @("--api-key",', source)
 
 
 if __name__ == "__main__":

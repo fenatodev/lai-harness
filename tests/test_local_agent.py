@@ -2933,7 +2933,7 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("release channel (`prerelease` or `stable`)", publishing)
         self.assertIn("expected GitHub `prerelease` flag", publishing)
         self.assertTrue(
-            release_notes.startswith(f"## lai harness v{agent.VERSION} — gateway contract manifest")
+            release_notes.startswith(f"## lai harness v{agent.VERSION} — runtime startup hardening")
         )
         self.assertIn("lai harness v0.4.0 — stable core graduation", release_notes)
         self.assertIn("lai harness v0.4.0-beta.24", release_notes)

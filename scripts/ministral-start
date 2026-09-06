@@ -10,16 +10,27 @@ if [[ ! -s "$key_file" ]]; then
     echo "LAI API key is missing: $key_file" >&2
     exit 1
 fi
-if [[ -z "$windows_launcher" ]]; then
-    echo "Set LAI_WINDOWS_LAUNCHER to the Windows path of start-secure.ps1." >&2
-    exit 1
-fi
-
-api_key="$(tr -d '\r\n' < "$key_file")"
 probe_auth() {
-    curl -sS --connect-timeout 1 --max-time 2 -o /dev/null -w '%{http_code}' \
-        -H "Authorization: Bearer ${api_key}" "http://${host}:${port}/props" \
-        2>/dev/null
+    python3 - "$host" "$port" "$key_file" <<'PYCODE'
+import sys
+import urllib.error
+import urllib.request
+
+host, port, key_file = sys.argv[1:4]
+try:
+    with open(key_file, encoding="utf-8") as handle:
+        key = handle.read().strip()
+    request = urllib.request.Request(
+        f"http://{host}:{port}/props",
+        headers={"Authorization": "Bearer " + key},
+    )
+    with urllib.request.urlopen(request, timeout=2) as response:
+        print(response.status)
+except urllib.error.HTTPError as exc:
+    print(exc.code)
+except Exception:
+    print("000")
+PYCODE
 }
 
 probe_unauth() {
@@ -45,6 +56,11 @@ fi
 
 if [[ "$(probe_unauth 2>/dev/null || true)" == "200" ]]; then
     echo "Refusing insecure LAI model server: /props accepts unauthenticated requests." >&2
+    exit 1
+fi
+
+if [[ -z "$windows_launcher" ]]; then
+    echo "Set LAI_WINDOWS_LAUNCHER to the Windows path of start-secure.ps1." >&2
     exit 1
 fi
 
