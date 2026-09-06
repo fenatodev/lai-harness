@@ -46,14 +46,14 @@ Use the narrowest relevant check while developing.
 
 ## Development Workflow
 
-1. Work on a dedicated branch.
+1. Work on a dedicated branch. A stabilization milestone may contain multiple small, independently validated specs and commits.
 2. Inspect before assuming.
 3. Make the smallest coherent change.
 4. Run focused regression tests first when behavior changes.
 5. Run the full suite only after focused checks pass.
 6. Run deterministic static checks before installation.
 7. Do not install changed harness code until validation is green.
-8. Keep release mutations human-controlled.
+8. Keep release mutations human-controlled. Do not bump the public version, generate release metadata, tag, or publish for every internal spec; prepare one release only when the milestone is coherent and stable.
 
 ## Spec-Driven Workflow
 

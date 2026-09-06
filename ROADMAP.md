@@ -2,6 +2,7 @@
 
 ## Near term
 
+- Use milestone-based release cadence during stabilization: keep specs and commits small and validated locally, but batch related work into one protected-main PR/tag/pre-release only when the milestone is coherent and stable.
 - Keep beta.23 update-evidence convergence under dogfood; only add further maintenance automation when repeated evidence justifies it and the reviewed spec/PR boundary remains intact.
 - Continue incremental subsystem extraction from `src/local-agent`, using beta.24 semantic contracts as the typed/module-installation pattern and ratcheting mypy only over code that has earned strict coverage.
 - Expand automated model-evaluation fixtures from observed dogfood failures and use repeated evidence before any default-model change.
