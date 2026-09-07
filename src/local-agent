@@ -180,6 +180,7 @@ READ_ONLY_TOOLS = {
     "list",
     "project",
     "git",
+    "context",
     "bash",
 }
 

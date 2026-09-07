@@ -21,6 +21,7 @@
 - Keep run-event timelines free of task text, stdout, stderr, transcripts, file contents, workspace paths, and raw diffs while still reporting bounded progress metadata.
 
 ### Changed
+- Count the structured `context` tool as read-only exploration so repeated metadata probing cannot bypass pre-write progress guards.
 - Expand the semantic code contract so context-intelligence discovery covers the new context metadata views and structured tool.
 - Update the stable integration baseline to `lai harness` v0.4.6 plus `lai-gateway` v0.1.33, and prepare the Harness package metadata for v0.4.7.
 

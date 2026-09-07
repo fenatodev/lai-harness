@@ -2136,7 +2136,7 @@ class LocalAgentTest(unittest.TestCase):
     def test_pre_write_guard_allows_distinct_calls_and_resets_after_write(self):
         guard = agent.PreWriteExplorationGuard(enabled=True, budget=3)
         self.assertIsNone(guard.check("read", {"path": "one.py"}))
-        self.assertIsNone(guard.check("read", {"path": "two.py"}))
+        self.assertIsNone(guard.check("context", {"operation": "map"}))
         guard.note_successful_write()
         self.assertIsNone(guard.check("bash", {"command": "pytest -q"}))
         self.assertFalse(guard.exhausted)
@@ -2147,6 +2147,12 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIsNone(guard.check("search", args))
         result = guard.check("search", {"path": ".", "query": "needle"})
         self.assertTrue(result.startswith("BLOCKED:"))
+
+        context_guard = agent.PreWriteExplorationGuard(enabled=True)
+        context_args = {"operation": "diff", "limit": 5}
+        self.assertIsNone(context_guard.check("context", context_args))
+        context_result = context_guard.check("context", {"limit": 5, "operation": "diff"})
+        self.assertTrue(context_result.startswith("BLOCKED:"))
         self.assertEqual(guard.reason, "exploration_budget_exhausted")
         self.assertEqual(guard.trigger, "repeated_read_only_call")
         self.assertEqual(
