@@ -2604,6 +2604,7 @@ class LocalAgentTest(unittest.TestCase):
         sample.write_text("before\n", encoding="utf-8")
         agent.capture_prewrite_snapshots("run-rollback", ["sample.txt", "created.txt"])
         sample.write_text("after\n", encoding="utf-8")
+        sample.chmod(0o600)
         created.write_text("new file\n", encoding="utf-8")
         checkpoint = agent.build_run_checkpoint(
             "implement", "rollback task", "tool_completed",
@@ -2622,6 +2623,7 @@ class LocalAgentTest(unittest.TestCase):
         self.assertEqual(applied["action_count"], 2)
         self.assertEqual(applied["blocked_count"], 0)
         self.assertEqual(sample.read_text(encoding="utf-8"), "before\n")
+        self.assertEqual(sample.stat().st_mode & 0o777, 0o600)
         self.assertFalse(created.exists())
 
         sample.write_text("external drift\n", encoding="utf-8")
