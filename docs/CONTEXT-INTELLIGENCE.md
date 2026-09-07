@@ -21,6 +21,16 @@ lai context "repair parser timeout"
 ```
 
 The command prints candidate paths, scores, and reason labels only.
+
+Use the deterministic repository map when the next step needs a compact structural view before choosing files:
+
+```bash
+lai context map
+lai context map --json --max-files 400 --max-paths 80
+```
+
+The map reports repository-relative files, directory/suffix groups, manifests, changed paths, and semantic subsystem path matches. It is metadata-only and never includes file contents, stdout, stderr, transcripts, tokens, or raw diffs.
+
 ## Inventory bounds
 
 The inventory prefers `git ls-files --cached --others --exclude-standard` and falls back to a bounded filesystem walk when Git listing is unavailable or empty.
@@ -44,7 +54,7 @@ Current weights are additive:
 Generic task words are filtered before matching. Identical scores are ordered by repository-relative path, so identical input/state produces stable ordering.
 ## Prompt contract
 
-At most eight candidates are rendered, within a 1,800-character metadata budget. The block contains only:
+At most eight candidates are rendered, within a 1,800-character metadata budget. The ranked-candidate block contains only:
 
 - repository-relative path;
 - numeric score;
@@ -58,4 +68,4 @@ Workspace `recent` and `modified` paths are normalized and revalidated before th
 
 Ranking is advisory. Repository filenames and sampled text can influence candidate order, including malicious or misleading content. The model must still inspect a file before relying on its contents, and all existing repository rules, mode gates, policy decisions, validation requirements, and recovery checks remain authoritative.
 
-lai harness does not use embeddings, vector databases, external indexing services, MCP, delegates, or learning for this feature. Rankings are recomputed from current local evidence and are not persisted as a separate index.
+lai harness does not use embeddings, vector databases, external indexing services, MCP, delegates, or learning for this feature. Rankings and context maps are recomputed from current local evidence and are not persisted as a separate index.

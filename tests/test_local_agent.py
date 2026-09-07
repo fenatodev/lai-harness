@@ -3635,6 +3635,45 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("git_changed", shown)
         self.assertNotIn("timeout = 30", shown)
         self.assertLessEqual(len(shown), 180)
+    def test_context_map_is_metadata_only_bounded_and_semantic(self):
+        (self.root / "src").mkdir()
+        (self.root / "docs").mkdir()
+        (self.root / "src" / "local-agent").write_text("super secret implementation\n")
+        (self.root / "docs" / "CONTEXT-INTELLIGENCE.md").write_text("context docs\n")
+        (self.root / "README.md").write_text("readme\n")
+        with mock.patch.object(agent, "context_git_changed_paths", return_value={"src/local-agent"}):
+            payload = agent.repository_context_map(max_files=20, max_paths=2)
+        self.assertTrue(payload["metadata_only"])
+        self.assertFalse(payload["inspected_content"])
+        self.assertEqual(payload["repository"], ".")
+        self.assertEqual(payload["file_list_limit"], 2)
+        self.assertLessEqual(len(payload["files"]), 2)
+        self.assertIn("src/local-agent", payload["changed_paths"])
+        self.assertNotIn("super secret implementation", json.dumps(payload))
+        subsystems = {item["id"] for item in payload["semantic_subsystems"]}
+        self.assertIn("context-intelligence", subsystems)
+        rendered = agent.render_context_map(payload)
+        self.assertIn("# lai context map", rendered)
+        self.assertIn("Metadata-only: true", rendered)
+        self.assertNotIn("super secret implementation", rendered)
+
+    def test_deterministic_context_map_cli_needs_no_server(self):
+        (self.root / "src").mkdir()
+        (self.root / "src" / "worker.py").write_text("timeout = 30\n")
+        env = {**__import__("os").environ, "LAI_DATA_DIR": str(self.base / "data")}
+        result = subprocess.run(
+            [str(SOURCE.parent / "lai"), "context", "map", "--json", "--max-files", "20", "--max-paths", "3"],
+            cwd=self.root, env=env, text=True, capture_output=True,
+            timeout=5, check=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["map_version"], 1)
+        self.assertTrue(payload["metadata_only"])
+        self.assertFalse(payload["inspected_content"])
+        self.assertLessEqual(len(payload["files"]), 3)
+        self.assertNotIn("timeout = 30", result.stdout)
+        self.assertEqual(result.stderr, "")
+
     def test_deterministic_context_cli_needs_no_server(self):
         (self.root / "worker.py").write_text("timeout = 30\n")
         env = {**__import__("os").environ, "LAI_DATA_DIR": str(self.base / "data")}

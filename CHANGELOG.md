@@ -2,6 +2,7 @@
 
 ### Added
 - Add deterministic `lai operating-mode` plus `docs/OPERATING-MODE.md` to codify local-first milestone batching, release batching, read-only external evidence, capability-based compatibility, and product-progress decision gates.
+- Add deterministic `lai context map` for metadata-only repository structure, manifests, changed paths, suffix/directory groups, and semantic subsystem path matches without file contents.
 
 ## [0.4.7] - 2026-09-07
 
