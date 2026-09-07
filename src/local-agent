@@ -480,11 +480,11 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "context",
-            "description": "Return bounded repository context metadata: map, changes, or symbols. Metadata only; no file bodies or raw diffs.",
+            "description": "Return bounded repository context metadata: map, changes, checks/tests, or symbols. Metadata only; no file bodies, Makefile recipes, test bodies, or raw diffs.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "operation": {"type": "string", "enum": ["map", "changes", "symbols"]},
+                    "operation": {"type": "string", "enum": ["map", "changes", "checks", "tests", "symbols"]},
                     "path": {"type": "string"},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 80},
                     "max_files": {"type": "integer", "minimum": 1, "maximum": 400},
@@ -3833,6 +3833,11 @@ def tool_context(args):
                 limit=_tool_context_int(args, "limit", 60, 80)
             )
             return render_context_changes(payload)
+        if operation in {"checks", "tests"}:
+            payload = context_checks_payload(
+                limit=_tool_context_int(args, "limit", 40, 120)
+            )
+            return render_context_checks(payload)
         if operation == "symbols":
             path = str(args.get("path") or "").strip()
             if not path:
@@ -3843,7 +3848,7 @@ def tool_context(args):
             return render_context_symbols(payload)
     except SystemExit as exc:
         return "ERROR: " + str(exc)
-    return "ERROR: context operation must be map, changes, or symbols"
+    return "ERROR: context operation must be map, changes, checks, tests, or symbols"
 
 
 def tool_web_search(args):
@@ -10093,6 +10098,10 @@ CONTEXT_INVENTORY_LIMIT = 400
 CONTEXT_RESULT_LIMIT = 8
 CONTEXT_MAP_PATH_LIMIT = 80
 CONTEXT_MAP_GROUP_LIMIT = 24
+CONTEXT_CHECK_TARGET_ORDER = (
+    "test", "test-dev", "lint", "typecheck", "check", "validate",
+    "milestone-gate", "harness-score", "harness-score-gate",
+)
 CONTEXT_INTELLIGENCE_MODES = {"plan", "debug", "diagnose", "fix", "ci-fix", "release", "implement", "refactor"}
 CONTEXT_RENDER_LIMIT = 1800
 CONTEXT_SAMPLE_BYTES = 32768
@@ -10499,6 +10508,138 @@ def render_context_changes(payload):
     return "\n".join(lines)
 
 
+def _context_make_targets(limit=80):
+    makefile = ROOT / "Makefile"
+    targets = []
+    seen = set()
+    try:
+        for line in makefile.read_text(encoding="utf-8", errors="replace").splitlines():
+            if not line or line.startswith(("\t", "#", ".")) or ":" not in line:
+                continue
+            left = line.split(":", 1)[0].strip()
+            if not left or "=" in left or "%" in left:
+                continue
+            for raw in left.split():
+                name = raw.strip()
+                if not re.fullmatch(r"[A-Za-z0-9_.-]+", name):
+                    continue
+                if name not in seen:
+                    seen.add(name)
+                    targets.append(name)
+    except OSError:
+        return []
+    preferred = [name for name in CONTEXT_CHECK_TARGET_ORDER if name in seen]
+    remaining = sorted(name for name in targets if name not in set(preferred))
+    return (preferred + remaining)[:max(1, min(int(limit), 120))]
+
+
+def _context_test_file_summary(rel):
+    path = ROOT / rel
+    summary = {"path": rel, "classes": 0, "tests": 0, "parser": "unknown"}
+    if path.suffix.lower() != ".py":
+        summary["parser"] = "unsupported_suffix"
+        return summary
+    try:
+        if path.stat().st_size > 1024 * 1024:
+            summary["parser"] = "too_large"
+            return summary
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"), filename=rel)
+    except (OSError, SyntaxError, UnicodeError):
+        summary["parser"] = "unavailable"
+        return summary
+    classes = 0
+    tests = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name.endswith("Test"):
+            classes += 1
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
+            tests += 1
+    summary.update({"classes": classes, "tests": tests, "parser": "ok"})
+    return summary
+
+
+def context_checks_payload(limit=40):
+    limit = max(1, min(int(limit), 120))
+    inventory = repository_context_inventory(max_files=CONTEXT_INVENTORY_LIMIT)
+    test_paths = sorted(
+        rel for rel in inventory
+        if rel.startswith("tests/") and Path(rel).name.startswith("test_") and rel.endswith(".py")
+    )
+    summaries = [_context_test_file_summary(rel) for rel in test_paths[:limit]]
+    changed = sorted(context_git_changed_paths())
+    docs_only = bool(changed) and all(
+        rel.endswith((".md", ".txt")) or rel.startswith("docs/") for rel in changed
+    )
+    runtime_changed = any(
+        rel.startswith("src/") or rel.startswith(".cursor/hooks/") or rel.startswith("tests/")
+        for rel in changed
+    )
+    suggestions = []
+    if changed:
+        suggestions.append({"check": "focused regression", "reason": "validate touched behavior before broad gates"})
+    if docs_only:
+        suggestions.append({"check": "make check", "reason": "documentation/static validation is usually enough during active development"})
+    elif runtime_changed:
+        suggestions.append({"check": "make test", "reason": "runtime or tests changed; run dependency-free regression before install"})
+        suggestions.append({"check": "make check", "reason": "syntax/static gate before committing"})
+    else:
+        suggestions.append({"check": "make check", "reason": "general static validation before committing"})
+    suggestions.append({"check": "make milestone-gate", "reason": "reserve for milestone or release freeze, not every small edit"})
+    return {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "checks_version": 1,
+        "repository": ".",
+        "metadata_only": True,
+        "inspected_content": False,
+        "make_targets": _context_make_targets(),
+        "validation_profiles": ["test", "check", "lint", "typecheck", "build", "full"],
+        "test_files": summaries,
+        "test_file_count": len(test_paths),
+        "test_file_limit": limit,
+        "test_file_list_truncated": len(test_paths) > limit,
+        "test_count": sum(int(item.get("tests") or 0) for item in summaries),
+        "changed_path_count": len(changed),
+        "changed_paths_sample": changed[:20],
+        "suggested_feedback": suggestions,
+        "trust": "Advisory validation metadata only. Run the selected command before claiming evidence.",
+    }
+
+
+def render_context_checks(payload):
+    lines = [
+        "# lai context checks",
+        f"Product: {payload.get('product')} {payload.get('version')}",
+        f"Repository: {payload.get('repository')}",
+        f"Metadata-only: {str(payload.get('metadata_only')).lower()}",
+        "",
+        "## Suggested feedback",
+    ]
+    for item in payload.get("suggested_feedback", []):
+        lines.append(f"- {item.get('check')}: {item.get('reason')}")
+    lines.extend(["", "## Make targets"])
+    for name in payload.get("make_targets", [])[:20]:
+        lines.append(f"- {name}")
+    if not payload.get("make_targets"):
+        lines.append("- [none]")
+    lines.extend(["", "## Test files"])
+    for item in payload.get("test_files", [])[:20]:
+        lines.append(
+            f"- {item.get('path')} | tests={int(item.get('tests') or 0)} | classes={int(item.get('classes') or 0)} | parser={item.get('parser')}"
+        )
+    if not payload.get("test_files"):
+        lines.append("- [none]")
+    if payload.get("test_file_list_truncated"):
+        lines.append("- [truncated]")
+    lines.extend(["", "## Changed paths sample"])
+    for rel in payload.get("changed_paths_sample", [])[:20]:
+        lines.append(f"- {rel}")
+    if not payload.get("changed_paths_sample"):
+        lines.append("- [none]")
+    lines.append("")
+    lines.append("Trust: " + str(payload.get("trust", "")))
+    return "\n".join(lines)
+
 def _parse_context_positive_int(raw, *, label, maximum, minimum=1):
     try:
         value = int(raw)
@@ -10638,7 +10779,30 @@ def render_context_symbols(payload):
 def handle_context(args):
     args = list(args or [])
     if args and args[0] in {"--help", "-h", "help"}:
-        print("Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]")
+        print("Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context checks [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]")
+        return
+    if args and args[0] in {"checks", "tests"}:
+        json_mode = False
+        limit = 40
+        rest = args[1:]
+        idx = 0
+        while idx < len(rest):
+            current = rest[idx]
+            if current == "--json":
+                json_mode = True
+                idx += 1
+            elif current == "--limit":
+                if idx + 1 >= len(rest):
+                    raise SystemExit("--limit requires a value")
+                limit = _parse_context_positive_int(rest[idx + 1], label="--limit", maximum=120)
+                idx += 2
+            else:
+                raise SystemExit("Usage: lai context checks [--json] [--limit N]")
+        payload = context_checks_payload(limit=limit)
+        if json_mode:
+            print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        else:
+            print(render_context_checks(payload))
         return
     if args and args[0] == "symbols":
         json_mode = False
@@ -10657,12 +10821,12 @@ def handle_context(args):
                 limit = _parse_context_positive_int(rest[idx + 1], label="--limit", maximum=200)
                 idx += 2
             elif current.startswith("-"):
-                raise SystemExit("Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]")
+                raise SystemExit("Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context checks [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]")
             elif path_arg is None:
                 path_arg = current
                 idx += 1
             else:
-                raise SystemExit("Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]")
+                raise SystemExit("Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context checks [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]")
         if not path_arg:
             raise SystemExit("Usage: lai context symbols <path> [--json] [--limit N]")
         payload = context_symbols_payload(path_arg, limit=limit)
@@ -10687,7 +10851,7 @@ def handle_context(args):
                 limit = _parse_context_positive_int(rest[idx + 1], label="--limit", maximum=200)
                 idx += 2
             else:
-                raise SystemExit("Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]")
+                raise SystemExit("Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context checks [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]")
         payload = context_git_changes_payload(limit=limit)
         if json_mode:
             print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
@@ -10716,7 +10880,7 @@ def handle_context(args):
                 max_paths = _parse_context_positive_int(rest[idx + 1], label="--max-paths", maximum=200, minimum=0)
                 idx += 2
             else:
-                raise SystemExit("Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]")
+                raise SystemExit("Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context checks [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]")
         payload = repository_context_map(max_files=max_files, max_paths=max_paths)
         if json_mode:
             print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
@@ -13216,7 +13380,7 @@ def deterministic_command_help(command):
         "--project-handoff": PROJECT_HANDOFF_USAGE,
         "--workspace": "Usage: lai workspace status|create|clone-smoke|clean [options]",
         "--operating-mode": OPERATING_MODE_USAGE,
-        "--context": "Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]",
+        "--context": "Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context checks [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]",
         "--update-intelligence": "Usage: lai update [plan [--json]|check --remote [--json]|latest [--json]|triage [--json]]",
         "--model-eval": "Usage: lai model [plan [--json]|sample|run [--scenario ID] [--repeat 1..5] [--json]|score <results.jsonl|latest> [...]]",
         "--semantics": "Usage: lai semantics [--json]",

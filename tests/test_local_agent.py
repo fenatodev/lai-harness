@@ -3641,14 +3641,23 @@ class LocalAgentTest(unittest.TestCase):
         self.assertLessEqual(len(shown), 180)
     def test_context_tool_exposes_metadata_views_without_shell_or_bodies(self):
         (self.root / "module.py").write_text("def worker():\n    return 'secret-body'\n")
+        (self.root / "Makefile").write_text("test:\n\t@echo secret-body\n")
+        (self.root / "tests").mkdir()
+        (self.root / "tests" / "test_context_tool.py").write_text(
+            "def test_tool():\n    assert 'secret-body'\n"
+        )
         changes = agent.tool_context({"operation": "changes", "limit": 5})
+        checks = agent.tool_context({"operation": "checks", "limit": 5})
+        tests_alias = agent.tool_context({"operation": "tests", "limit": 5})
         symbols = agent.tool_context({"operation": "symbols", "path": "module.py", "limit": 5})
         repo_map = agent.tool_context({"operation": "map", "max_files": 20, "max_paths": 4})
         self.assertIn("# lai context changes", changes)
+        self.assertIn("# lai context checks", checks)
+        self.assertIn("# lai context checks", tests_alias)
         self.assertIn("# lai context symbols", symbols)
         self.assertIn("# lai context map", repo_map)
         self.assertIn("worker", symbols)
-        combined = changes + symbols + repo_map
+        combined = changes + checks + tests_alias + symbols + repo_map
         self.assertNotIn("secret-body", combined)
         self.assertNotIn("```", combined)
         self.assertIn("metadata", combined.lower())
@@ -3656,6 +3665,56 @@ class LocalAgentTest(unittest.TestCase):
             agent.evaluate_tool_policy("context", {"operation": "map"}, mode="plan")["decision"],
             "ALLOW",
         )
+
+    def test_context_checks_are_metadata_only_and_suggests_feedback(self):
+        (self.root / "Makefile").write_text(
+            "test:\n\t@echo sk-secret-test-body\ncheck:\n\t@echo ok\n",
+            encoding="utf-8",
+        )
+        tests_dir = self.root / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_sample.py").write_text(
+            "import unittest\n\n"
+            "class SampleTest(unittest.TestCase):\n"
+            "    def test_secret_body(self):\n"
+            "        token = 'sk-secret-body'\n"
+            "        self.assertTrue(token)\n",
+            encoding="utf-8",
+        )
+
+        payload = agent.context_checks_payload(limit=5)
+        dumped = json.dumps(payload)
+        self.assertTrue(payload["metadata_only"])
+        self.assertFalse(payload["inspected_content"])
+        self.assertIn("test", payload["make_targets"])
+        self.assertIn("check", payload["make_targets"])
+        self.assertEqual(payload["test_files"][0]["path"], "tests/test_sample.py")
+        self.assertEqual(payload["test_files"][0]["tests"], 1)
+        self.assertIn("make test", [item["check"] for item in payload["suggested_feedback"]])
+        self.assertNotIn("sk-secret", dumped)
+        rendered = agent.render_context_checks(payload)
+        self.assertIn("# lai context checks", rendered)
+        self.assertIn("tests/test_sample.py", rendered)
+        self.assertNotIn("sk-secret", rendered)
+
+    def test_deterministic_context_checks_cli_needs_no_server(self):
+        (self.root / "Makefile").write_text("test:\n\t@echo ok\n", encoding="utf-8")
+        tests_dir = self.root / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_cli.py").write_text(
+            "def test_cli_path():\n    assert True\n", encoding="utf-8"
+        )
+        env = {**os.environ, "LAI_DATA_DIR": str(self.base / "data")}
+        result = subprocess.run(
+            [str(SOURCE.parent / "lai"), "context", "checks", "--json", "--limit", "2"],
+            cwd=self.root, env=env, text=True, capture_output=True,
+            timeout=5, check=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["checks_version"], 1)
+        self.assertTrue(payload["metadata_only"])
+        self.assertIn("test", payload["make_targets"])
+        self.assertEqual(payload["test_files"][0]["path"], "tests/test_cli.py")
 
     def test_context_symbols_are_metadata_only_for_python_and_javascript(self):
         (self.root / "module.py").write_text(

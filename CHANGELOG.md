@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Added
+- Add deterministic context intelligence views for repo maps, compact Git changes, validation/test checks, symbol summaries, and a shell-free structured `context` tool for local and remote modes.
 - Add deterministic `lai operating-mode` plus `docs/OPERATING-MODE.md` to codify local-first milestone batching, release batching, read-only external evidence, capability-based compatibility, and product-progress decision gates.
 - Add deterministic `lai context map` for metadata-only repository structure, manifests, changed paths, suffix/directory groups, and semantic subsystem path matches without file contents.
 - Inject a compact metadata-only context map into context-intelligence modes to reduce early repository-discovery tool calls without treating it as evidence.
