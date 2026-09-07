@@ -56,6 +56,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertTrue((bin_dir / "lai_config.py").is_file())
             self.assertTrue((bin_dir / "lai_specs.py").is_file())
             self.assertTrue((bin_dir / "lai_sessions.py").is_file())
+            self.assertTrue((bin_dir / "lai_mcp.py").is_file())
             self.assertTrue((bin_dir / "lai_web.py").is_file())
             self.assertTrue((bin_dir / "lai-server-start").is_file())
             self.assertTrue((bin_dir / "lai-server-stop").is_file())
@@ -70,6 +71,23 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertIn("lai-server-stop", restart_source)
             self.assertIn("lai-server-start", restart_source)
 
+            for command, expected in {
+                "doctor": "Usage: lai doctor",
+                "config": "Usage: lai config",
+                "status": "Usage: lai status",
+            }.items():
+                with self.subTest(command=command):
+                    help_result = subprocess.run(
+                        [str(bin_dir / "lai"), command, "--help"],
+                        cwd=sample_repo,
+                        env=install_env,
+                        text=True,
+                        capture_output=True,
+                        check=True,
+                    )
+                    self.assertIn(expected, help_result.stdout)
+                    self.assertEqual(help_result.stderr, "")
+
             version = subprocess.run(
                 [str(bin_dir / "lai"), "version"],
                 cwd=sample_repo,
@@ -79,6 +97,39 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             self.assertIn("lai harness", version.stdout)
+
+            top_help = subprocess.run(
+                [str(bin_dir / "lai"), "--help"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("Usage: lai <command> [options]", top_help.stdout)
+            self.assertIn("web", top_help.stdout)
+            self.assertEqual(top_help.stderr, "")
+
+            web_help = subprocess.run(
+                [str(bin_dir / "lai"), "web", "--help"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("Usage: lai web search", web_help.stdout)
+            self.assertEqual(web_help.stderr, "")
+
+            invalid_web = subprocess.run(
+                [str(bin_dir / "lai"), "web", "fetch", "http://example.com/"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(invalid_web.returncode, 0)
+            self.assertIn("only HTTPS URLs are allowed", invalid_web.stderr)
 
             config = subprocess.run(
                 [str(bin_dir / "lai"), "config"],
@@ -183,6 +234,42 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             policy_payload = json.loads(policy_check.stdout)
             self.assertEqual(policy_payload["decision"], "ALLOW")
             self.assertFalse(policy_payload["executed"])
+
+            mcp_status = subprocess.run(
+                [str(bin_dir / "lai"), "mcp", "status", "--json"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            mcp_payload = json.loads(mcp_status.stdout)
+            self.assertEqual(mcp_payload["version"], EXPECTED_VERSION)
+            self.assertEqual(mcp_payload["overall"], "no_config")
+            self.assertFalse(mcp_payload["security"]["executes_tools"])
+
+            mcp_policy = subprocess.run(
+                [
+                    str(bin_dir / "lai"),
+                    "mcp",
+                    "policy-check",
+                    "--operation",
+                    "call-tool",
+                    "--server",
+                    "desktop-commander",
+                    "--tool",
+                    "read_file",
+                    "--json",
+                ],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            mcp_policy_payload = json.loads(mcp_policy.stdout)
+            self.assertEqual(mcp_policy_payload["decision"], "DENY")
+            self.assertFalse(mcp_policy_payload["executed"])
 
             control_token = subprocess.run(
                 [str(bin_dir / "lai"), "control-token", "init", "--json"],

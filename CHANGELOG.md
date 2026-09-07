@@ -1,3 +1,29 @@
+## [0.4.5] - 2026-09-07
+
+### Added
+- Expanded top-level CLI help so existing status, recovery, observability, spec, semantic, and workspace commands are discoverable without invoking operational flows.
+- Added successful deterministic help for core CLI subcommands that previously treated `--help` as an error or executed a status command.
+- Added explicit `lai recovery clear` for discarding stale interrupted checkpoints without touching repository files or invoking the model.
+- Added deterministic help output for mode commands such as `lai plan --help` and `lai implement --help` so mode help never falls through into model execution.
+- Added deterministic top-level `lai --help`, `lai -h`, and `lai help` output so help never falls through into model execution.
+- Added `lai web search` and `lai web fetch` as bounded read-only CLI dogfood surfaces for public web evidence without invoking the model.
+- Added `lai mcp status`, `lai mcp tools`, and `lai mcp policy-check` as a non-executing governed MCP broker foundation.
+- Added successful `lai mcp --help`, `lai mcp help`, and subcommand help output so MCP help is explicit, non-executing, and not reported as an error.
+- Added authenticated `GET /v1/mcp/status`, `GET /v1/mcp/tools`, and `POST /v1/mcp/policy-check` control-plane routes.
+- Corrected `GET /v1/runs?limit=N` to list in-memory control-run records with `control_run_id` rather than internal historical agent run IDs, preserving `run_id` as a history alias for compatibility.
+- Added repository-local MCP config discovery for `.cursor/mcp.json`, `.mcp.json`, and `.agents/mcp_config.json`.
+
+### Security
+- Release-pack command files and summary metadata now omit the local checkout path from copyable/public-facing artifacts.
+- MCP tool execution remains disabled; `call-tool` policy checks are denied.
+- Credential-shaped MCP env values must use `${ENV_VAR}` interpolation and literal values are blocked without being printed.
+- Generalized publication and VSIX scans for private Linux home paths, WSL/Windows user-profile paths, and known local IPs, and hardened `.gitignore` for local private/runtime/build artifacts.
+- Expanded gateway-contract regression coverage so the Harness explicitly advertises the full run/session route set consumed by `lai-gateway`.
+
+### Validation
+- MCP status, config discovery, help output, unknown-flag rejection, secret redaction, and non-executing policy checks are covered by focused tests.
+- Official local `make milestone-gate` passed with Ruff, pytest, Harness Score L4, unittest, strict mypy, generalized publication scan, and VSIX inspection green.
+
 ## [0.4.4] - 2026-09-06
 
 ### Added

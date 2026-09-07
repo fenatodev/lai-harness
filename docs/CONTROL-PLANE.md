@@ -61,7 +61,7 @@ Reuses the deterministic `lai readiness` collector. It may probe the configured 
 
 ### `GET /v1/runs?limit=N`
 
-Returns up to 50 sanitized historical run summaries from the existing observability store. This remains the historical list endpoint.
+Returns up to 50 sanitized in-memory control-run summaries for runs created through the control plane. Each listed item includes `control_run_id`, matching `GET /v1/runs/<control_run_id>`. The local `lai runs` command remains the historical observability view.
 
 ### Persistent sessions
 
@@ -83,6 +83,18 @@ Session state lives under `$LAI_DATA_DIR/control-sessions` as schema-versioned J
 Historical session text is explicitly **untrusted context**. It may be stale, contain model mistakes, or include hostile instructions. The harness labels it accordingly and states that it cannot override the current request, `AGENTS.md`, active specs, policy, safety guards, or current repository evidence. A session-bound run does not become terminal-successful until its compact turn has been persisted; persistence failure is surfaced as a failed run instead of silently losing continuity.
 
 The harness does not automatically copy environment variables, bearer tokens, model API keys, or full tool traces into the session record. User-provided task/output text can still contain sensitive information, so gateways should never send credentials as conversation text and operators should treat `$LAI_DATA_DIR/control-sessions` as private local state.
+
+### `GET /v1/mcp/status`
+
+Returns the non-executing MCP broker status for repository-local config discovery. The payload reports loaded config files, declared servers, issues, and security flags. It does not start MCP servers, read environment variable values, or print credentials.
+
+### `GET /v1/mcp/tools`
+
+Returns declared MCP server summaries from the same broker discovery payload. It lists command names, argument counts, env key names, credential-shaped env keys, and blocked status for unsafe literal credential values. Tool execution remains disabled.
+
+### `POST /v1/mcp/policy-check`
+
+Classifies one MCP broker operation without execution. `status` and `list-tools` can be allowed as read-only non-executing operations. `call-tool` is denied in the MCP foundation milestone until allowlisted execution and audit boundaries are implemented.
 
 ### `POST /v1/policy-check`
 

@@ -1,3 +1,53 @@
+## lai harness v0.4.5 — MCP broker foundation
+
+`v0.4.5` adds the first governed MCP broker boundary. It discovers and validates repository-local MCP config files, reports declared servers, and exposes non-executing MCP policy checks without starting external MCP servers or granting tool-call authority.
+
+### What changed
+
+- Top-level `lai --help` now lists the existing status, recovery, observability, spec, semantic, and workspace surfaces so operators do not need to discover them by reading source.
+- Core CLI subcommands now use deterministic successful help output instead of treating `--help` as an error or running status commands.
+- `lai recovery clear` now discards stale interrupted checkpoints explicitly, without repository mutation or model access.
+- Mode commands such as `lai plan --help`, `lai review --help`, and `lai implement --help` now print deterministic usage without invoking the model.
+- Top-level `lai --help`, `lai -h`, and `lai help` now print deterministic command usage without invoking the model.
+- `lai web search` and `lai web fetch` provide direct bounded CLI dogfood for the existing read-only public web evidence tools, without browser actions or stateful web access.
+- Added `lai mcp status`, `lai mcp tools`, and `lai mcp policy-check`.
+- Added `lai mcp --help`, `lai mcp help`, and subcommand help as successful non-executing help output.
+- Added authenticated `GET /v1/mcp/status`, `GET /v1/mcp/tools`, and `POST /v1/mcp/policy-check` control-plane routes.
+- `GET /v1/runs?limit=N` now lists control-plane run records with `control_run_id`, while local `lai runs` remains the historical observability view.
+- Added MCP config discovery for `.cursor/mcp.json`, `.mcp.json`, and `.agents/mcp_config.json` using `mcpServers` or `servers` maps.
+- Added credential-shaped env validation: values for keys such as `TOKEN`, `API_KEY`, `SECRET`, `PASSWORD`, and `AUTH` must use `${ENV_VAR}` interpolation.
+- Added secret-free output that lists env key names but never env values.
+- Added strict MCP subcommand argument handling so unknown `status`/`tools` flags fail instead of being silently ignored.
+- Generalized publication/VSIX scans and `.gitignore` coverage for private paths, known local IPs, and local runtime/build artifacts.
+- Gateway-contract regression coverage now asserts the full run/session route set consumed by `lai-gateway`, including list and read endpoints.
+- Added policy behavior that allows read-only non-executing status/list checks and denies `call-tool` execution in this foundation milestone.
+
+### Safety boundary
+
+- Release-pack command files and summary metadata omit the operator's local checkout path from release-facing artifacts.
+- No MCP server is started.
+- No MCP tool is executed.
+- No environment variable value, credential file, control token, model key, shell authority, Git mutation, PR, tag, release, or remote resource mutation is exposed.
+- Literal credential-shaped MCP env values block the config and are redacted from output.
+- Publication and VSIX packaging gates reject private local paths and known local network IPs before release artifacts are accepted.
+
+### Validation gate
+
+```bash
+make milestone-gate
+```
+
+Local milestone evidence: Ruff passed; pytest passed with 292 tests and 143 subtests; Harness Score passed at L4 100/108; `validate.sh` passed with 292 unittest tests, strict mypy over seven source files, generalized publication scan, and VSIX inspection green.
+
+### Release commands
+
+```bash
+lai release-check --target 0.4.5 --json
+lai release-pack --target 0.4.5 --with-vsix --json
+lai release-governance --target 0.4.5 --remote --json
+lai project-handoff --target 0.4.5 --remote --json
+```
+
 ## lai harness v0.4.4 — control-session lifecycle
 
 `v0.4.4` adds bounded lifecycle control for repository-scoped persistent sessions. It is driven by gateway dogfood: mobile/private clients can now create, inspect, and delete stale LAI sessions without gaining shell, Git, source-checkout, model-management, commit, push, PR, tag, or release authority.

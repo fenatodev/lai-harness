@@ -55,6 +55,10 @@ from lai_specs import (
     parse_spec as parse_spec,
     render_active_spec_context as _render_active_spec_context,
 )
+from lai_mcp import (
+    discover_mcp_config as discover_mcp_config,
+    mcp_policy_check as mcp_policy_check,
+)
 from lai_sessions import (
     CONTROL_SESSION_CONTEXT_LIMIT as CONTROL_SESSION_CONTEXT_LIMIT,
     CONTROL_SESSION_MAX_TURNS as CONTROL_SESSION_MAX_TURNS,
@@ -76,7 +80,7 @@ from lai_web import (
     search_web_evidence as search_web_evidence,
 )
 
-VERSION = "0.4.4"
+VERSION = "0.4.5"
 PRODUCT_NAME = "lai harness"
 def render_config_status(config=None):
     return _render_config_status(CONFIG if config is None else config, VERSION)
@@ -833,6 +837,240 @@ def render_policy_result(policy):
     if decision == "DENY":
         return f"POLICY DENY: {reason}."
     return None
+
+
+
+LAI_USAGE = """Usage: lai <command> [options]
+
+Core commands:
+  status                 Show workspace status without contacting the model.
+  readiness | ready      Run deterministic readiness checks.
+  doctor                 Check the configured local model endpoint.
+  config                 Show safe effective configuration.
+  serve                  Start the authenticated loopback control API.
+  control-token          Initialize or inspect the control API token.
+  gateway-contract       Print the Gateway compatibility contract.
+  sessions               List, show, or delete repository-scoped sessions.
+  runs | run             Inspect local run history.
+  recovery               Inspect or clear recovery checkpoints.
+  mcp                    Inspect non-executing MCP broker status and policy.
+  web                    Search/fetch bounded public web evidence.
+  model                  Run deterministic model-evaluation helpers.
+  update                 Run bounded update-intelligence checks.
+  metrics | audit        Inspect local operational records.
+  spec | semantic        Inspect active spec or semantic code contracts.
+  release-check          Run deterministic release readiness checks.
+  release-pack           Generate local release artifacts.
+  project-handoff        Generate next-chat handoff context.
+  workspace              Manage safe local workspaces.
+
+Mode commands:
+  plan debug diagnose review security release
+  fix ci-fix test refactor implement
+
+Use `lai <command> --help` for command-specific usage where available.
+"""
+
+
+WEB_USAGE = (
+    "Usage: lai web search <query> [--max-results 1..N] [--json] | "
+    "lai web fetch <https-url> [--max-chars 200..N] [--json]"
+)
+
+
+RECOVERY_USAGE = "Usage: lai recovery [clear]"
+
+
+MODE_USAGE = """Usage: lai <mode> <task>
+
+Modes:
+  plan        Produce a bounded implementation or research plan.
+  debug       Reproduce and explain a failure before proposing a fix.
+  diagnose    Inspect project state and identify likely blockers.
+  review      Review current code or Git changes with evidence.
+  security    Trace risks and unsafe input/output paths.
+  release     Inspect deterministic release readiness evidence.
+  fix         Apply a small targeted fix with validation.
+  ci-fix      Repair CI/test failures with validation.
+  test        Add or repair tests without broad refactoring.
+  refactor    Improve structure without changing behavior.
+  implement   Implement scoped functionality with validation.
+
+Mode help is deterministic and never contacts the model endpoint.
+"""
+
+MCP_USAGE = "Usage: lai mcp [status|tools|policy-check] [--json]"
+MCP_STATUS_USAGE = "Usage: lai mcp status [--json]"
+MCP_TOOLS_USAGE = "Usage: lai mcp tools [--json]"
+MCP_POLICY_USAGE = (
+    "Usage: lai mcp policy-check --operation status|list-tools|call-tool "
+    "[--server NAME] [--tool NAME] [--json]"
+)
+MCP_HELP_ARGS = {"-h", "--help", "help"}
+
+
+def mcp_status_payload():
+    payload = discover_mcp_config(ROOT)
+    payload["product"] = PRODUCT_NAME
+    payload["version"] = VERSION
+    payload["repository"] = str(ROOT.resolve())
+    return payload
+
+
+def mcp_tools_payload():
+    payload = mcp_status_payload()
+    return {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "repository": str(ROOT.resolve()),
+        "overall": payload["overall"],
+        "servers": payload["servers"],
+        "server_count": payload["server_count"],
+        "execution_enabled": False,
+    }
+
+
+def control_mcp_policy_payload(request):
+    if not isinstance(request, dict):
+        raise ValueError("MCP policy request must be a JSON object")
+    discovery = mcp_status_payload()
+    policy = mcp_policy_check(request, discovery=discovery)
+    return {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "repository": str(ROOT.resolve()),
+        "decision": policy["decision"],
+        "reason": policy["reason"],
+        "executed": False,
+        "operation": request.get("operation"),
+        "server": policy.get("server"),
+        "tool": policy.get("tool"),
+        "mcp_overall": discovery["overall"],
+    }
+
+
+def render_mcp_status(json_mode=False):
+    payload = mcp_status_payload()
+    if json_mode:
+        return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    lines = [
+        "# lai mcp status",
+        f"Overall: {payload['overall']}",
+        f"Config files: {len(payload['config_files'])}",
+        f"Servers: {payload['server_count']}",
+        "Execution: disabled",
+    ]
+    if payload["config_files"]:
+        lines.append("")
+        lines.append("## Config files")
+        for cfg in payload["config_files"]:
+            lines.append(f"- {cfg['path']}: {cfg['status']} ({cfg['server_count']} server(s))")
+    if payload["servers"]:
+        lines.append("")
+        lines.append("## Servers")
+        for server in payload["servers"]:
+            lines.append(f"- {server['name']}: {server['status']} command={server.get('command') or '[invalid]'}")
+    if payload["issues"]:
+        lines.append("")
+        lines.append("## Issues")
+        for issue in payload["issues"]:
+            lines.append(f"- {issue['severity']}: {issue['path']}: {issue['message']}")
+    lines.append("")
+    lines.append("MCP tool execution is intentionally disabled in this foundation milestone.")
+    return "\n".join(lines)
+
+
+def render_mcp_tools(json_mode=False):
+    tools_payload = mcp_tools_payload()
+    if json_mode:
+        return json.dumps(tools_payload, ensure_ascii=False, indent=2, sort_keys=True)
+    lines = ["# lai mcp tools", f"Servers: {tools_payload['server_count']}", "Execution: disabled"]
+    for server in tools_payload["servers"]:
+        env_suffix = ", ".join(server.get("env_keys") or []) or "none"
+        lines.append(
+            f"- {server['name']}: command={server.get('command') or '[invalid]'} "
+            f"args={server.get('args_count', 0)} env={env_suffix} status={server['status']}"
+        )
+    if not tools_payload["servers"]:
+        lines.append("No MCP servers declared.")
+    return "\n".join(lines)
+
+
+def parse_mcp_policy_args(args):
+    options = {"operation": None, "server": None, "tool": None, "json": False}
+    index = 0
+    while index < len(args):
+        item = args[index]
+        if item == "--json":
+            options["json"] = True
+            index += 1
+            continue
+        if item in {"--operation", "--server", "--tool"}:
+            if index + 1 >= len(args):
+                raise SystemExit(MCP_POLICY_USAGE)
+            options[item[2:].replace("-", "_")] = args[index + 1]
+            index += 2
+            continue
+        raise SystemExit(MCP_POLICY_USAGE)
+    if not options["operation"]:
+        raise SystemExit(MCP_POLICY_USAGE)
+    return options
+
+
+def render_mcp_policy_check(args):
+    if args and args[0] in MCP_HELP_ARGS:
+        if len(args) == 1:
+            return MCP_POLICY_USAGE
+        raise SystemExit(MCP_POLICY_USAGE)
+    options = parse_mcp_policy_args(args)
+    payload = control_mcp_policy_payload(options)
+    if options["json"]:
+        return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return f"{payload['decision']}: {payload['reason']}"
+
+
+def _parse_mcp_json_only_args(args, usage):
+    json_mode = False
+    for item in args:
+        if item == "--json":
+            json_mode = True
+            continue
+        raise SystemExit(usage)
+    return json_mode
+
+
+def handle_mcp(args):
+    command = args[0] if args else "status"
+    rest = args[1:] if args else []
+    if command in MCP_HELP_ARGS:
+        print(MCP_USAGE)
+        print(MCP_STATUS_USAGE)
+        print(MCP_TOOLS_USAGE)
+        print(MCP_POLICY_USAGE)
+        return
+    if command == "status":
+        if rest and rest[0] in MCP_HELP_ARGS:
+            if len(rest) == 1:
+                print(MCP_STATUS_USAGE)
+                return
+            raise SystemExit(MCP_STATUS_USAGE)
+        print(render_mcp_status(json_mode=_parse_mcp_json_only_args(rest, MCP_STATUS_USAGE)))
+        return
+    if command == "tools":
+        if rest and rest[0] in MCP_HELP_ARGS:
+            if len(rest) == 1:
+                print(MCP_TOOLS_USAGE)
+                return
+            raise SystemExit(MCP_TOOLS_USAGE)
+        print(render_mcp_tools(json_mode=_parse_mcp_json_only_args(rest, MCP_TOOLS_USAGE)))
+        return
+    if command == "policy-check":
+        print(render_mcp_policy_check(rest))
+        return
+    if command == "--json":
+        print(render_mcp_status(json_mode=True))
+        return
+    raise SystemExit(MCP_USAGE)
 
 
 read_paths = set()
@@ -3448,6 +3686,91 @@ def tool_git(args):
 
 
 
+def _parse_web_positive_int(raw, *, maximum, label, minimum=1):
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise SystemExit(WEB_USAGE) from exc
+    if not minimum <= value <= maximum:
+        raise SystemExit(f"{label} must be between {minimum} and {maximum}")
+    return value
+
+
+def handle_web_evidence(args):
+    args = list(args)
+    if not args or args[0] in {"--help", "-h", "help"}:
+        print(WEB_USAGE)
+        return
+    command = args.pop(0)
+    json_mode = False
+    try:
+        if command == "search":
+            max_results = WEB_SEARCH_DEFAULT_RESULTS
+            query_parts = []
+            index = 0
+            while index < len(args):
+                value = args[index]
+                if value == "--json":
+                    json_mode = True
+                    index += 1
+                elif value == "--max-results":
+                    if index + 1 >= len(args):
+                        raise SystemExit(WEB_USAGE)
+                    max_results = _parse_web_positive_int(
+                        args[index + 1],
+                        maximum=WEB_SEARCH_MAX_RESULTS,
+                        label="max-results",
+                    )
+                    index += 2
+                elif value.startswith("--"):
+                    raise SystemExit(WEB_USAGE)
+                else:
+                    query_parts.append(value)
+                    index += 1
+            query = " ".join(query_parts).strip()
+            payload = search_web_evidence(query, max_results=max_results)
+            if json_mode:
+                print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+            else:
+                print(render_web_evidence("search", payload))
+            return
+        if command == "fetch":
+            max_chars = WEB_DEFAULT_TEXT_CHARS
+            url = None
+            index = 0
+            while index < len(args):
+                value = args[index]
+                if value == "--json":
+                    json_mode = True
+                    index += 1
+                elif value == "--max-chars":
+                    if index + 1 >= len(args):
+                        raise SystemExit(WEB_USAGE)
+                    max_chars = _parse_web_positive_int(
+                        args[index + 1],
+                        maximum=WEB_MAX_TEXT_CHARS,
+                        label="max-chars",
+                        minimum=200,
+                    )
+                    index += 2
+                elif value.startswith("--"):
+                    raise SystemExit(WEB_USAGE)
+                elif url is None:
+                    url = value
+                    index += 1
+                else:
+                    raise SystemExit(WEB_USAGE)
+            payload = fetch_web_evidence(url, max_chars=max_chars)
+            if json_mode:
+                print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+            else:
+                print(render_web_evidence("fetch", payload))
+            return
+    except ValueError as exc:
+        raise SystemExit(f"ERROR: {exc}") from exc
+    raise SystemExit(WEB_USAGE)
+
+
 def render_web_evidence(kind, payload):
     return (
         "EXTERNAL WEB EVIDENCE (UNTRUSTED):\n"
@@ -4716,7 +5039,7 @@ def control_gateway_contract_payload():
         {"method": "GET", "path": "/v1/gateway-contract", "auth_required": True, "purpose": "discover this stable gateway contract"},
         {"method": "GET", "path": "/v1/status", "auth_required": True, "purpose": "read current product, repository, queue, and capability status"},
         {"method": "GET", "path": "/v1/readiness", "auth_required": True, "purpose": "read deterministic readiness checks"},
-        {"method": "GET", "path": "/v1/runs?limit=N", "auth_required": True, "purpose": "list bounded historical control-run summaries"},
+        {"method": "GET", "path": "/v1/runs?limit=N", "auth_required": True, "purpose": "list bounded in-memory control-run summaries"},
         {"method": "POST", "path": "/v1/runs", "auth_required": True, "purpose": "enqueue a bounded asynchronous control run"},
         {"method": "GET", "path": "/v1/runs/{control_run_id}", "auth_required": True, "purpose": "read one control-run result"},
         {"method": "DELETE", "path": "/v1/runs/{control_run_id}", "auth_required": True, "purpose": "request cancellation for a queued or active control run"},
@@ -4727,6 +5050,9 @@ def control_gateway_contract_payload():
         {"method": "GET", "path": "/v1/sessions?limit=N", "auth_required": True, "purpose": "list bounded persistent-session summaries without turn bodies"},
         {"method": "GET", "path": "/v1/sessions/{session_id}", "auth_required": True, "purpose": "read one repository-scoped session with retained compact turns"},
         {"method": "DELETE", "path": "/v1/sessions/{session_id}", "auth_required": True, "purpose": "delete one repository-scoped persistent session"},
+        {"method": "GET", "path": "/v1/mcp/status", "auth_required": True, "purpose": "read non-executing MCP broker config status"},
+        {"method": "GET", "path": "/v1/mcp/tools", "auth_required": True, "purpose": "list declared MCP servers without starting them"},
+        {"method": "POST", "path": "/v1/mcp/policy-check", "auth_required": True, "purpose": "classify one MCP broker operation without execution"},
         {"method": "POST", "path": "/v1/policy-check", "auth_required": True, "purpose": "classify one tool request without execution"},
     ]
     return {
@@ -4769,6 +5095,8 @@ def control_gateway_contract_payload():
             "async_read_only_runs": True,
             "async_work_runs": True,
             "persistent_sessions": True,
+            "mcp_broker_foundation": True,
+            "mcp_tool_execution": False,
             "approved_workspace_promotion": True,
             "source_repository_write": False,
             "sandbox_workspace_write": True,
@@ -4840,6 +5168,8 @@ def control_status_payload(server=None):
             "async_read_only_runs": True,
             "async_work_runs": True,
             "persistent_sessions": True,
+            "mcp_broker_foundation": True,
+            "mcp_tool_execution": False,
             "session_max_turns": CONTROL_SESSION_MAX_TURNS,
             "session_context_max_chars": CONTROL_SESSION_CONTEXT_LIMIT,
             "remote_tool_profile": CONTROL_RUN_TOOL_PROFILE,
@@ -4863,15 +5193,20 @@ def control_status_payload(server=None):
     }
 
 
-def control_runs_payload(limit=10):
+def control_runs_payload(server, limit=10):
     if not isinstance(limit, int) or not 1 <= limit <= 50:
         raise ValueError("limit must be between 1 and 50")
-    runs = collect_run_history()
+    if server is None or not hasattr(server, "control_run_lock"):
+        records = []
+    else:
+        with server.control_run_lock:
+            records = list(server.control_run_records.values())[-limit:]
+            records = [_control_run_public_record_locked(server, record) for record in records]
     return {
         "product": PRODUCT_NAME,
         "version": VERSION,
         "repository": str(ROOT),
-        "runs": [run_history_public_record(run) for run in runs[-limit:]],
+        "runs": records,
     }
 
 
@@ -6037,6 +6372,12 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/v1/readiness":
             self._json(200, collect_readiness_status())
             return
+        if parsed.path == "/v1/mcp/status":
+            self._json(200, mcp_status_payload())
+            return
+        if parsed.path == "/v1/mcp/tools":
+            self._json(200, mcp_tools_payload())
+            return
         if parsed.path == "/v1/sessions":
             query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
             try:
@@ -6063,7 +6404,7 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
             query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
             try:
                 limit = int((query.get("limit") or ["10"])[0])
-                payload = control_runs_payload(limit=limit)
+                payload = control_runs_payload(self.server, limit=limit)
             except (TypeError, ValueError):
                 self._json(400, {"error": {"code": "invalid_limit", "message": "limit must be between 1 and 50"}})
                 return
@@ -6110,7 +6451,7 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
             return
         parsed = urllib.parse.urlsplit(self.path)
         promotion_match = re.fullmatch(r"/v1/runs/(cr-[0-9a-f]{16})/promotion", parsed.path)
-        if parsed.path not in {"/v1/policy-check", "/v1/runs", "/v1/sessions"} and not promotion_match:
+        if parsed.path not in {"/v1/policy-check", "/v1/mcp/policy-check", "/v1/runs", "/v1/sessions"} and not promotion_match:
             if parsed.path in {"/v1/status", "/v1/readiness"} or parsed.path.startswith("/v1/runs/"):
                 self._json(405, {"error": {"code": "method_not_allowed", "message": "method not allowed"}})
             else:
@@ -6173,6 +6514,14 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
                 "repository": str(ROOT),
                 "promotion": promotion,
             })
+            return
+        if parsed.path == "/v1/mcp/policy-check":
+            try:
+                payload = control_mcp_policy_payload(request)
+            except ValueError as exc:
+                self._json(400, {"error": {"code": "invalid_mcp_policy_request", "message": str(exc)}})
+                return
+            self._json(200, payload)
             return
         if parsed.path == "/v1/runs":
             try:
@@ -7259,6 +7608,7 @@ def run_history_public_record(run):
     ]
     return {
         "run_id": run["run_id"],
+        "control_run_id": run["run_id"],
         "first_ts": run.get("first_ts"),
         "last_ts": run.get("last_ts"),
         "mode": run.get("mode"),
@@ -8556,7 +8906,8 @@ def release_pack_publish_commands(release_payload):
     title = release_pack_title(target_version)
     lines = [
         "# human-run release commands; this file is documentation only",
-        f"cd {shlex.quote(str(ROOT))}",
+        "# Run from your local lai-harness checkout; local paths are intentionally omitted.",
+        "cd /path/to/lai-harness-checkout",
         "",
     ]
     if branch and not is_protected_write_branch(branch):
@@ -8683,7 +9034,7 @@ def release_pack_payload(release_payload, pack_dir, files, include_vsix=False, v
         "expected_tag": release_payload["expected_tag"],
         "release_channel": release_payload["release_channel"],
         "expected_prerelease": release_payload["expected_prerelease"],
-        "repository": str(ROOT),
+        "repository": "<repo-checkout>",
         "branch": release_payload.get("branch"),
         "head": release_payload.get("head"),
         "release_check_overall": release_payload.get("overall"),
@@ -10251,6 +10602,28 @@ def print_recovery_status():
         print("Blocked: " + str(reason))
 
 
+def clear_recovery_checkpoint():
+    path = run_checkpoint_path()
+    if path.is_file():
+        path.unlink()
+        return True
+    return False
+
+
+def handle_recovery(args):
+    if not args:
+        print_recovery_status()
+        return
+    if len(args) == 1 and args[0] in {"--help", "-h", "help"}:
+        print(RECOVERY_USAGE)
+        return
+    if len(args) == 1 and args[0] == "clear":
+        removed = clear_recovery_checkpoint()
+        print("Recovery checkpoint cleared." if removed else "No recovery checkpoint found.")
+        return
+    raise SystemExit(RECOVERY_USAGE)
+
+
 RUN_CHECKPOINT_CONTEXT = None
 
 
@@ -11562,8 +11935,53 @@ def render_project_handoff(args=None):
 
 
 
+
+def deterministic_command_help(command):
+    usage = {
+        "--show-config": "Usage: lai --show-config",
+        "--config-status": "Usage: lai config",
+        "--control-token": CONTROL_TOKEN_USAGE,
+        "--control-serve": CONTROL_SERVE_USAGE,
+        "--gateway-contract": "Usage: lai gateway-contract [--json]",
+        "--policy-check": POLICY_CHECK_USAGE,
+        "--mcp": MCP_USAGE,
+        "--web": WEB_USAGE,
+        "--readiness": "Usage: lai readiness [--json]",
+        "--release-check": "Usage: lai release-check [--target VERSION] [--json]",
+        "--release-pack": "Usage: lai release-pack [--target VERSION] [--out DIR] [--with-vsix] [--force] [--json]",
+        "--release-governance": RELEASE_GOVERNANCE_USAGE,
+        "--project-handoff": PROJECT_HANDOFF_USAGE,
+        "--workspace": "Usage: lai workspace status|create|clone-smoke|clean [options]",
+        "--context": "Usage: lai context <query>",
+        "--update-intelligence": "Usage: lai update [plan [--json]|check --remote [--json]|latest [--json]|triage [--json]]",
+        "--model-eval": "Usage: lai model [plan [--json]|sample|run [--scenario ID] [--repeat 1..5] [--json]|score <results.jsonl|latest> [...]]",
+        "--semantics": "Usage: lai semantics [--json]",
+        "--recovery": RECOVERY_USAGE,
+        "--doctor": "Usage: lai doctor",
+        "--status": "Usage: lai status",
+        "--metrics": "Usage: lai metrics",
+        "--audit": "Usage: lai audit",
+        "--sessions": CONTROL_SESSIONS_USAGE,
+        "--runs": "Usage: lai runs [--limit N] | lai run last | lai run show <run-id|--last> | lai run tail <run-id|--last> [--limit N] | lai run export <run-id|--last> [--out DIR]",
+        "--run": "Usage: lai runs [--limit N] | lai run last | lai run show <run-id|--last> | lai run tail <run-id|--last> [--limit N] | lai run export <run-id|--last> [--out DIR]",
+        "--spec-status": "Usage: lai spec",
+        "--handoff": "Usage: lai handoff [note]",
+    }
+    return usage.get(command)
+
+
 def main():
     args = list(CLI_ARGS)
+
+    if args and args[0] in {"--help", "-h", "help"}:
+        print(LAI_USAGE)
+        return
+
+    if len(args) >= 2 and args[1] in {"--help", "-h", "help"}:
+        usage = deterministic_command_help(args[0])
+        if usage:
+            print(usage)
+            return
 
     if args and args[0] in {"--version", "-V"}:
         print(f"{PRODUCT_NAME} {VERSION}")
@@ -11595,6 +12013,14 @@ def main():
 
     if args and args[0] == "--policy-check":
         print(render_policy_check(args[1:]))
+        return
+
+    if args and args[0] == "--mcp":
+        handle_mcp(args[1:])
+        return
+
+    if args and args[0] == "--web":
+        handle_web_evidence(args[1:])
         return
 
     if args and args[0] == "--readiness":
@@ -11638,7 +12064,7 @@ def main():
         return
 
     if args and args[0] == "--recovery":
-        print_recovery_status()
+        handle_recovery(args[1:])
         return
 
     if args and args[0] == "--doctor":
@@ -11853,6 +12279,9 @@ def main():
         if args and args[0] in supported_modes:
             mode = supported_modes[args[0]]
             args = args[1:]
+            if args and args[0] in {"--help", "-h", "help"}:
+                print(MODE_USAGE)
+                return
         task = " ".join(args).strip()
 
     selection_mode = mode == "selection"

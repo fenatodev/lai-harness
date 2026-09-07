@@ -21,6 +21,8 @@ lai spec
 lai config
 lai context "repair parser timeout"
 lai recovery
+lai recovery clear
+lai web fetch https://example.com/ --max-chars 200 --json
 # only when recovery reports a compatible interrupted run:
 lai resume
 @lai /handoff Ready for a high-context architecture review

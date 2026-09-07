@@ -335,6 +335,125 @@ class LocalAgentTest(unittest.TestCase):
                 policy = agent.evaluate_tool_policy("bash", {"command": command})
                 self.assertEqual(policy["decision"], expected)
 
+
+    def test_command_help_is_successful_and_non_executing(self):
+        cases = {
+            "--control-token": "Usage: lai control-token",
+            "--control-serve": "Usage: lai serve",
+            "--sessions": "Usage: lai sessions",
+            "--run": "Usage: lai runs",
+            "--runs": "Usage: lai runs",
+            "--model-eval": "Usage: lai model",
+            "--update-intelligence": "Usage: lai update",
+            "--release-check": "Usage: lai release-check",
+            "--release-pack": "Usage: lai release-pack",
+            "--release-governance": "Usage: lai release-governance",
+            "--project-handoff": "Usage: lai project-handoff",
+            "--workspace": "Usage: lai workspace",
+            "--readiness": "Usage: lai readiness",
+            "--gateway-contract": "Usage: lai gateway-contract",
+            "--policy-check": "Usage: lai policy-check",
+            "--recovery": "Usage: lai recovery",
+            "--semantics": "Usage: lai semantics",
+            "--status": "Usage: lai status",
+            "--metrics": "Usage: lai metrics",
+            "--audit": "Usage: lai audit",
+        }
+        for command, expected in cases.items():
+            with self.subTest(command=command):
+                buffer = io.StringIO()
+                with mock.patch.object(agent, "CLI_ARGS", [command, "--help"]), \
+                        mock.patch.object(agent, "api_call") as api_call, \
+                        mock.patch.object(agent, "record_metric_event") as metric, \
+                        redirect_stdout(buffer):
+                    agent.main()
+                self.assertIn(expected, buffer.getvalue())
+                api_call.assert_not_called()
+                metric.assert_not_called()
+
+    def test_mode_help_is_successful_and_non_executing(self):
+        for command in [
+            "--plan",
+            "--debug",
+            "--diagnose",
+            "--review",
+            "--security",
+            "--release",
+            "--fix",
+            "--ci-fix",
+            "--test",
+            "--refactor",
+            "--implement",
+        ]:
+            with self.subTest(command=command):
+                buffer = io.StringIO()
+                with mock.patch.object(agent, "CLI_ARGS", [command, "--help"]), \
+                        mock.patch.object(agent, "api_call") as api_call, \
+                        mock.patch.object(agent, "record_metric_event") as metric, \
+                        redirect_stdout(buffer):
+                    agent.main()
+                self.assertIn("Usage: lai <mode> <task>", buffer.getvalue())
+                self.assertIn("Mode help is deterministic", buffer.getvalue())
+                api_call.assert_not_called()
+                metric.assert_not_called()
+
+    def test_web_cli_search_fetch_help_and_errors_are_deterministic(self):
+        search_payload = {
+            "query": "safe harness",
+            "provider": "duckduckgo-lite",
+            "provider_url": "https://lite.duckduckgo.com/lite/?q=safe+harness",
+            "resolved_ips": ["93.184.216.34"],
+            "connected_ip": "93.184.216.34",
+            "status": 200,
+            "fetched_at": "2026-09-06T02:00:00Z",
+            "result_count": 1,
+            "results": [{"title": "Example", "url": "https://example.com/", "snippet": "sample"}],
+            "response_sha256": "a" * 64,
+            "untrusted_external_content": True,
+        }
+        fetch_payload = {
+            "requested_url": "https://example.com/",
+            "url": "https://example.com/",
+            "host": "example.com",
+            "resolved_ips": ["93.184.216.34"],
+            "connected_ip": "93.184.216.34",
+            "status": 200,
+            "content_type": "text/plain",
+            "fetched_at": "2026-09-06T02:00:00Z",
+            "sha256": "b" * 64,
+            "body_bytes": 6,
+            "text": "sample",
+            "truncated": False,
+            "untrusted_external_content": True,
+        }
+        with mock.patch.object(agent, "search_web_evidence", return_value=search_payload) as searched, \
+                mock.patch.object(agent, "fetch_web_evidence", return_value=fetch_payload) as fetched:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                agent.handle_web_evidence(["search", "safe", "harness", "--max-results", "3", "--json"])
+            payload = json.loads(output.getvalue())
+            self.assertEqual(payload["result_count"], 1)
+            searched.assert_called_once_with("safe harness", max_results=3)
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                agent.handle_web_evidence(["fetch", "https://example.com/", "--max-chars", "200", "--json"])
+            payload = json.loads(output.getvalue())
+            self.assertEqual(payload["url"], "https://example.com/")
+            fetched.assert_called_once_with("https://example.com/", max_chars=200)
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            agent.handle_web_evidence(["--help"])
+        self.assertIn("Usage: lai web search", output.getvalue())
+
+        with self.assertRaisesRegex(SystemExit, "max-chars must be between 200"):
+            agent.handle_web_evidence(["fetch", "https://example.com/", "--max-chars", "199"])
+
+        with mock.patch.object(agent, "fetch_web_evidence", side_effect=ValueError("only HTTPS URLs are allowed")):
+            with self.assertRaisesRegex(SystemExit, "only HTTPS URLs are allowed"):
+                agent.handle_web_evidence(["fetch", "http://example.com/"])
+
     def test_web_tools_are_read_only_policy_and_return_untrusted_evidence(self):
         search_payload = {
             "query": "example",
@@ -417,6 +536,150 @@ class LocalAgentTest(unittest.TestCase):
             agent.render_policy_check(["--stdin", "--json"], stdin_text="{bad")
         with self.assertRaises(SystemExit):
             agent.render_policy_check(["--stdin", "--tool", "bash", "--json"], stdin_text="{}")
+
+
+    def test_top_level_help_is_successful_and_non_executing(self):
+        for args in (["--help"], ["-h"], ["help"]):
+            proc = subprocess.run(
+                [str(SOURCE), *args],
+                cwd=self.root,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("Usage: lai <command> [options]", proc.stdout)
+            for command in (
+                "status",
+                "readiness | ready",
+                "recovery",
+                "mcp",
+                "web",
+                "metrics | audit",
+                "spec | semantic",
+                "release-check",
+                "workspace",
+            ):
+                self.assertIn(command, proc.stdout)
+            self.assertEqual(proc.stderr, "")
+
+    def test_mcp_help_is_successful_and_non_executing(self):
+        cases = [
+            (["--help"], "Usage: lai mcp [status|tools|policy-check]"),
+            (["help"], "Usage: lai mcp [status|tools|policy-check]"),
+            (["status", "--help"], "Usage: lai mcp status [--json]"),
+            (["tools", "--help"], "Usage: lai mcp tools [--json]"),
+            (["policy-check", "--help"], "Usage: lai mcp policy-check"),
+        ]
+        for args, expected in cases:
+            with self.subTest(args=args):
+                buffer = io.StringIO()
+                with redirect_stdout(buffer):
+                    agent.handle_mcp(args)
+                output = buffer.getvalue()
+                self.assertIn(expected, output)
+                self.assertNotIn("# lai mcp status", output)
+                self.assertNotIn("# lai mcp tools", output)
+
+    def test_mcp_status_and_tools_reject_unknown_flags(self):
+        with self.assertRaises(SystemExit):
+            agent.handle_mcp(["status", "--bogus"])
+        with self.assertRaises(SystemExit):
+            agent.handle_mcp(["tools", "--bogus"])
+        with self.assertRaises(SystemExit):
+            agent.handle_mcp(["status", "--help", "--bogus"])
+        with self.assertRaises(SystemExit):
+            agent.handle_mcp(["tools", "--help", "--bogus"])
+
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            agent.handle_mcp(["policy-check", "--help"])
+        policy_output = buffer.getvalue()
+        self.assertIn("Usage: lai mcp policy-check", policy_output)
+        self.assertNotIn("DENY", policy_output)
+
+        with self.assertRaises(SystemExit):
+            agent.handle_mcp(["policy-check"])
+
+    def test_mcp_status_discovers_config_and_never_prints_secret_values(self):
+        empty_payload = json.loads(agent.render_mcp_status(json_mode=True))
+        self.assertEqual(empty_payload["overall"], "no_config")
+        self.assertFalse(empty_payload["security"]["executes_tools"])
+        self.assertFalse(empty_payload["security"]["reads_env_values"])
+
+        mcp_dir = self.root / ".cursor"
+        mcp_dir.mkdir()
+        (mcp_dir / "mcp.json").write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "desktop-commander": {
+                            "command": "npx",
+                            "args": ["--yes", "@wonderwhy-er/desktop-commander@latest", "remote"],
+                            "env": {"DESKTOP_COMMANDER_TOKEN": "${DESKTOP_COMMANDER_TOKEN}"},
+                        }
+                    }
+                }
+            )
+        )
+        valid_payload = json.loads(agent.render_mcp_status(json_mode=True))
+        self.assertEqual(valid_payload["overall"], "ready")
+        self.assertEqual(valid_payload["servers"][0]["name"], "desktop-commander")
+        self.assertEqual(valid_payload["servers"][0]["unsafe_env_keys"], [])
+        self.assertIn("DESKTOP_COMMANDER_TOKEN", valid_payload["servers"][0]["env_keys"])
+        self.assertNotIn("${DESKTOP_COMMANDER_TOKEN}", json.dumps(valid_payload))
+
+        (self.root / ".mcp.json").write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "bad": {
+                            "command": "node",
+                            "env": {"API_TOKEN": "literal-secret-value-that-must-not-appear"},
+                        }
+                    }
+                }
+            )
+        )
+        blocked_payload = json.loads(agent.render_mcp_status(json_mode=True))
+        self.assertEqual(blocked_payload["overall"], "blocked")
+        self.assertIn("API_TOKEN", json.dumps(blocked_payload))
+        self.assertNotIn("literal-secret-value-that-must-not-appear", json.dumps(blocked_payload))
+
+    def test_mcp_tools_and_policy_check_are_non_executing_foundation(self):
+        (self.root / ".mcp.json").write_text(
+            json.dumps({"mcpServers": {"local": {"command": "node", "args": ["server.js"]}}})
+        )
+        tools = json.loads(agent.render_mcp_tools(json_mode=True))
+        self.assertFalse(tools["execution_enabled"])
+        self.assertEqual(tools["servers"][0]["name"], "local")
+
+        status_policy = json.loads(agent.render_mcp_policy_check(["--operation", "status", "--json"]))
+        self.assertEqual(status_policy["decision"], "ALLOW")
+        self.assertFalse(status_policy["executed"])
+
+        list_policy = json.loads(
+            agent.render_mcp_policy_check(
+                ["--operation", "list-tools", "--server", "local", "--json"]
+            )
+        )
+        self.assertEqual(list_policy["decision"], "ALLOW")
+        self.assertFalse(list_policy["executed"])
+
+        call_policy = json.loads(
+            agent.render_mcp_policy_check(
+                [
+                    "--operation",
+                    "call-tool",
+                    "--server",
+                    "local",
+                    "--tool",
+                    "read_file",
+                    "--json",
+                ]
+            )
+        )
+        self.assertEqual(call_policy["decision"], "DENY")
+        self.assertFalse(call_policy["executed"])
 
     def test_bash_blocks_git_mutation_subcommands(self):
         subcommands = [
@@ -625,6 +888,15 @@ class LocalAgentTest(unittest.TestCase):
             self.assertNotEqual(missing.returncode, 0)
             self.assertIn("Control session not found", missing.stderr)
 
+
+    def test_run_history_public_record_keeps_control_run_id_alias(self):
+        record = agent.run_history_public_record({
+            "run_id": "cr-1234567890abcdef",
+            "mode": "plan",
+            "status": "succeeded",
+        })
+        self.assertEqual(record["run_id"], "cr-1234567890abcdef")
+        self.assertEqual(record["control_run_id"], "cr-1234567890abcdef")
 
     def test_run_history_lists_shows_tails_and_exports_recorded_runs(self):
         data_dir = self.base / "data"
@@ -1158,6 +1430,7 @@ class LocalAgentTest(unittest.TestCase):
         self.assertEqual(payload["release_channel"], "prerelease")
         self.assertTrue(payload["expected_prerelease"])
         self.assertEqual(payload["pack_dir"], str(out_dir.resolve()))
+        self.assertEqual(payload["repository"], "<repo-checkout>")
         self.assertFalse(payload["with_vsix"])
         for key in ("summary", "release_body", "checklist", "publishing", "commands"):
             self.assertTrue(Path(payload["files"][key]).is_file(), key)
@@ -1166,6 +1439,10 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("ready body for beta pack", release_body)
         self.assertNotIn("stale body from older beta", release_body)
         commands = (out_dir / "human-release-commands.sh").read_text()
+        summary = (out_dir / "summary.json").read_text()
+        self.assertIn("cd /path/to/lai-harness-checkout", commands)
+        self.assertNotIn(str(self.root), commands)
+        self.assertNotIn(str(self.root), summary)
         self.assertIn("git tag -a v0.4.0-beta.24", commands)
         self.assertIn("v0.4.0-beta.24 — correct beta title", commands)
         self.assertNotIn("remote capability profiles", commands)
@@ -2227,6 +2504,25 @@ class LocalAgentTest(unittest.TestCase):
         agent.CONFIG["api_key_file"] = key_file
         self.assertEqual(agent.llama_api_key(), "synthetic-test-key")
 
+    def test_recovery_clear_removes_checkpoint_without_model(self):
+        checkpoint = agent.build_run_checkpoint("plan", "synthetic task", "started")
+        agent.save_run_checkpoint(checkpoint)
+        self.assertTrue(agent.run_checkpoint_path().is_file())
+        buffer = io.StringIO()
+        with mock.patch.object(agent, "CLI_ARGS", ["--recovery", "clear"]), \
+                mock.patch.object(agent, "api_call") as api_call, \
+                redirect_stdout(buffer):
+            agent.main()
+        self.assertIn("Recovery checkpoint cleared.", buffer.getvalue())
+        self.assertFalse(agent.run_checkpoint_path().exists())
+        api_call.assert_not_called()
+
+        buffer = io.StringIO()
+        with mock.patch.object(agent, "CLI_ARGS", ["--recovery", "--help"]), \
+                redirect_stdout(buffer):
+            agent.main()
+        self.assertIn("Usage: lai recovery [clear]", buffer.getvalue())
+
     def test_configuration_helpers_are_reexported_from_typed_module(self):
         import lai_config
 
@@ -3038,7 +3334,7 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("release channel (`prerelease` or `stable`)", publishing)
         self.assertIn("expected GitHub `prerelease` flag", publishing)
         self.assertTrue(
-            release_notes.startswith(f"## lai harness v{agent.VERSION} — control-session lifecycle")
+            release_notes.startswith(f"## lai harness v{agent.VERSION} — MCP broker foundation")
         )
         self.assertIn("lai harness v0.4.0 — stable core graduation", release_notes)
         self.assertIn("lai harness v0.4.0-beta.24", release_notes)

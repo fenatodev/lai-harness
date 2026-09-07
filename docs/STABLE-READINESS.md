@@ -68,7 +68,7 @@ The following may be valuable later, but are **not blockers** for the first stab
 
 - persistent PWA/Telegram multi-turn sessions and `lai-gateway` product work;
 - read-only web search/fetch and browser-action capabilities;
-- MCP broker / Desktop Commander integration;
+- MCP broker tool execution / Desktop Commander runtime integration beyond non-executing config validation;
 - automatic model installer or VS Code Marketplace distribution;
 - broader multi-provider support beyond the OpenAI-compatible contract;
 - commit/push/PR/merge authority from the remote control plane;

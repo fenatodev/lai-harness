@@ -13,7 +13,7 @@ make harness-score-gate
 
 `make harness-score-gate` requires L4. Beta.9 reached L4 Self-correcting at 93/108 (86%), up from the beta.8 L3 baseline of 76/108 (70%). Beta.16 raises the measured maturity to 100/108 (93%) by adding real reproducible-sensor and type-checking capabilities.
 
-The project does not add subagents, MCP configuration, type checking, or dependency metadata solely to gain score points. Beta.16 adds the latter two because they now enforce reproducible CI sensors and a strict typed guardrail boundary. Subagents and MCP remain deferred until real delegation and governed broker boundaries exist.
+The project does not add subagents, MCP configuration, type checking, or dependency metadata solely to gain score points. Beta.16 adds the latter two because they now enforce reproducible CI sensors and a strict typed guardrail boundary. Subagents remain deferred until real delegation boundaries exist. MCP now has a non-executing governed broker foundation; allowlisted execution remains deferred until policy and audit boundaries are proven.
 
 ## Reproducible static sensors
 

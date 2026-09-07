@@ -8,9 +8,9 @@
 - Expand automated model-evaluation fixtures from observed dogfood failures and use repeated evidence before any default-model change.
 - Keep generic `bash` out of remote control profiles; evolve the structured `validate`/sandbox boundary from measured fixtures rather than exposing shell text.
 - Expand end-to-end fixtures for every mode and guard.
-- Dogfood repository-scoped persistent remote sessions with `lai-gateway`; add lifecycle/delete/compaction controls only from measured gateway needs, without expanding remote authority.
-- Dogfood read-only public web search/fetch evidence with SSRF/redirect/content bounds; expand providers or extraction only from measured failures before any browser-action capability.
-- Add a governed MCP broker; Desktop Commander is a primary candidate, but MCP calls must pass the same capability/policy boundary.
+- Dogfood repository-scoped persistent remote sessions with `lai-gateway`; current 0.4.5/0.1.31 dogfood covers installed Gateway CLI and private HTTP session create/list/get/delete against temporary `lai serve`, with lifecycle/delete controls kept inside the existing authenticated route set and no expanded remote authority.
+- Keep read-only public web evidence under dogfood through direct `lai web search/fetch` CLI and model-tool usage; expand providers or extraction only from measured failures before any browser-action capability.
+- Keep the governed MCP broker foundation under dogfood with temporary repository configs only; current evidence covers env-interpolated config discovery, safe status/tools metadata, `list-tools` policy allow, and `call-tool` denial without enabling real MCP execution.
 
 ## Adjacent projects
 
@@ -25,7 +25,7 @@
 - Add gateway approval UX for promotion, then guarded commit/push/PR actions on promoted feature worktrees.
 - Evolve persistent-session lifecycle, explicit deletion, compaction quality, and gateway-side user/session mapping after real mobile dogfood.
 - Evolve read-only web evidence from dogfood before considering any stateful/browser-action capability.
-- Add an MCP broker for allowlisted tools such as Desktop Commander under the same policy layer.
+- Evolve the MCP broker from non-executing config discovery into allowlisted tool execution under the same policy layer.
 - Add deterministic wave orchestration for subagents/delegates using explicit dependencies and disjoint file ownership.
 - Add quality-gate ratchets: measure as warning, enforce no-regression, then promote to required gate when debt reaches zero.
 - Add token-efficient structured views for Git, tests, diffs, process state, and other verbose evidence.

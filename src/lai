@@ -7,6 +7,10 @@ command_name="${1:-}"
 case "$command_name" in
     doctor)
         shift
+        if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "help" ]; then
+            echo "Usage: lai doctor"
+            exit 0
+        fi
         exec "$bin_dir/local-agent" "$@" --doctor
         ;;
     server-start|server-stop|server-restart)
@@ -15,6 +19,10 @@ case "$command_name" in
         ;;
     config)
         shift
+        if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "help" ]; then
+            echo "Usage: lai config"
+            exit 0
+        fi
         exec "$bin_dir/local-agent" "$@" --config-status
         ;;
     serve)
@@ -29,7 +37,7 @@ case "$command_name" in
         shift
         exec "$bin_dir/local-agent" --gateway-contract "$@"
         ;;
-    status|metrics|audit|handoff|clear-context|recovery|context|semantics|sessions|runs|readiness|ready|policy-check|release-check|release-pack|release-governance|governance|project-handoff|next-chat|workspace)
+    status|metrics|audit|handoff|clear-context|recovery|context|semantics|sessions|runs|readiness|ready|policy-check|mcp|web|release-check|release-pack|release-governance|governance|project-handoff|next-chat|workspace)
         shift
         if [ "$command_name" = "ready" ]; then
             exec "$bin_dir/local-agent" --readiness "$@"

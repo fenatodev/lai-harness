@@ -5,9 +5,9 @@
 ```bash
 lai project-handoff
 lai project-handoff --json
-lai project-handoff --target 0.4.4
-lai project-handoff --target 0.4.4 --remote --json
-lai project-handoff --target 0.4.4 --remote --out /tmp/lai-harness-project-handoff-v0.4.4 --force --json
+lai project-handoff --target 0.4.5
+lai project-handoff --target 0.4.5 --remote --json
+lai project-handoff --target 0.4.5 --remote --out /tmp/lai-harness-project-handoff-v0.4.5 --force --json
 lai next-chat --remote --json
 ```
 
@@ -30,6 +30,7 @@ When remote verification is requested, the effective `release_governance_overall
 - product, version, target version and expected tag;
 - local checkout, public repository, current branch, HEAD and tag state;
 - `lai release-check` status and release phase;
+- `lai mcp status` can be used to inspect non-executing MCP broker readiness;
 - local and optional remote release-governance state;
 - default release-pack location and optional VSIX status;
 - safe workspace base and active workspace count;
@@ -43,10 +44,10 @@ When `--out DIR` is provided, the output directory receives `PROJECT-HANDOFF.md`
 ## Suggested migration flow
 
 ```bash
-lai release-check --target 0.4.4 --json
-lai release-governance --target 0.4.4 --remote --json
-lai project-handoff --target 0.4.4 --remote \
-  --out /tmp/lai-harness-project-handoff-v0.4.4 --force --json
+lai release-check --target 0.4.5 --json
+lai release-governance --target 0.4.5 --remote --json
+lai project-handoff --target 0.4.5 --remote \
+  --out /tmp/lai-harness-project-handoff-v0.4.5 --force --json
 ```
 
 Use the default offline handoff when live GitHub state is irrelevant or credentials are unavailable. Use `--remote` when branch protection, Release publication, or artifact digest state affects the next action.

@@ -31,6 +31,16 @@ The contract does not grant generic remote shell, direct source-checkout writes,
 
 Schema file: [`schemas/runtime/gateway_contract.schema.json`](../schemas/runtime/gateway_contract.schema.json).
 
+## MCP broker foundation
+
+The control plane exposes a non-executing MCP broker foundation for companion clients:
+
+- `GET /v1/mcp/status` reports repository-local MCP config readiness.
+- `GET /v1/mcp/tools` lists declared MCP server summaries without starting servers.
+- `POST /v1/mcp/policy-check` classifies MCP status/list/call operations without execution.
+
+`call-tool` remains denied. Credential-shaped env values must use `${ENV_VAR}` interpolation and literal values are blocked without being printed.
+
 ## Session lifecycle
 
 The contract includes repository-scoped persistent-session lifecycle routes:
