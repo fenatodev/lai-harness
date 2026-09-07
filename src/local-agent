@@ -10895,7 +10895,6 @@ def collect_rollback_plan(selector, dry_run=True):
         if not rel:
             blocked.append({"path": item.get("path"), "reason": "invalid snapshot path"})
             continue
-        candidate = ROOT.resolve() / rel
         expected_current = expected_hashes.get(rel)
         current_hashes = hash_repository_paths([rel])
         current_hash = current_hashes.get(rel)

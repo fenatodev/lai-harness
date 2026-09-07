@@ -2565,7 +2565,6 @@ class LocalAgentTest(unittest.TestCase):
     def test_prewrite_snapshot_captures_private_content_and_public_metadata(self):
         sample = self.root / "sample.txt"
         sample.write_text("before secret-ish text\n", encoding="utf-8")
-        missing = self.root / "created.txt"
         payload = agent.capture_prewrite_snapshots(
             "run-123", ["sample.txt", "created.txt", "sample.txt"]
         )
