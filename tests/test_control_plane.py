@@ -201,6 +201,8 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertFalse(payload["capabilities"]["shell_execution"])
         self.assertFalse(payload["capabilities"]["source_repository_write"])
         self.assertTrue(payload["capabilities"]["persistent_sessions"])
+        self.assertTrue(payload["capabilities"]["mcp_broker_foundation"])
+        self.assertFalse(payload["capabilities"]["mcp_tool_execution"])
         self.assertIn("plan", payload["run_modes"]["read_only"])
         self.assertIn("implement", payload["run_modes"]["work"])
         paths = {(route["method"], route["path"]) for route in payload["routes"]}
@@ -208,6 +210,9 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertIn(("POST", "/v1/runs"), paths)
         self.assertIn(("POST", "/v1/sessions"), paths)
         self.assertIn(("DELETE", "/v1/sessions/{session_id}"), paths)
+        self.assertIn(("GET", "/v1/mcp/status"), paths)
+        self.assertIn(("GET", "/v1/mcp/tools"), paths)
+        self.assertIn(("POST", "/v1/mcp/policy-check"), paths)
         shown = json.dumps(payload, sort_keys=True)
         self.assertNotIn("synthetic-control-token", shown)
         self.assertNotIn("llama-api-key", shown)
@@ -441,6 +446,61 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(payload["decision"], "DENY")
         self.assertFalse(payload["executed"])
+    def test_mcp_endpoints_are_authenticated_secret_free_and_non_executing(self):
+        status, unauthorized = self.request("/v1/mcp/status")
+        self.assertEqual(status, 401)
+        self.assertEqual(unauthorized["error"]["code"], "unauthorized")
+
+        status, empty = self.request("/v1/mcp/status", token=self.token)
+        self.assertEqual(status, 200)
+        self.assertEqual(empty["overall"], "no_config")
+        self.assertFalse(empty["security"]["executes_tools"])
+
+        mcp_dir = self.root / ".cursor"
+        mcp_dir.mkdir()
+        (mcp_dir / "mcp.json").write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "desktop-commander": {
+                            "command": "npx",
+                            "args": ["--yes", "@wonderwhy-er/desktop-commander@latest", "remote"],
+                            "env": {"DESKTOP_COMMANDER_TOKEN": "${DESKTOP_COMMANDER_TOKEN}"},
+                        }
+                    }
+                }
+            )
+        )
+
+        status, tools = self.request("/v1/mcp/tools", token=self.token)
+        self.assertEqual(status, 200)
+        self.assertFalse(tools["execution_enabled"])
+        self.assertEqual(tools["servers"][0]["name"], "desktop-commander")
+        shown = json.dumps(tools)
+        self.assertIn("DESKTOP_COMMANDER_TOKEN", shown)
+        self.assertNotIn("${DESKTOP_COMMANDER_TOKEN}", shown)
+        self.assertNotIn("synthetic-control-token", shown)
+
+        status, policy = self.request(
+            "/v1/mcp/policy-check",
+            method="POST",
+            token=self.token,
+            body={
+                "operation": "call-tool",
+                "server": "desktop-commander",
+                "tool": "read_file",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(policy["decision"], "DENY")
+        self.assertFalse(policy["executed"])
+
+        status, malformed = self.request(
+            "/v1/mcp/policy-check", method="POST", token=self.token, body=[]
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(malformed["error"]["code"], "invalid_mcp_policy_request")
+
     def test_malformed_unsupported_and_oversized_requests_fail_safely(self):
         status, payload = self.request(
             "/v1/policy-check",

@@ -84,6 +84,18 @@ Historical session text is explicitly **untrusted context**. It may be stale, co
 
 The harness does not automatically copy environment variables, bearer tokens, model API keys, or full tool traces into the session record. User-provided task/output text can still contain sensitive information, so gateways should never send credentials as conversation text and operators should treat `$LAI_DATA_DIR/control-sessions` as private local state.
 
+### `GET /v1/mcp/status`
+
+Returns the non-executing MCP broker status for repository-local config discovery. The payload reports loaded config files, declared servers, issues, and security flags. It does not start MCP servers, read environment variable values, or print credentials.
+
+### `GET /v1/mcp/tools`
+
+Returns declared MCP server summaries from the same broker discovery payload. It lists command names, argument counts, env key names, credential-shaped env keys, and blocked status for unsafe literal credential values. Tool execution remains disabled.
+
+### `POST /v1/mcp/policy-check`
+
+Classifies one MCP broker operation without execution. `status` and `list-tools` can be allowed as read-only non-executing operations. `call-tool` is denied in the MCP foundation milestone until allowlisted execution and audit boundaries are implemented.
+
 ### `POST /v1/policy-check`
 
 Classifies one tool request through the same deterministic `ALLOW` / `ASK` / `DENY` policy used by the harness. It always returns `executed: false`.

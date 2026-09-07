@@ -12,7 +12,7 @@
   <a href="LICENSE"><img alt="Licença" src="https://img.shields.io/badge/license-MIT-0f766e"></a>
 </p>
 
-> **Release atual:** `v0.4.4` · ciclo de vida de sessões de controle · fluxo Linux/WSL-first · inferência local por endpoint OpenAI-compatible, desenvolvido com llama.cpp.
+> **Release atual:** `v0.4.5` · fundação do broker MCP · fluxo Linux/WSL-first · inferência local por endpoint OpenAI-compatible, desenvolvido com llama.cpp.
 
 O lai harness foi criado para um problema específico: modelos locais pequenos perdem muita capacidade quando precisam carregar prompts gigantes, schemas genéricos e muitas rodadas de ferramentas. O projeto reduz esse overhead e coloca ao redor do modelo regras que não dependem da própria resposta do modelo: policy, specs, validação, auditoria, checkpoints e release protegido.
 
@@ -22,7 +22,7 @@ Ele complementa agentes cloud de alto contexto. O trabalho local fica rápido e 
 
 | Área | Estado atual |
 | --- | --- |
-| Versão | `0.4.4` |
+| Versão | `0.4.5` |
 | Maturidade do harness | L4 · Self-correcting · 100/108 (93%) |
 | Runtime | Python stdlib; sem dependências Python no harness |
 | Interfaces | CLI (`lai`) + extensão VS Code |
@@ -123,10 +123,10 @@ O fluxo exige:
 8. handoff convergente sem ações manuais pendentes.
 
 ```bash
-lai release-check --target 0.4.4 --json
-lai release-pack --target 0.4.4 --with-vsix --json
-lai release-governance --target 0.4.4 --remote --json
-lai project-handoff --target 0.4.4 --remote --json
+lai release-check --target 0.4.5 --json
+lai release-pack --target 0.4.5 --with-vsix --json
+lai release-governance --target 0.4.5 --remote --json
+lai project-handoff --target 0.4.5 --remote --json
 ```
 
 ## Segurança
@@ -172,3 +172,13 @@ O código original do LAI usa [MIT](LICENSE). VS Code, llama.cpp, modelos, GGUF 
 ---
 
 <p align="center"><strong>IA local. Governada. Reprodutível. Auditável.</strong></p>
+
+## Fundação do broker MCP
+
+```bash
+lai mcp status
+lai mcp tools
+lai mcp policy-check --operation call-tool --server desktop-commander --tool read_file --json
+```
+
+O broker MCP atualmente valida configuração MCP local do repositório e nega execução de ferramentas. Veja [MCP broker foundation](docs/MCP-BROKER.md).

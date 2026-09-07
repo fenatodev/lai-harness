@@ -1,3 +1,17 @@
+## [0.4.5] - 2026-09-07
+
+### Added
+- Added `lai mcp status`, `lai mcp tools`, and `lai mcp policy-check` as a non-executing governed MCP broker foundation.
+- Added authenticated `GET /v1/mcp/status`, `GET /v1/mcp/tools`, and `POST /v1/mcp/policy-check` control-plane routes.
+- Added repository-local MCP config discovery for `.cursor/mcp.json`, `.mcp.json`, and `.agents/mcp_config.json`.
+
+### Security
+- MCP tool execution remains disabled; `call-tool` policy checks are denied.
+- Credential-shaped MCP env values must use `${ENV_VAR}` interpolation and literal values are blocked without being printed.
+
+### Validation
+- MCP status, config discovery, secret redaction, and non-executing policy checks are covered by focused tests.
+
 ## [0.4.4] - 2026-09-06
 
 ### Added

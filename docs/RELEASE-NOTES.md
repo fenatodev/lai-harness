@@ -1,3 +1,32 @@
+## lai harness v0.4.5 — MCP broker foundation
+
+`v0.4.5` adds the first governed MCP broker boundary. It discovers and validates repository-local MCP config files, reports declared servers, and exposes non-executing MCP policy checks without starting external MCP servers or granting tool-call authority.
+
+### What changed
+
+- Added `lai mcp status`, `lai mcp tools`, and `lai mcp policy-check`.
+- Added authenticated `GET /v1/mcp/status`, `GET /v1/mcp/tools`, and `POST /v1/mcp/policy-check` control-plane routes.
+- Added MCP config discovery for `.cursor/mcp.json`, `.mcp.json`, and `.agents/mcp_config.json` using `mcpServers` or `servers` maps.
+- Added credential-shaped env validation: values for keys such as `TOKEN`, `API_KEY`, `SECRET`, `PASSWORD`, and `AUTH` must use `${ENV_VAR}` interpolation.
+- Added secret-free output that lists env key names but never env values.
+- Added policy behavior that allows read-only non-executing status/list checks and denies `call-tool` execution in this foundation milestone.
+
+### Safety boundary
+
+- No MCP server is started.
+- No MCP tool is executed.
+- No environment variable value, credential file, control token, model key, shell authority, Git mutation, PR, tag, release, or remote resource mutation is exposed.
+- Literal credential-shaped MCP env values block the config and are redacted from output.
+
+### Release commands
+
+```bash
+lai release-check --target 0.4.5 --json
+lai release-pack --target 0.4.5 --with-vsix --json
+lai release-governance --target 0.4.5 --remote --json
+lai project-handoff --target 0.4.5 --remote --json
+```
+
 ## lai harness v0.4.4 — control-session lifecycle
 
 `v0.4.4` adds bounded lifecycle control for repository-scoped persistent sessions. It is driven by gateway dogfood: mobile/private clients can now create, inspect, and delete stale LAI sessions without gaining shell, Git, source-checkout, model-management, commit, push, PR, tag, or release authority.

@@ -56,6 +56,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertTrue((bin_dir / "lai_config.py").is_file())
             self.assertTrue((bin_dir / "lai_specs.py").is_file())
             self.assertTrue((bin_dir / "lai_sessions.py").is_file())
+            self.assertTrue((bin_dir / "lai_mcp.py").is_file())
             self.assertTrue((bin_dir / "lai_web.py").is_file())
             self.assertTrue((bin_dir / "lai-server-start").is_file())
             self.assertTrue((bin_dir / "lai-server-stop").is_file())
@@ -183,6 +184,42 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             policy_payload = json.loads(policy_check.stdout)
             self.assertEqual(policy_payload["decision"], "ALLOW")
             self.assertFalse(policy_payload["executed"])
+
+            mcp_status = subprocess.run(
+                [str(bin_dir / "lai"), "mcp", "status", "--json"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            mcp_payload = json.loads(mcp_status.stdout)
+            self.assertEqual(mcp_payload["version"], EXPECTED_VERSION)
+            self.assertEqual(mcp_payload["overall"], "no_config")
+            self.assertFalse(mcp_payload["security"]["executes_tools"])
+
+            mcp_policy = subprocess.run(
+                [
+                    str(bin_dir / "lai"),
+                    "mcp",
+                    "policy-check",
+                    "--operation",
+                    "call-tool",
+                    "--server",
+                    "desktop-commander",
+                    "--tool",
+                    "read_file",
+                    "--json",
+                ],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            mcp_policy_payload = json.loads(mcp_policy.stdout)
+            self.assertEqual(mcp_policy_payload["decision"], "DENY")
+            self.assertFalse(mcp_policy_payload["executed"])
 
             control_token = subprocess.run(
                 [str(bin_dir / "lai"), "control-token", "init", "--json"],

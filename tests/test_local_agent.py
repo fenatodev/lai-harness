@@ -418,6 +418,87 @@ class LocalAgentTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             agent.render_policy_check(["--stdin", "--tool", "bash", "--json"], stdin_text="{}")
 
+    def test_mcp_status_discovers_config_and_never_prints_secret_values(self):
+        empty_payload = json.loads(agent.render_mcp_status(json_mode=True))
+        self.assertEqual(empty_payload["overall"], "no_config")
+        self.assertFalse(empty_payload["security"]["executes_tools"])
+        self.assertFalse(empty_payload["security"]["reads_env_values"])
+
+        mcp_dir = self.root / ".cursor"
+        mcp_dir.mkdir()
+        (mcp_dir / "mcp.json").write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "desktop-commander": {
+                            "command": "npx",
+                            "args": ["--yes", "@wonderwhy-er/desktop-commander@latest", "remote"],
+                            "env": {"DESKTOP_COMMANDER_TOKEN": "${DESKTOP_COMMANDER_TOKEN}"},
+                        }
+                    }
+                }
+            )
+        )
+        valid_payload = json.loads(agent.render_mcp_status(json_mode=True))
+        self.assertEqual(valid_payload["overall"], "ready")
+        self.assertEqual(valid_payload["servers"][0]["name"], "desktop-commander")
+        self.assertEqual(valid_payload["servers"][0]["unsafe_env_keys"], [])
+        self.assertIn("DESKTOP_COMMANDER_TOKEN", valid_payload["servers"][0]["env_keys"])
+        self.assertNotIn("${DESKTOP_COMMANDER_TOKEN}", json.dumps(valid_payload))
+
+        (self.root / ".mcp.json").write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "bad": {
+                            "command": "node",
+                            "env": {"API_TOKEN": "literal-secret-value-that-must-not-appear"},
+                        }
+                    }
+                }
+            )
+        )
+        blocked_payload = json.loads(agent.render_mcp_status(json_mode=True))
+        self.assertEqual(blocked_payload["overall"], "blocked")
+        self.assertIn("API_TOKEN", json.dumps(blocked_payload))
+        self.assertNotIn("literal-secret-value-that-must-not-appear", json.dumps(blocked_payload))
+
+    def test_mcp_tools_and_policy_check_are_non_executing_foundation(self):
+        (self.root / ".mcp.json").write_text(
+            json.dumps({"mcpServers": {"local": {"command": "node", "args": ["server.js"]}}})
+        )
+        tools = json.loads(agent.render_mcp_tools(json_mode=True))
+        self.assertFalse(tools["execution_enabled"])
+        self.assertEqual(tools["servers"][0]["name"], "local")
+
+        status_policy = json.loads(agent.render_mcp_policy_check(["--operation", "status", "--json"]))
+        self.assertEqual(status_policy["decision"], "ALLOW")
+        self.assertFalse(status_policy["executed"])
+
+        list_policy = json.loads(
+            agent.render_mcp_policy_check(
+                ["--operation", "list-tools", "--server", "local", "--json"]
+            )
+        )
+        self.assertEqual(list_policy["decision"], "ALLOW")
+        self.assertFalse(list_policy["executed"])
+
+        call_policy = json.loads(
+            agent.render_mcp_policy_check(
+                [
+                    "--operation",
+                    "call-tool",
+                    "--server",
+                    "local",
+                    "--tool",
+                    "read_file",
+                    "--json",
+                ]
+            )
+        )
+        self.assertEqual(call_policy["decision"], "DENY")
+        self.assertFalse(call_policy["executed"])
+
     def test_bash_blocks_git_mutation_subcommands(self):
         subcommands = [
             "add", "commit", "am", "merge", "rebase", "cherry-pick",
@@ -3038,7 +3119,7 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("release channel (`prerelease` or `stable`)", publishing)
         self.assertIn("expected GitHub `prerelease` flag", publishing)
         self.assertTrue(
-            release_notes.startswith(f"## lai harness v{agent.VERSION} — control-session lifecycle")
+            release_notes.startswith(f"## lai harness v{agent.VERSION} — MCP broker foundation")
         )
         self.assertIn("lai harness v0.4.0 — stable core graduation", release_notes)
         self.assertIn("lai harness v0.4.0-beta.24", release_notes)
