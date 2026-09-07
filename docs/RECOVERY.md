@@ -27,6 +27,32 @@ Run:
 lai recovery
 ```
 
+For machine-readable checkpoint inventory and detail, use:
+
+```bash
+lai checkpoint list --json
+lai checkpoint show --last --json
+```
+
+The checkpoint command reports active recovery checkpoint metadata, compatibility status, bounded tracked-path names, and hash-count evidence.
+
+Write-capable runs also capture private pre-write snapshots outside the repository before edit/create/patch/rewrite attempts:
+
+```bash
+lai snapshot show --last --json
+```
+
+Snapshot output reports metadata only: paths, hashes, byte counts, and capture status. It intentionally does not print captured file contents.
+
+Rollback is explicit and hash-checked:
+
+```bash
+lai rollback --last --dry-run --json
+lai rollback --last
+```
+
+Rollback requires the active recovery checkpoint for that run. The current file hash must still match the checkpoint hash before LAI restores captured content or deletes a file that did not exist before the run. Drift blocks rollback instead of overwriting silently.
+
 The command does not contact the model. It reports one of:
 
 - `none` — no checkpoint exists for the workspace;
@@ -44,7 +70,7 @@ After confirming that an interrupted checkpoint is stale or intentionally abando
 lai recovery clear
 ```
 
-This removes only the current workspace's recovery checkpoint outside the repository. It does not mutate repository files, run history, metrics, audit logs, or model state.
+This removes the current workspace's recovery checkpoint and the associated pre-write snapshot outside the repository. It does not mutate repository files, run history, metrics, audit logs, or model state.
 
 ## Explicit resume
 

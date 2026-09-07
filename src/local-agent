@@ -80,7 +80,7 @@ from lai_web import (
     search_web_evidence as search_web_evidence,
 )
 
-VERSION = "0.4.5"
+VERSION = "0.4.6"
 PRODUCT_NAME = "lai harness"
 def render_config_status(config=None):
     return _render_config_status(CONFIG if config is None else config, VERSION)
@@ -853,6 +853,9 @@ Core commands:
   sessions               List, show, or delete repository-scoped sessions.
   runs | run             Inspect local run history.
   recovery               Inspect or clear recovery checkpoints.
+  checkpoint             List or show active recovery checkpoints.
+  snapshot               Show pre-write snapshot metadata for rollback preparation.
+  rollback               Restore captured pre-write snapshots with hash checks.
   mcp                    Inspect non-executing MCP broker status and policy.
   web                    Search/fetch bounded public web evidence.
   model                  Run deterministic model-evaluation helpers.
@@ -879,6 +882,8 @@ WEB_USAGE = (
 
 
 RECOVERY_USAGE = "Usage: lai recovery [clear]"
+CHECKPOINT_USAGE = "Usage: lai checkpoint [list [--json]|show <run-id|--last> [--json]]"
+ROLLBACK_USAGE = "Usage: lai rollback <run-id|--last> [--dry-run] [--json]"
 
 
 MODE_USAGE = """Usage: lai <mode> <task>
@@ -5042,6 +5047,7 @@ def control_gateway_contract_payload():
         {"method": "GET", "path": "/v1/runs?limit=N", "auth_required": True, "purpose": "list bounded in-memory control-run summaries"},
         {"method": "POST", "path": "/v1/runs", "auth_required": True, "purpose": "enqueue a bounded asynchronous control run"},
         {"method": "GET", "path": "/v1/runs/{control_run_id}", "auth_required": True, "purpose": "read one control-run result"},
+        {"method": "GET", "path": "/v1/runs/{control_run_id}/events", "auth_required": True, "purpose": "read bounded status timeline for one control run without stdout or stderr"},
         {"method": "DELETE", "path": "/v1/runs/{control_run_id}", "auth_required": True, "purpose": "request cancellation for a queued or active control run"},
         {"method": "GET", "path": "/v1/runs/{control_run_id}/promotion", "auth_required": True, "purpose": "inspect a hash-bound safe-workspace promotion proposal"},
         {"method": "POST", "path": "/v1/runs/{control_run_id}/promotion", "auth_required": True, "purpose": "promote an approved exact patch hash into a dedicated feature worktree"},
@@ -5329,6 +5335,80 @@ def control_run_public_record(server, control_run_id):
         if record is None:
             return None
         return _control_run_public_record_locked(server, record)
+
+
+def _control_run_event(name, timestamp, status, **details):
+    event = {
+        "event": name,
+        "status": status,
+        "at": timestamp,
+    }
+    clean_details = {
+        key: value
+        for key, value in details.items()
+        if value is not None and value != ""
+    }
+    if clean_details:
+        event["details"] = clean_details
+    return event
+
+
+def _control_run_events_locked(record):
+    events = []
+    created_at = record.get("created_at")
+    if created_at:
+        events.append(_control_run_event("queued", created_at, "queued"))
+    started_at = record.get("started_at")
+    if started_at:
+        events.append(_control_run_event(
+            "started", started_at, "running",
+            mode=record.get("mode"),
+            tool_profile=record.get("tool_profile"),
+        ))
+    if record.get("workspace_path") and started_at:
+        events.append(_control_run_event(
+            "workspace_prepared", started_at, "running",
+            isolated=True,
+            source_branch=record.get("workspace_source_branch"),
+            source_clean=record.get("workspace_source_clean"),
+        ))
+    if record.get("cancel_requested"):
+        events.append(_control_run_event(
+            "cancel_requested",
+            record.get("finished_at") or control_run_now(),
+            record.get("status") or "running",
+        ))
+    finished_at = record.get("finished_at")
+    if finished_at:
+        events.append(_control_run_event(
+            "finished", finished_at, record.get("status") or "unknown",
+            exit_code=record.get("exit_code"),
+            output_truncated=(
+                bool(record.get("stdout_truncated"))
+                or bool(record.get("stderr_truncated"))
+            ),
+            session_persisted=record.get("session_persisted"),
+        ))
+    return events[:16]
+
+
+def control_run_events_payload(server, control_run_id):
+    with server.control_run_lock:
+        record = server.control_run_records.get(str(control_run_id))
+        if record is None:
+            return None
+        events = _control_run_events_locked(record)
+        return {
+            "product": PRODUCT_NAME,
+            "version": VERSION,
+            "repository": str(ROOT),
+            "control_run_id": record["control_run_id"],
+            "mode": record["mode"],
+            "status": record["status"],
+            "terminal": record.get("status") in CONTROL_RUN_TERMINAL_STATES,
+            "event_count": len(events),
+            "events": events,
+        }
 
 
 def control_run_queue_summary(server):
@@ -6407,6 +6487,14 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
                 payload = control_runs_payload(self.server, limit=limit)
             except (TypeError, ValueError):
                 self._json(400, {"error": {"code": "invalid_limit", "message": "limit must be between 1 and 50"}})
+                return
+            self._json(200, payload)
+            return
+        events_match = re.fullmatch(r"/v1/runs/(cr-[0-9a-f]{16})/events", parsed.path)
+        if events_match and not parsed.query:
+            payload = control_run_events_payload(self.server, events_match.group(1))
+            if payload is None:
+                self._json(404, {"error": {"code": "run_not_found", "message": "control run not found"}})
                 return
             self._json(200, payload)
             return
@@ -10602,12 +10690,437 @@ def print_recovery_status():
         print("Blocked: " + str(reason))
 
 
+def checkpoint_public_record(state):
+    checkpoint = state.get("checkpoint") or {}
+    if not checkpoint:
+        return None
+    tracked_hashes = checkpoint.get("tracked_hashes") or {}
+    tracked_paths = sorted(tracked_hashes) if isinstance(tracked_hashes, dict) else []
+    return {
+        "run_id": str(checkpoint.get("run_id") or ""),
+        "mode": checkpoint.get("mode"),
+        "phase": checkpoint.get("phase"),
+        "status": state.get("status"),
+        "terminal": bool(checkpoint.get("terminal")),
+        "resumable": bool(state.get("resumable")),
+        "updated_at": checkpoint.get("updated_at"),
+        "last_tool": checkpoint.get("last_tool"),
+        "tracked_path_count": len(tracked_paths),
+        "tracked_paths": tracked_paths[:50],
+        "reasons": state.get("reasons") or [],
+    }
+
+
+def render_checkpoint_list(json_mode=False):
+    state = inspect_recovery_checkpoint()
+    record = checkpoint_public_record(state)
+    checkpoints = [record] if record else []
+    if json_mode:
+        return json.dumps({
+            "product": PRODUCT_NAME,
+            "version": VERSION,
+            "repository": str(ROOT),
+            "checkpoint_count": len(checkpoints),
+            "checkpoints": checkpoints,
+        }, ensure_ascii=False, indent=2, sort_keys=True)
+    lines = ["# lai checkpoints", "", f"Count: {len(checkpoints)}"]
+    for item in checkpoints:
+        lines.append("")
+        lines.append("- Run ID: " + str(item.get("run_id") or "[unknown]"))
+        lines.append("  Status: " + str(item.get("status") or "[unknown]"))
+        lines.append("  Mode: " + str(item.get("mode") or "[unknown]"))
+        lines.append("  Phase: " + str(item.get("phase") or "[unknown]"))
+        lines.append("  Resumable: " + str(bool(item.get("resumable"))).lower())
+        lines.append("  Tracked paths: " + str(item.get("tracked_path_count") or 0))
+    return "\n".join(lines)
+
+
+def render_checkpoint_show(selector, json_mode=False):
+    state = inspect_recovery_checkpoint()
+    record = checkpoint_public_record(state)
+    wanted = str(selector or "").strip()
+    if wanted == "--last":
+        wanted = str(record.get("run_id") if record else "")
+    if not record or not wanted or record.get("run_id") != wanted:
+        raise SystemExit("checkpoint not found")
+    if json_mode:
+        return json.dumps({
+            "product": PRODUCT_NAME,
+            "version": VERSION,
+            "repository": str(ROOT),
+            "checkpoint": record,
+        }, ensure_ascii=False, indent=2, sort_keys=True)
+    lines = [
+        "# lai checkpoint",
+        "",
+        "Run ID: " + str(record.get("run_id") or "[unknown]"),
+        "Status: " + str(record.get("status") or "[unknown]"),
+        "Mode: " + str(record.get("mode") or "[unknown]"),
+        "Phase: " + str(record.get("phase") or "[unknown]"),
+        "Updated: " + str(record.get("updated_at") or "[unknown]"),
+        "Resumable: " + str(bool(record.get("resumable"))).lower(),
+        "Terminal: " + str(bool(record.get("terminal"))).lower(),
+        "Tracked paths: " + str(record.get("tracked_path_count") or 0),
+    ]
+    paths = record.get("tracked_paths") or []
+    if paths:
+        lines.extend(["", "## Tracked paths", *("- " + path for path in paths)])
+    for reason in record.get("reasons") or []:
+        lines.append("Blocked: " + str(reason))
+    return "\n".join(lines)
+
+
+def handle_checkpoint(args):
+    raw = list(args or [])
+    json_mode = "--json" in raw
+    raw = [item for item in raw if item != "--json"]
+    if not raw or raw == ["list"]:
+        print(render_checkpoint_list(json_mode=json_mode))
+        return
+    if raw in (["--help"], ["-h"], ["help"]):
+        print(CHECKPOINT_USAGE)
+        return
+    if len(raw) == 2 and raw[0] == "show":
+        print(render_checkpoint_show(raw[1], json_mode=json_mode))
+        return
+    raise SystemExit(CHECKPOINT_USAGE)
+
+
+SNAPSHOT_MAX_FILE_BYTES = 500_000
+
+
+def run_snapshot_path(run_id=None):
+    safe_run_id = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(run_id or RUN_ID)).strip(".-")
+    if not safe_run_id:
+        safe_run_id = "unknown"
+    path = STATE_BASE.parent / "snapshots" / f"{safe_run_id}.json"
+    try:
+        path.resolve().relative_to(ROOT.resolve())
+    except ValueError:
+        return path
+    raise RuntimeError("snapshot directory must be outside repository")
+
+
+def normalize_snapshot_path(raw_path):
+    rel = str(raw_path or "").replace("\\", "/").strip()
+    while rel.startswith("./"):
+        rel = rel[2:]
+    if not rel or Path(rel).is_absolute():
+        return None
+    return rel
+
+
+def build_file_snapshot(rel):
+    normalized = normalize_snapshot_path(rel)
+    if not normalized:
+        return {"path": str(rel or ""), "status": "skipped", "reason": "invalid path"}
+    root_real = ROOT.resolve()
+    candidate = root_real / normalized
+    try:
+        resolved = candidate.resolve()
+        resolved.relative_to(root_real)
+    except Exception:
+        return {"path": normalized, "status": "skipped", "reason": "path escapes repository"}
+    cursor = root_real
+    for part in Path(normalized).parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            return {"path": normalized, "status": "skipped", "reason": "symlink path"}
+    if not candidate.exists():
+        return {"path": normalized, "status": "captured", "exists": False, "sha256": None, "content": None}
+    if not candidate.is_file():
+        return {"path": normalized, "status": "skipped", "reason": "not a file"}
+    data = candidate.read_bytes()
+    sha = hashlib.sha256(data).hexdigest()
+    if len(data) > SNAPSHOT_MAX_FILE_BYTES:
+        return {"path": normalized, "status": "skipped", "reason": "file too large", "exists": True, "sha256": sha}
+    try:
+        content = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return {"path": normalized, "status": "skipped", "reason": "non-utf8 file", "exists": True, "sha256": sha}
+    return {"path": normalized, "status": "captured", "exists": True, "sha256": sha, "content": content}
+
+
+def load_run_snapshots(run_id=None):
+    path = run_snapshot_path(run_id)
+    if not path.is_file():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    if data.get("schema_version") != RUNTIME_RECORD_SCHEMA_VERSION:
+        raise ValueError("unsupported snapshot schema")
+    if data.get("root") != str(ROOT):
+        raise ValueError("snapshot repository mismatch")
+    return data
+
+
+def save_run_snapshots(payload):
+    path = run_snapshot_path(payload.get("run_id"))
+    text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    _atomic_write_text(path, text)
+    return path
+
+
+def capture_prewrite_snapshots(run_id, paths):
+    normalized = []
+    for raw in paths or []:
+        rel = normalize_snapshot_path(raw)
+        if rel and rel not in normalized:
+            normalized.append(rel)
+    if not normalized:
+        return None
+    try:
+        existing = load_run_snapshots(run_id) or {}
+    except Exception:
+        existing = {}
+    records = {item.get("path"): item for item in existing.get("files") or [] if isinstance(item, dict)}
+    for rel in normalized:
+        records.setdefault(rel, build_file_snapshot(rel))
+    payload = {
+        "schema_version": RUNTIME_RECORD_SCHEMA_VERSION,
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "root": str(ROOT),
+        "run_id": str(run_id),
+        "snapshot_kind": "prewrite",
+        "max_file_bytes": SNAPSHOT_MAX_FILE_BYTES,
+        "files": [records[key] for key in sorted(records)],
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    save_run_snapshots(payload)
+    return payload
+
+
+def snapshot_public_record(payload):
+    files = []
+    for item in payload.get("files") or []:
+        files.append({
+            "path": item.get("path"),
+            "status": item.get("status"),
+            "exists": item.get("exists"),
+            "sha256": item.get("sha256"),
+            "content_bytes": len((item.get("content") or "").encode("utf-8")) if item.get("content") is not None else 0,
+            "reason": item.get("reason"),
+        })
+    return {
+        "run_id": payload.get("run_id"),
+        "snapshot_kind": payload.get("snapshot_kind"),
+        "updated_at": payload.get("updated_at"),
+        "file_count": len(files),
+        "files": files,
+    }
+
+
+def render_snapshot_show(selector="--last", json_mode=False):
+    checkpoint = inspect_recovery_checkpoint().get("checkpoint") or {}
+    run_id = str(selector or "").strip()
+    if run_id == "--last":
+        run_id = str(checkpoint.get("run_id") or RUN_ID)
+    try:
+        payload = load_run_snapshots(run_id)
+    except Exception as exc:
+        raise SystemExit("snapshot not available: " + str(exc))
+    if not payload:
+        raise SystemExit("snapshot not found")
+    public = snapshot_public_record(payload)
+    if json_mode:
+        return json.dumps({
+            "product": PRODUCT_NAME,
+            "version": VERSION,
+            "repository": str(ROOT),
+            "snapshot": public,
+        }, ensure_ascii=False, indent=2, sort_keys=True)
+    lines = ["# lai snapshot", "", "Run ID: " + str(public.get("run_id") or "[unknown]"), "Files: " + str(public.get("file_count") or 0)]
+    for item in public.get("files") or []:
+        lines.append("- " + str(item.get("path")) + " status=" + str(item.get("status")))
+    return "\n".join(lines)
+
+
+def handle_snapshot(args):
+    raw = list(args or [])
+    json_mode = "--json" in raw
+    raw = [item for item in raw if item != "--json"]
+    if raw in (["--help"], ["-h"], ["help"]):
+        print("Usage: lai snapshot show <run-id|--last> [--json]")
+        return
+    if len(raw) == 2 and raw[0] == "show":
+        print(render_snapshot_show(raw[1], json_mode=json_mode))
+        return
+    raise SystemExit("Usage: lai snapshot show <run-id|--last> [--json]")
+
+
+def resolve_rollback_run_id(selector):
+    wanted = str(selector or "").strip()
+    checkpoint = load_run_checkpoint()
+    if wanted == "--last":
+        if not checkpoint:
+            raise SystemExit("rollback requires an active checkpoint")
+        return str(checkpoint.get("run_id") or "")
+    return wanted
+
+
+def collect_rollback_plan(selector, dry_run=True):
+    run_id = resolve_rollback_run_id(selector)
+    if not run_id:
+        raise SystemExit("rollback requires a run id")
+    checkpoint = load_run_checkpoint()
+    if not checkpoint or checkpoint.get("run_id") != run_id:
+        raise SystemExit("rollback requires the active checkpoint for that run")
+    expected_hashes = checkpoint.get("tracked_hashes") or {}
+    if not isinstance(expected_hashes, dict):
+        raise SystemExit("rollback checkpoint hash map is invalid")
+    snapshot = load_run_snapshots(run_id)
+    if not snapshot:
+        raise SystemExit("rollback snapshot not found")
+    actions = []
+    blocked = []
+    for item in snapshot.get("files") or []:
+        rel = normalize_snapshot_path(item.get("path"))
+        if not rel:
+            blocked.append({"path": item.get("path"), "reason": "invalid snapshot path"})
+            continue
+        expected_current = expected_hashes.get(rel)
+        current_hashes = hash_repository_paths([rel])
+        current_hash = current_hashes.get(rel)
+        if not expected_current:
+            blocked.append({"path": rel, "reason": "missing checkpoint hash"})
+            continue
+        if current_hash != expected_current:
+            blocked.append({"path": rel, "reason": "current file hash differs from checkpoint"})
+            continue
+        if item.get("status") != "captured":
+            blocked.append({"path": rel, "reason": item.get("reason") or "snapshot not captured"})
+            continue
+        if item.get("exists") is False:
+            actions.append({"path": rel, "action": "delete-created-file", "sha256": current_hash})
+            continue
+        content = item.get("content")
+        if not isinstance(content, str):
+            blocked.append({"path": rel, "reason": "snapshot content missing"})
+            continue
+        before_hash = item.get("sha256")
+        if hashlib.sha256(content.encode("utf-8")).hexdigest() != before_hash:
+            blocked.append({"path": rel, "reason": "snapshot content hash mismatch"})
+            continue
+        actions.append({"path": rel, "action": "restore-file", "before_sha256": before_hash, "current_sha256": current_hash})
+    return {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "repository": str(ROOT),
+        "run_id": run_id,
+        "dry_run": bool(dry_run),
+        "action_count": len(actions),
+        "blocked_count": len(blocked),
+        "actions": actions,
+        "blocked": blocked,
+    }
+
+
+def atomic_restore_text(path, content):
+    os_module = __import__("os")
+    stat_module = __import__("stat")
+    tempfile_module = __import__("tempfile")
+    mode = stat_module.S_IMODE(path.stat().st_mode) if path.exists() else 0o644
+    temp_path = None
+    try:
+        with tempfile_module.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=".lai-rollback-",
+            delete=False,
+        ) as handle:
+            handle.write(content)
+            handle.flush()
+            os_module.fsync(handle.fileno())
+            temp_path = Path(handle.name)
+        temp_path.chmod(mode)
+        os_module.replace(temp_path, path)
+    except Exception:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+        raise
+
+
+def apply_rollback_plan(selector, dry_run=True):
+    plan = collect_rollback_plan(selector, dry_run=dry_run)
+    if plan["blocked"]:
+        return plan
+    if dry_run:
+        return plan
+    snapshot = load_run_snapshots(plan["run_id"])
+    by_path = {item.get("path"): item for item in snapshot.get("files") or []}
+    for action in plan["actions"]:
+        rel = action["path"]
+        candidate = ROOT.resolve() / rel
+        item = by_path[rel]
+        if action["action"] == "delete-created-file":
+            candidate.unlink()
+        elif action["action"] == "restore-file":
+            atomic_restore_text(candidate, item["content"])
+    plan["dry_run"] = False
+    plan["applied"] = True
+    record_audit_event({
+        "type": "rollback",
+        "run_id": plan["run_id"],
+        "actions": [{"path": item["path"], "action": item["action"]} for item in plan["actions"]],
+    })
+    return plan
+
+
+def render_rollback(args):
+    raw = list(args or [])
+    if raw in (["--help"], ["-h"], ["help"]):
+        return ROLLBACK_USAGE
+    json_mode = "--json" in raw
+    dry_run = "--dry-run" in raw
+    raw = [item for item in raw if item not in {"--json", "--dry-run"}]
+    if len(raw) != 1:
+        raise SystemExit(ROLLBACK_USAGE)
+    payload = apply_rollback_plan(raw[0], dry_run=dry_run)
+    if json_mode:
+        return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    lines = ["# lai rollback", "", "Run ID: " + str(payload.get("run_id")), "Dry run: " + str(payload.get("dry_run")).lower(), "Actions: " + str(payload.get("action_count")), "Blocked: " + str(payload.get("blocked_count"))]
+    for item in payload.get("actions") or []:
+        lines.append("- " + item["action"] + ": " + item["path"])
+    for item in payload.get("blocked") or []:
+        lines.append("BLOCKED: " + str(item.get("path")) + " — " + str(item.get("reason")))
+    return "\n".join(lines)
+
+
+def handle_rollback(args):
+    print(render_rollback(args))
+
+
 def clear_recovery_checkpoint():
+    checkpoint = None
+    try:
+        checkpoint = load_run_checkpoint()
+    except Exception:
+        checkpoint = None
     path = run_checkpoint_path()
+    checkpoint_removed = False
     if path.is_file():
         path.unlink()
-        return True
-    return False
+        checkpoint_removed = True
+    snapshot_removed = False
+    run_id = (
+        str(checkpoint.get("run_id") or "")
+        if isinstance(checkpoint, dict)
+        else ""
+    )
+    if run_id:
+        snapshot_path = run_snapshot_path(run_id)
+        if snapshot_path.is_file():
+            snapshot_path.unlink()
+            snapshot_removed = True
+    return {
+        "checkpoint_removed": checkpoint_removed,
+        "snapshot_removed": snapshot_removed,
+        "run_id": run_id or None,
+    }
 
 
 def handle_recovery(args):
@@ -10618,8 +11131,13 @@ def handle_recovery(args):
         print(RECOVERY_USAGE)
         return
     if len(args) == 1 and args[0] == "clear":
-        removed = clear_recovery_checkpoint()
-        print("Recovery checkpoint cleared." if removed else "No recovery checkpoint found.")
+        cleared = clear_recovery_checkpoint()
+        if cleared["checkpoint_removed"]:
+            print("Recovery checkpoint cleared.")
+        else:
+            print("No recovery checkpoint found.")
+        if cleared["snapshot_removed"]:
+            print("Recovery snapshot cleared.")
         return
     raise SystemExit(RECOVERY_USAGE)
 
@@ -11957,6 +12475,9 @@ def deterministic_command_help(command):
         "--model-eval": "Usage: lai model [plan [--json]|sample|run [--scenario ID] [--repeat 1..5] [--json]|score <results.jsonl|latest> [...]]",
         "--semantics": "Usage: lai semantics [--json]",
         "--recovery": RECOVERY_USAGE,
+        "--checkpoint": CHECKPOINT_USAGE,
+        "--snapshot": "Usage: lai snapshot show <run-id|--last> [--json]",
+        "--rollback": ROLLBACK_USAGE,
         "--doctor": "Usage: lai doctor",
         "--status": "Usage: lai status",
         "--metrics": "Usage: lai metrics",
@@ -12065,6 +12586,18 @@ def main():
 
     if args and args[0] == "--recovery":
         handle_recovery(args[1:])
+        return
+
+    if args and args[0] == "--checkpoint":
+        handle_checkpoint(args[1:])
+        return
+
+    if args and args[0] == "--snapshot":
+        handle_snapshot(args[1:])
+        return
+
+    if args and args[0] == "--rollback":
+        handle_rollback(args[1:])
         return
 
     if args and args[0] == "--doctor":
@@ -13610,6 +14143,11 @@ KEEP: 1,3"""
                     if validation_guard_result is not None:
                         tool_result = validation_guard_result
                     else:
+                        if name in WRITE_TOOLS:
+                            capture_prewrite_snapshots(
+                                RUN_ID,
+                                write_paths_for_call(name, args),
+                            )
                         tool_result = run_tool(name, args)
 
                 record_exploration_exhaustion()

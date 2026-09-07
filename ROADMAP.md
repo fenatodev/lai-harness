@@ -2,15 +2,14 @@
 
 ## Near term
 
-- Treat `v0.4.0` as the stable core baseline. Keep post-stable work milestone-based: small specs/commits, focused local feedback, one expensive non-redundant gate at coherent freeze points, and batched protected-main PR/tag/release work only when a milestone is stable.
-- Keep update-evidence convergence under dogfood across stable upgrades; only add further maintenance automation when repeated evidence justifies it and the reviewed spec/PR boundary remains intact.
-- Continue incremental subsystem extraction from `src/local-agent`, using beta.24 semantic contracts as the typed/module-installation pattern and ratcheting mypy only over code that has earned strict coverage.
-- Expand automated model-evaluation fixtures from observed dogfood failures and use repeated evidence before any default-model change.
-- Keep generic `bash` out of remote control profiles; evolve the structured `validate`/sandbox boundary from measured fixtures rather than exposing shell text.
-- Expand end-to-end fixtures for every mode and guard.
-- Dogfood repository-scoped persistent remote sessions with `lai-gateway`; current 0.4.5/0.1.31 dogfood covers installed Gateway CLI and private HTTP session create/list/get/delete against temporary `lai serve`, with lifecycle/delete controls kept inside the existing authenticated route set and no expanded remote authority.
-- Keep read-only public web evidence under dogfood through direct `lai web search/fetch` CLI and model-tool usage; expand providers or extraction only from measured failures before any browser-action capability.
-- Keep the governed MCP broker foundation under dogfood with temporary repository configs only; current evidence covers env-interpolated config discovery, safe status/tools metadata, `list-tools` policy allow, and `call-tool` denial without enabling real MCP execution.
+- Treat `v0.4.5` plus `lai-gateway` `v0.1.31` as the current stable integration baseline. Do not expand remote authority until rollback, trust, and context quality improve.
+- `v0.4.6` stability focus: keep recovery/checkpoint state inspectable and harden hash-checked rollback with installed dogfood evidence, without using `git reset` or replaying tool calls.
+- Next after recovery: improve token-efficient context intelligence through structured repo maps, symbol summaries, and compact diff/test/process views.
+- Continue incremental subsystem extraction from `src/local-agent` only when a tested runtime slice is ready; no Big Bang modular rewrite.
+- Keep update-evidence convergence under dogfood across stable upgrades; add automation only when repeated evidence proves it saves more time than it costs.
+- Expand automated model-evaluation fixtures from observed dogfood failures and keep Ministral as the baseline until repeated decision-eligible evidence beats it.
+- Keep generic `bash` out of remote control profiles; evolve structured `validate`/sandbox capabilities from measured fixtures rather than exposing shell text.
+- Keep repository-scoped sessions, read-only web evidence, and the non-executing MCP broker under dogfood; expand them only from measured failures and without enabling broad MCP/browser authority.
 
 ## Adjacent projects
 

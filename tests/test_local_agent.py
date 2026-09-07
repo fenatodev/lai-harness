@@ -552,6 +552,9 @@ class LocalAgentTest(unittest.TestCase):
                 "status",
                 "readiness | ready",
                 "recovery",
+                "checkpoint",
+                "snapshot",
+                "rollback",
                 "mcp",
                 "web",
                 "metrics | audit",
@@ -2504,17 +2507,24 @@ class LocalAgentTest(unittest.TestCase):
         agent.CONFIG["api_key_file"] = key_file
         self.assertEqual(agent.llama_api_key(), "synthetic-test-key")
 
-    def test_recovery_clear_removes_checkpoint_without_model(self):
-        checkpoint = agent.build_run_checkpoint("plan", "synthetic task", "started")
+    def test_recovery_clear_removes_checkpoint_snapshot_without_model(self):
+        sample = self.root / "sample.txt"
+        sample.write_text("private rollback content\n", encoding="utf-8")
+        checkpoint = agent.build_run_checkpoint("plan", "synthetic task", "started", tracked_paths=["sample.txt"])
         agent.save_run_checkpoint(checkpoint)
+        agent.capture_prewrite_snapshots(checkpoint["run_id"], ["sample.txt"])
         self.assertTrue(agent.run_checkpoint_path().is_file())
+        self.assertTrue(agent.run_snapshot_path(checkpoint["run_id"]).is_file())
         buffer = io.StringIO()
         with mock.patch.object(agent, "CLI_ARGS", ["--recovery", "clear"]), \
                 mock.patch.object(agent, "api_call") as api_call, \
                 redirect_stdout(buffer):
             agent.main()
         self.assertIn("Recovery checkpoint cleared.", buffer.getvalue())
+        self.assertIn("Recovery snapshot cleared.", buffer.getvalue())
+        self.assertNotIn("private rollback content", buffer.getvalue())
         self.assertFalse(agent.run_checkpoint_path().exists())
+        self.assertFalse(agent.run_snapshot_path(checkpoint["run_id"]).exists())
         api_call.assert_not_called()
 
         buffer = io.StringIO()
@@ -2522,6 +2532,119 @@ class LocalAgentTest(unittest.TestCase):
                 redirect_stdout(buffer):
             agent.main()
         self.assertIn("Usage: lai recovery [clear]", buffer.getvalue())
+
+    def test_checkpoint_cli_lists_and_shows_active_checkpoint_without_model(self):
+        sample = self.root / "sample.txt"
+        sample.write_text("stable\n", encoding="utf-8")
+        checkpoint = agent.build_run_checkpoint(
+            "implement", "synthetic task", "tool_completed",
+            tracked_paths=["sample.txt"], last_tool="edit",
+        )
+        agent.save_run_checkpoint(checkpoint)
+
+        list_payload = json.loads(agent.render_checkpoint_list(json_mode=True))
+        self.assertEqual(list_payload["checkpoint_count"], 1)
+        listed = list_payload["checkpoints"][0]
+        self.assertEqual(listed["run_id"], checkpoint["run_id"])
+        self.assertEqual(listed["mode"], "implement")
+        self.assertEqual(listed["tracked_path_count"], 1)
+        self.assertEqual(listed["tracked_paths"], ["sample.txt"])
+        self.assertTrue(listed["resumable"])
+
+        shown = json.loads(agent.render_checkpoint_show(checkpoint["run_id"], json_mode=True))
+        self.assertEqual(shown["checkpoint"]["run_id"], checkpoint["run_id"])
+        self.assertEqual(shown["checkpoint"]["last_tool"], "edit")
+
+        shown_last = json.loads(agent.render_checkpoint_show("--last", json_mode=True))
+        self.assertEqual(shown_last["checkpoint"]["run_id"], checkpoint["run_id"])
+
+        with self.assertRaises(SystemExit):
+            agent.render_checkpoint_show("missing-run", json_mode=True)
+
+        buffer = io.StringIO()
+        with mock.patch.object(agent, "CLI_ARGS", ["--checkpoint", "list", "--json"]), \
+                mock.patch.object(agent, "api_call") as api_call, \
+                redirect_stdout(buffer):
+            agent.main()
+        self.assertEqual(json.loads(buffer.getvalue())["checkpoint_count"], 1)
+        api_call.assert_not_called()
+
+    def test_prewrite_snapshot_captures_private_content_and_public_metadata(self):
+        sample = self.root / "sample.txt"
+        sample.write_text("before secret-ish text\n", encoding="utf-8")
+        payload = agent.capture_prewrite_snapshots(
+            "run-123", ["sample.txt", "created.txt", "sample.txt"]
+        )
+        self.assertEqual(payload["run_id"], "run-123")
+        self.assertEqual(len(payload["files"]), 2)
+        by_path = {item["path"]: item for item in payload["files"]}
+        self.assertTrue(by_path["sample.txt"]["exists"])
+        self.assertEqual(by_path["sample.txt"]["content"], "before secret-ish text\n")
+        self.assertFalse(by_path["created.txt"]["exists"])
+        self.assertTrue(agent.run_snapshot_path("run-123").is_file())
+        self.assertNotIn(self.root.name, str(agent.run_snapshot_path("run-123").parent))
+
+        sample.write_text("after\n", encoding="utf-8")
+        second = agent.capture_prewrite_snapshots("run-123", ["sample.txt"])
+        by_path = {item["path"]: item for item in second["files"]}
+        self.assertEqual(by_path["sample.txt"]["content"], "before secret-ish text\n")
+
+        public = json.loads(agent.render_snapshot_show("run-123", json_mode=True))
+        rendered = json.dumps(public)
+        self.assertEqual(public["snapshot"]["file_count"], 2)
+        self.assertNotIn("before secret-ish text", rendered)
+        self.assertIn("content_bytes", rendered)
+        self.assertIn("sample.txt", rendered)
+
+        buffer = io.StringIO()
+        with mock.patch.object(agent, "CLI_ARGS", ["--snapshot", "show", "run-123", "--json"]), \
+                mock.patch.object(agent, "api_call") as api_call, \
+                redirect_stdout(buffer):
+            agent.main()
+        self.assertEqual(json.loads(buffer.getvalue())["snapshot"]["file_count"], 2)
+        api_call.assert_not_called()
+
+    def test_rollback_restores_snapshot_only_when_checkpoint_hash_matches(self):
+        sample = self.root / "sample.txt"
+        created = self.root / "created.txt"
+        sample.write_text("before\n", encoding="utf-8")
+        agent.capture_prewrite_snapshots("run-rollback", ["sample.txt", "created.txt"])
+        sample.write_text("after\n", encoding="utf-8")
+        sample.chmod(0o600)
+        created.write_text("new file\n", encoding="utf-8")
+        checkpoint = agent.build_run_checkpoint(
+            "implement", "rollback task", "tool_completed",
+            tracked_paths=["sample.txt", "created.txt"],
+        )
+        checkpoint["run_id"] = "run-rollback"
+        agent.save_run_checkpoint(checkpoint)
+
+        dry_run = json.loads(agent.render_rollback(["run-rollback", "--dry-run", "--json"]))
+        self.assertEqual(dry_run["action_count"], 2)
+        self.assertEqual(dry_run["blocked_count"], 0)
+        self.assertTrue(sample.is_file())
+        self.assertTrue(created.is_file())
+
+        applied = json.loads(agent.render_rollback(["run-rollback", "--json"]))
+        self.assertEqual(applied["action_count"], 2)
+        self.assertEqual(applied["blocked_count"], 0)
+        self.assertEqual(sample.read_text(encoding="utf-8"), "before\n")
+        self.assertEqual(sample.stat().st_mode & 0o777, 0o600)
+        self.assertFalse(created.exists())
+
+        sample.write_text("external drift\n", encoding="utf-8")
+        blocked = agent.collect_rollback_plan("run-rollback", dry_run=True)
+        self.assertEqual(blocked["action_count"], 0)
+        self.assertGreaterEqual(blocked["blocked_count"], 1)
+        self.assertIn("current file hash differs", json.dumps(blocked))
+
+        buffer = io.StringIO()
+        with mock.patch.object(agent, "CLI_ARGS", ["--rollback", "--last", "--dry-run", "--json"]), \
+                mock.patch.object(agent, "api_call") as api_call, \
+                redirect_stdout(buffer):
+            agent.main()
+        self.assertIn("blocked_count", buffer.getvalue())
+        api_call.assert_not_called()
 
     def test_configuration_helpers_are_reexported_from_typed_module(self):
         import lai_config
@@ -3334,7 +3457,7 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("release channel (`prerelease` or `stable`)", publishing)
         self.assertIn("expected GitHub `prerelease` flag", publishing)
         self.assertTrue(
-            release_notes.startswith(f"## lai harness v{agent.VERSION} — MCP broker foundation")
+            release_notes.startswith(f"## lai harness v{agent.VERSION} — ")
         )
         self.assertIn("lai harness v0.4.0 — stable core graduation", release_notes)
         self.assertIn("lai harness v0.4.0-beta.24", release_notes)

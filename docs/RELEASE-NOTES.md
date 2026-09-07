@@ -1,3 +1,45 @@
+## lai harness v0.4.6 — stable recovery rollback
+
+`v0.4.6` hardens the runtime recovery path into an operator-usable rollback boundary. It adds checkpoint inspection, private pre-write snapshots, hash-checked rollback, atomic restore, snapshot schema coverage, installed dogfood, and cleanup of abandoned rollback content.
+
+### What changed
+
+- Added `lai checkpoint list/show` for deterministic recovery-checkpoint inventory without model access.
+- Added private pre-write snapshot capture under `$LAI_DATA_DIR/snapshots` plus `lai snapshot show` metadata output that does not print captured file content.
+- Added `lai rollback <run-id|--last>` with `--dry-run` and `--json` support.
+- Rollback requires the active checkpoint for the same run and blocks when current file hashes differ from checkpoint evidence.
+- Rollback restores captured UTF-8 file content atomically and deletes files that were created by the run when the pre-write snapshot proves they did not exist.
+- `lai recovery clear` now removes the associated pre-write snapshot as well as the recovery checkpoint, so stale rollback content is not left behind after abandoned recovery state.
+- Added `schemas/runtime/snapshot.schema.json` and documented snapshot records as versioned runtime state.
+- Added authenticated `GET /v1/runs/{control_run_id}/events` for polling clients to display bounded metadata-only progress without reading stdout, stderr, task text, or transcripts.
+- Updated the roadmap to keep stability, rollback, trust, and context quality ahead of MCP/browser authority expansion.
+
+### Safety boundary
+
+- Rollback does not use `git reset`, mutate `.git`, replay prior tool calls, contact the model, push, tag, publish, or touch remote resources.
+- Snapshot CLI output is metadata-only and intentionally omits captured file content.
+- Rollback fails closed if the checkpoint is missing, belongs to another run, has malformed hashes, lacks a snapshot, or current file hashes drift from the recorded checkpoint state.
+- Snapshot and recovery state remain outside the repository and are removed together by `lai recovery clear`.
+
+### Validation gate
+
+```bash
+make milestone-gate
+```
+
+Local milestone evidence: Ruff passed; pytest passed with 295 tests and 144 subtests; Harness Score passed at L4 100/108; `validate.sh` passed with 295 unittest tests, strict mypy over seven source files, generalized publication scan, and VSIX inspection green.
+
+Installed rollback dogfood covers agent-driven write, checkpoint discovery, private snapshot metadata, rollback dry-run, rollback apply, drift blocking, and recovery cleanup of associated snapshots.
+
+### Release commands
+
+```bash
+lai release-check --target 0.4.6 --json
+lai release-pack --target 0.4.6 --with-vsix --json
+lai release-governance --target 0.4.6 --remote --json
+lai project-handoff --target 0.4.6 --remote --json
+```
+
 ## lai harness v0.4.5 — MCP broker foundation
 
 `v0.4.5` adds the first governed MCP broker boundary. It discovers and validates repository-local MCP config files, reports declared servers, and exposes non-executing MCP policy checks without starting external MCP servers or granting tool-call authority.

@@ -24,6 +24,43 @@ if VERSION_MATCH is None:
 EXPECTED_VERSION = VERSION_MATCH.group(1)
 
 
+def installed_completion(content):
+    return {
+        "choices": [{"message": {"role": "assistant", "content": content}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13},
+    }
+
+
+def installed_tool_call(call_id, name, arguments):
+    return {
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": call_id,
+                    "type": "function",
+                    "function": {"name": name, "arguments": json.dumps(arguments)},
+                }],
+            }
+        }],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13},
+    }
+
+
+class InstalledSequenceResponder:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.payloads = []
+
+    def __call__(self, payload, requests):
+        self.payloads.append(payload)
+        if not self.responses:
+            raise AssertionError("fake response sequence exhausted")
+        response = self.responses.pop(0)
+        return response(payload) if callable(response) else response
+
+
 class IsolatedInstallSmokeTest(unittest.TestCase):
     def test_install_doctor_sample_repo_and_deterministic_commands(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -120,6 +157,49 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             )
             self.assertIn("Usage: lai web search", web_help.stdout)
             self.assertEqual(web_help.stderr, "")
+
+            checkpoint_help = subprocess.run(
+                [str(bin_dir / "lai"), "checkpoint", "--help"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("Usage: lai checkpoint", checkpoint_help.stdout)
+            self.assertEqual(checkpoint_help.stderr, "")
+
+            checkpoint_list = subprocess.run(
+                [str(bin_dir / "lai"), "checkpoint", "list", "--json"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertEqual(json.loads(checkpoint_list.stdout)["checkpoint_count"], 0)
+
+            snapshot_help = subprocess.run(
+                [str(bin_dir / "lai"), "snapshot", "--help"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("Usage: lai snapshot", snapshot_help.stdout)
+            self.assertEqual(snapshot_help.stderr, "")
+
+            rollback_help = subprocess.run(
+                [str(bin_dir / "lai"), "rollback", "--help"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("Usage: lai rollback", rollback_help.stdout)
+            self.assertEqual(rollback_help.stderr, "")
 
             invalid_web = subprocess.run(
                 [str(bin_dir / "lai"), "web", "fetch", "http://example.com/"],
@@ -356,6 +436,25 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                     self.assertIsNotNone(terminal)
                     self.assertEqual(terminal["status"], "succeeded", terminal.get("stderr"))
                     self.assertIn("fake response", terminal["stdout"])
+
+                    events_request = urllib.request.Request(
+                        f"http://127.0.0.1:{control_port}/v1/runs/{control_run_id}/events",
+                        headers={"Authorization": f"Bearer {control_secret}"},
+                    )
+                    with urllib.request.urlopen(events_request, timeout=2) as response:
+                        self.assertEqual(response.status, 200)
+                        events_payload = json.loads(response.read().decode("utf-8"))
+                    self.assertEqual(events_payload["control_run_id"], control_run_id)
+                    self.assertTrue(events_payload["terminal"])
+                    self.assertEqual(events_payload["status"], "succeeded")
+                    self.assertIn(
+                        "finished",
+                        [event["event"] for event in events_payload["events"]],
+                    )
+                    events_text = json.dumps(events_payload, sort_keys=True)
+                    self.assertNotIn("fake response", events_text)
+                    self.assertNotIn("stdout", events_text)
+                    self.assertNotIn("stderr", events_text)
                 finally:
                     control_server.terminate()
                     try:
@@ -375,6 +474,143 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertIn("# lai run history", runs.stdout)
             self.assertIn("Recorded runs: 1", runs.stdout)
             self.assertIn("mode=plan", runs.stdout)
+            rollback_repo = root / "rollback-repo"
+            rollback_repo.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=rollback_repo, check=True)
+            subprocess.run(["git", "branch", "-M", "main"], cwd=rollback_repo, check=True)
+            rollback_target = rollback_repo / "result.py"
+            rollback_target.write_text("value = 0\n", encoding="utf-8")
+            rollback_responder = InstalledSequenceResponder([
+                installed_tool_call("read", "read", {"path": "result.py"}),
+                installed_tool_call(
+                    "edit",
+                    "edit",
+                    {"path": "result.py", "old": "value = 0", "new": "value = 1"},
+                ),
+                installed_tool_call(
+                    "validate",
+                    "bash",
+                    {"command": "python3 -m py_compile result.py"},
+                ),
+                installed_completion("implemented and validated"),
+            ])
+            with FakeLlamaServer(responder=rollback_responder) as llama:
+                rollback_env = {
+                    **install_env,
+                    "LAI_HOST": llama.host,
+                    "LAI_PORT": str(llama.port),
+                    "LAI_API_KEY_FILE": str(key_file),
+                    "LAI_ALLOW_PROTECTED_BRANCH_WRITES": "1",
+                    "LAI_MODEL": "fake-local-model",
+                }
+                implemented = subprocess.run(
+                    [
+                        str(bin_dir / "lai"),
+                        "implement",
+                        "Change result.py value from 0 to 1 and validate it.",
+                    ],
+                    cwd=rollback_repo,
+                    env=rollback_env,
+                    text=True,
+                    capture_output=True,
+                    timeout=20,
+                    check=True,
+                )
+            self.assertIn("implemented and validated", implemented.stdout)
+            self.assertEqual(rollback_target.read_text(encoding="utf-8"), "value = 1\n")
+
+            checkpoint = subprocess.run(
+                [str(bin_dir / "lai"), "checkpoint", "show", "--last", "--json"],
+                cwd=rollback_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            checkpoint_payload = json.loads(checkpoint.stdout)
+            rollback_run_id = checkpoint_payload["checkpoint"]["run_id"]
+            self.assertEqual(checkpoint_payload["checkpoint"]["tracked_paths"], ["result.py"])
+
+            snapshot = subprocess.run(
+                [str(bin_dir / "lai"), "snapshot", "show", rollback_run_id, "--json"],
+                cwd=rollback_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            snapshot_payload = json.loads(snapshot.stdout)
+            snapshot_text = json.dumps(snapshot_payload)
+            self.assertEqual(snapshot_payload["snapshot"]["file_count"], 1)
+            self.assertIn("content_bytes", snapshot_text)
+            self.assertNotIn("value = 0", snapshot_text)
+
+            dry_run = subprocess.run(
+                [str(bin_dir / "lai"), "rollback", rollback_run_id, "--dry-run", "--json"],
+                cwd=rollback_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertEqual(json.loads(dry_run.stdout)["blocked_count"], 0)
+            self.assertEqual(rollback_target.read_text(encoding="utf-8"), "value = 1\n")
+
+            applied = subprocess.run(
+                [str(bin_dir / "lai"), "rollback", rollback_run_id, "--json"],
+                cwd=rollback_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertEqual(json.loads(applied.stdout)["blocked_count"], 0)
+            self.assertEqual(rollback_target.read_text(encoding="utf-8"), "value = 0\n")
+
+            rollback_target.write_text("external drift\n", encoding="utf-8")
+            blocked = subprocess.run(
+                [str(bin_dir / "lai"), "rollback", rollback_run_id, "--dry-run", "--json"],
+                cwd=rollback_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            blocked_payload = json.loads(blocked.stdout)
+            self.assertGreaterEqual(blocked_payload["blocked_count"], 1)
+            self.assertIn("current file hash differs", json.dumps(blocked_payload))
+
+            recovery_clear = subprocess.run(
+                [str(bin_dir / "lai"), "recovery", "clear"],
+                cwd=rollback_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("Recovery checkpoint cleared.", recovery_clear.stdout)
+            self.assertIn("Recovery snapshot cleared.", recovery_clear.stdout)
+            self.assertNotIn("value = 0", recovery_clear.stdout)
+
+            cleared_checkpoints = subprocess.run(
+                [str(bin_dir / "lai"), "checkpoint", "list", "--json"],
+                cwd=rollback_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertEqual(json.loads(cleared_checkpoints.stdout)["checkpoint_count"], 0)
+
+            missing_snapshot = subprocess.run(
+                [str(bin_dir / "lai"), "snapshot", "show", rollback_run_id, "--json"],
+                cwd=rollback_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(missing_snapshot.returncode, 0)
+            self.assertIn("snapshot not found", missing_snapshot.stderr)
 
             readiness = subprocess.run(
                 [str(bin_dir / "lai"), "readiness", "--json"],

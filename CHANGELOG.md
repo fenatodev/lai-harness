@@ -1,3 +1,18 @@
+## [0.4.6] - Unreleased
+
+### Added
+- Add authenticated `GET /v1/runs/{control_run_id}/events` for bounded metadata-only control-run timelines without stdout, stderr, task text, or transcripts.
+- Start the next stability milestone with `lai checkpoint list/show` for deterministic recovery-checkpoint inventory before rollback support.
+- Add private pre-write snapshot capture plus `lai snapshot show` metadata output as the foundation for future hash-checked rollback.
+- Add explicit hash-checked `lai rollback` with dry-run support for active recovery checkpoints.
+
+### Changed
+- `lai recovery clear` now removes the associated pre-write snapshot so stale rollback content is not left behind after abandoning recovery state.
+- Reprioritize the roadmap around stable recovery, context quality, and incremental modularization before expanding MCP/browser authority.
+
+### Validation
+- Installed end-to-end rollback dogfood now covers agent-driven write, checkpoint discovery, private snapshot metadata, dry-run, restore, drift blocking, and recovery cleanup of associated snapshots.
+
 ## [0.4.5] - 2026-09-07
 
 ### Added

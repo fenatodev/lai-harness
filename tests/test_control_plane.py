@@ -213,6 +213,7 @@ class ControlPlaneTest(unittest.TestCase):
             ("GET", "/v1/runs?limit=N"),
             ("POST", "/v1/runs"),
             ("GET", "/v1/runs/{control_run_id}"),
+            ("GET", "/v1/runs/{control_run_id}/events"),
             ("GET", "/v1/sessions?limit=N"),
             ("POST", "/v1/sessions"),
             ("GET", "/v1/sessions/{session_id}"),
@@ -292,6 +293,27 @@ class ControlPlaneTest(unittest.TestCase):
             self.assertEqual(status_code, 200)
             self.assertEqual(payload["runs"][0]["control_run_id"], control_run_id)
             self.assertEqual(payload["runs"][0]["status"], "succeeded")
+
+            status_code, events = self.request(
+                f"/v1/runs/{control_run_id}/events", token=self.token,
+            )
+            self.assertEqual(status_code, 200)
+            self.assertEqual(events["control_run_id"], control_run_id)
+            self.assertEqual(events["status"], "succeeded")
+            self.assertTrue(events["terminal"])
+            self.assertEqual([event["event"] for event in events["events"]], [
+                "queued", "started", "finished",
+            ])
+            shown = json.dumps(events, sort_keys=True)
+            self.assertNotIn("bounded output", shown)
+            self.assertNotIn("stdout", shown)
+            self.assertNotIn("stderr", shown)
+
+            status_code, missing = self.request(
+                "/v1/runs/cr-ffffffffffffffff/events", token=self.token,
+            )
+            self.assertEqual(status_code, 404)
+            self.assertEqual(missing["error"]["code"], "run_not_found")
 
     def test_persistent_session_endpoints_create_list_get_and_reopen(self):
         status, payload = self.request(
