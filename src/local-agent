@@ -8906,7 +8906,8 @@ def release_pack_publish_commands(release_payload):
     title = release_pack_title(target_version)
     lines = [
         "# human-run release commands; this file is documentation only",
-        f"cd {shlex.quote(str(ROOT))}",
+        "# Run from your local lai-harness checkout; local paths are intentionally omitted.",
+        "cd /path/to/lai-harness-checkout",
         "",
     ]
     if branch and not is_protected_write_branch(branch):
@@ -9033,7 +9034,7 @@ def release_pack_payload(release_payload, pack_dir, files, include_vsix=False, v
         "expected_tag": release_payload["expected_tag"],
         "release_channel": release_payload["release_channel"],
         "expected_prerelease": release_payload["expected_prerelease"],
-        "repository": str(ROOT),
+        "repository": "<repo-checkout>",
         "branch": release_payload.get("branch"),
         "head": release_payload.get("head"),
         "release_check_overall": release_payload.get("overall"),

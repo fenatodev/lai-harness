@@ -24,6 +24,7 @@
 
 ### Safety boundary
 
+- Release-pack command files and summary metadata omit the operator's local checkout path from release-facing artifacts.
 - No MCP server is started.
 - No MCP tool is executed.
 - No environment variable value, credential file, control token, model key, shell authority, Git mutation, PR, tag, release, or remote resource mutation is exposed.

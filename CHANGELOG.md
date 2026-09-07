@@ -14,6 +14,7 @@
 - Added repository-local MCP config discovery for `.cursor/mcp.json`, `.mcp.json`, and `.agents/mcp_config.json`.
 
 ### Security
+- Release-pack command files and summary metadata now omit the local checkout path from copyable/public-facing artifacts.
 - MCP tool execution remains disabled; `call-tool` policy checks are denied.
 - Credential-shaped MCP env values must use `${ENV_VAR}` interpolation and literal values are blocked without being printed.
 - Generalized publication and VSIX scans for private Linux home paths, WSL/Windows user-profile paths, and known local IPs, and hardened `.gitignore` for local private/runtime/build artifacts.

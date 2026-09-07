@@ -1430,6 +1430,7 @@ class LocalAgentTest(unittest.TestCase):
         self.assertEqual(payload["release_channel"], "prerelease")
         self.assertTrue(payload["expected_prerelease"])
         self.assertEqual(payload["pack_dir"], str(out_dir.resolve()))
+        self.assertEqual(payload["repository"], "<repo-checkout>")
         self.assertFalse(payload["with_vsix"])
         for key in ("summary", "release_body", "checklist", "publishing", "commands"):
             self.assertTrue(Path(payload["files"][key]).is_file(), key)
@@ -1438,6 +1439,10 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("ready body for beta pack", release_body)
         self.assertNotIn("stale body from older beta", release_body)
         commands = (out_dir / "human-release-commands.sh").read_text()
+        summary = (out_dir / "summary.json").read_text()
+        self.assertIn("cd /path/to/lai-harness-checkout", commands)
+        self.assertNotIn(str(self.root), commands)
+        self.assertNotIn(str(self.root), summary)
         self.assertIn("git tag -a v0.4.0-beta.24", commands)
         self.assertIn("v0.4.0-beta.24 — correct beta title", commands)
         self.assertNotIn("remote capability profiles", commands)
