@@ -8679,6 +8679,36 @@ def collect_readiness_status():
     }
 
 
+def render_diagnose_preflight_context(status=None):
+    status = collect_readiness_status() if status is None else status
+    git = status.get("git") or {}
+    server = status.get("server") or {}
+    git_status = str(git.get("status") or "[unknown]")
+    clean = bool(git.get("clean"))
+    if clean:
+        git_summary = "clean"
+    elif git_status and git_status != "[unknown]":
+        git_summary = f"dirty ({len(git_status.splitlines())} status line(s))"
+    else:
+        git_summary = "unknown"
+    server_auth = server.get("authentication_ok")
+    if server_auth is True:
+        server_summary = "ok"
+    elif server_auth is False:
+        server_summary = "failed"
+    else:
+        server_summary = "unknown"
+    return "\n".join([
+        "DIAGNOSE PREFLIGHT (deterministic metadata, not raw logs)",
+        f"Product: {PRODUCT_NAME} {VERSION}",
+        "Branch: " + str(git.get("branch") or "[unknown]"),
+        "Git status: " + git_summary,
+        "Readiness overall: " + str(status.get("overall") or "unknown"),
+        "Model server authentication: " + server_summary,
+        "For simple branch, git status, or readiness questions, answer from this preflight without extra discovery. Do not report unknown for fields listed above.",
+    ])
+
+
 def render_readiness_status(json_mode=False):
     status = collect_readiness_status()
 
@@ -14123,9 +14153,16 @@ def main():
         ),
     })
 
+    remote_control_child = os.environ.get(CONTROL_RUN_CHILD_ENV) == "1"
+
     prior_workspace_state = load_workspace_state()
+    prompt_workspace_state = (
+        {}
+        if remote_control_child
+        else prior_workspace_state
+    )
     prior_workspace_context = render_workspace_handoff(
-        prior_workspace_state,
+        prompt_workspace_state,
         compact=True,
     )
 
@@ -14170,7 +14207,7 @@ def main():
     active_spec_context = render_active_spec_context(active_spec)
     ranked_context = (
         rank_context_candidates(
-            task, workspace_state=prior_workspace_state, active_spec=active_spec,
+            task, workspace_state=prompt_workspace_state, active_spec=active_spec,
             limit=CONTEXT_RESULT_LIMIT,
         )
         if mode in CONTEXT_INTELLIGENCE_MODES
@@ -14253,7 +14290,6 @@ If the provided selection does not support a factual claim, omit that claim.
 Describe what the text actually shows before adding interpretation.
 Answer in at most 60 words unless the user explicitly requests more detail."""
 
-    remote_control_child = os.environ.get(CONTROL_RUN_CHILD_ENV) == "1"
     try:
         selected_tool_names = tool_names_for_mode(
             mode, remote_control_child=remote_control_child
@@ -14323,6 +14359,9 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
 
     if ranked_context_text:
         system += '\n\n' + ranked_context_text
+
+    if remote_control_child and mode == "diagnose":
+        system += "\n\n" + render_diagnose_preflight_context()
 
     if mode == "release":
         system += "\n\n" + render_release_preflight_context()
