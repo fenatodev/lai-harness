@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Fixed
+- Report local model HTTP failures as bounded `MODEL_API_ERROR` messages with sanitized server details instead of leaking raw Python tracebacks from `urllib`.
+
 ## [0.4.8] - 2026-09-07
 
 ### Added

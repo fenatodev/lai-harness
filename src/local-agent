@@ -95,6 +95,50 @@ CONFIG_BASE = CONFIG["config_dir"]
 SKILLS_DIR = CONFIG["skills_dir"]
 
 
+class ModelAPIError(RuntimeError):
+    """Bounded, secret-free local model API failure."""
+
+
+def redact_model_api_error_text(text, *, api_key="", limit=800):
+    value = str(text or "")
+    if api_key:
+        value = value.replace(api_key, "<redacted>")
+    value = re.sub(r"Bearer\s+\S+", "Bearer <redacted>", value)
+    value = re.sub(
+        r"(?i)(api[_-]?key|token|secret|password)([\"']?\s*[:=]\s*[\"']?)[^\"'\s,}]+",
+        r"\1\2<redacted>",
+        value,
+    )
+    value = re.sub(r"/home/[^\s\"']+", "<path>", value)
+    value = " ".join(value.split())
+    if len(value) > limit:
+        return value[:limit] + "…"
+    return value
+
+
+def model_api_http_error_message(exc, *, api_key=""):
+    try:
+        raw = exc.read(4096).decode("utf-8", errors="replace")
+    except Exception:
+        raw = ""
+
+    detail = ""
+    if raw:
+        try:
+            payload = json.loads(raw)
+            error = payload.get("error") if isinstance(payload, dict) else None
+            if isinstance(error, dict):
+                detail = str(error.get("message") or error.get("type") or error.get("code") or "")
+            elif isinstance(error, str):
+                detail = error
+        except Exception:
+            detail = raw
+    detail = redact_model_api_error_text(detail or raw, api_key=api_key)
+    if detail:
+        return f"model API HTTP {exc.code}: {detail}"
+    return f"model API HTTP {exc.code}: {exc.reason}"
+
+
 def parse_standard_skill(path, expected_name=None):
     text = path.read_text(encoding="utf-8", errors="replace")
 
@@ -10052,6 +10096,30 @@ def api_call(
             result = json.loads(
                 response.read().decode()
             )
+    except urllib.error.HTTPError as e:
+        duration_ms = (
+            _metrics_time.perf_counter()
+            - started
+        ) * 1000.0
+
+        message = model_api_http_error_message(e, api_key=key)
+        record_metric_event({
+            "type": "api",
+            "duration_ms": round(duration_ms, 2),
+            "error": "HTTPError",
+            "http_status": int(e.code),
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "max_tokens": max_tokens,
+            "tool_schema_count": len(
+                selected_tools
+                if use_tools
+                else []
+            ),
+        })
+
+        raise ModelAPIError(message) from None
     except Exception as e:
         duration_ms = (
             _metrics_time.perf_counter()
@@ -15762,6 +15830,13 @@ def run_main_with_checkpoint_lifecycle():
             reason=f"SystemExit:{exc.code}",
         )
         raise
+    except ModelAPIError as exc:
+        finalize_run_checkpoint(
+            "failed",
+            reason="ModelAPIError",
+        )
+        print(f"MODEL_API_ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
     except BaseException as exc:
         finalize_run_checkpoint(
             "failed",
