@@ -34,7 +34,15 @@ lai checkpoint list --json
 lai checkpoint show --last --json
 ```
 
-The checkpoint command reports active recovery checkpoint metadata, compatibility status, bounded tracked-path names, and hash-count evidence. It does not store file contents or perform rollback; rollback requires a separate content snapshot contract.
+The checkpoint command reports active recovery checkpoint metadata, compatibility status, bounded tracked-path names, and hash-count evidence.
+
+Write-capable runs also capture private pre-write snapshots outside the repository before edit/create/patch/rewrite attempts:
+
+```bash
+lai snapshot show --last --json
+```
+
+Snapshot output reports metadata only: paths, hashes, byte counts, and capture status. It intentionally does not print captured file contents. Rollback still requires a separate restore command with hash validation; do not treat snapshots as automatic rollback.
 
 The command does not contact the model. It reports one of:
 

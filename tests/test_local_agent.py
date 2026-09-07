@@ -553,6 +553,7 @@ class LocalAgentTest(unittest.TestCase):
                 "readiness | ready",
                 "recovery",
                 "checkpoint",
+                "snapshot",
                 "mcp",
                 "web",
                 "metrics | audit",
@@ -2558,6 +2559,42 @@ class LocalAgentTest(unittest.TestCase):
                 redirect_stdout(buffer):
             agent.main()
         self.assertEqual(json.loads(buffer.getvalue())["checkpoint_count"], 1)
+        api_call.assert_not_called()
+
+    def test_prewrite_snapshot_captures_private_content_and_public_metadata(self):
+        sample = self.root / "sample.txt"
+        sample.write_text("before secret-ish text\n", encoding="utf-8")
+        missing = self.root / "created.txt"
+        payload = agent.capture_prewrite_snapshots(
+            "run-123", ["sample.txt", "created.txt", "sample.txt"]
+        )
+        self.assertEqual(payload["run_id"], "run-123")
+        self.assertEqual(len(payload["files"]), 2)
+        by_path = {item["path"]: item for item in payload["files"]}
+        self.assertTrue(by_path["sample.txt"]["exists"])
+        self.assertEqual(by_path["sample.txt"]["content"], "before secret-ish text\n")
+        self.assertFalse(by_path["created.txt"]["exists"])
+        self.assertTrue(agent.run_snapshot_path("run-123").is_file())
+        self.assertNotIn(self.root.name, str(agent.run_snapshot_path("run-123").parent))
+
+        sample.write_text("after\n", encoding="utf-8")
+        second = agent.capture_prewrite_snapshots("run-123", ["sample.txt"])
+        by_path = {item["path"]: item for item in second["files"]}
+        self.assertEqual(by_path["sample.txt"]["content"], "before secret-ish text\n")
+
+        public = json.loads(agent.render_snapshot_show("run-123", json_mode=True))
+        rendered = json.dumps(public)
+        self.assertEqual(public["snapshot"]["file_count"], 2)
+        self.assertNotIn("before secret-ish text", rendered)
+        self.assertIn("content_bytes", rendered)
+        self.assertIn("sample.txt", rendered)
+
+        buffer = io.StringIO()
+        with mock.patch.object(agent, "CLI_ARGS", ["--snapshot", "show", "run-123", "--json"]), \
+                mock.patch.object(agent, "api_call") as api_call, \
+                redirect_stdout(buffer):
+            agent.main()
+        self.assertEqual(json.loads(buffer.getvalue())["snapshot"]["file_count"], 2)
         api_call.assert_not_called()
 
     def test_configuration_helpers_are_reexported_from_typed_module(self):

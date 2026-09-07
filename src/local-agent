@@ -854,6 +854,7 @@ Core commands:
   runs | run             Inspect local run history.
   recovery               Inspect or clear recovery checkpoints.
   checkpoint             List or show active recovery checkpoints.
+  snapshot               Show pre-write snapshot metadata for rollback preparation.
   mcp                    Inspect non-executing MCP broker status and policy.
   web                    Search/fetch bounded public web evidence.
   model                  Run deterministic model-evaluation helpers.
@@ -10700,6 +10701,168 @@ def handle_checkpoint(args):
     raise SystemExit(CHECKPOINT_USAGE)
 
 
+SNAPSHOT_MAX_FILE_BYTES = 500_000
+
+
+def run_snapshot_path(run_id=None):
+    safe_run_id = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(run_id or RUN_ID)).strip(".-")
+    if not safe_run_id:
+        safe_run_id = "unknown"
+    path = STATE_BASE.parent / "snapshots" / f"{safe_run_id}.json"
+    try:
+        path.resolve().relative_to(ROOT.resolve())
+    except ValueError:
+        return path
+    raise RuntimeError("snapshot directory must be outside repository")
+
+
+def normalize_snapshot_path(raw_path):
+    rel = str(raw_path or "").replace("\\", "/").strip()
+    while rel.startswith("./"):
+        rel = rel[2:]
+    if not rel or Path(rel).is_absolute():
+        return None
+    return rel
+
+
+def build_file_snapshot(rel):
+    normalized = normalize_snapshot_path(rel)
+    if not normalized:
+        return {"path": str(rel or ""), "status": "skipped", "reason": "invalid path"}
+    root_real = ROOT.resolve()
+    candidate = root_real / normalized
+    try:
+        resolved = candidate.resolve()
+        resolved.relative_to(root_real)
+    except Exception:
+        return {"path": normalized, "status": "skipped", "reason": "path escapes repository"}
+    cursor = root_real
+    for part in Path(normalized).parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            return {"path": normalized, "status": "skipped", "reason": "symlink path"}
+    if not candidate.exists():
+        return {"path": normalized, "status": "captured", "exists": False, "sha256": None, "content": None}
+    if not candidate.is_file():
+        return {"path": normalized, "status": "skipped", "reason": "not a file"}
+    data = candidate.read_bytes()
+    sha = hashlib.sha256(data).hexdigest()
+    if len(data) > SNAPSHOT_MAX_FILE_BYTES:
+        return {"path": normalized, "status": "skipped", "reason": "file too large", "exists": True, "sha256": sha}
+    try:
+        content = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return {"path": normalized, "status": "skipped", "reason": "non-utf8 file", "exists": True, "sha256": sha}
+    return {"path": normalized, "status": "captured", "exists": True, "sha256": sha, "content": content}
+
+
+def load_run_snapshots(run_id=None):
+    path = run_snapshot_path(run_id)
+    if not path.is_file():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    if data.get("schema_version") != RUNTIME_RECORD_SCHEMA_VERSION:
+        raise ValueError("unsupported snapshot schema")
+    if data.get("root") != str(ROOT):
+        raise ValueError("snapshot repository mismatch")
+    return data
+
+
+def save_run_snapshots(payload):
+    path = run_snapshot_path(payload.get("run_id"))
+    text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    _atomic_write_text(path, text)
+    return path
+
+
+def capture_prewrite_snapshots(run_id, paths):
+    normalized = []
+    for raw in paths or []:
+        rel = normalize_snapshot_path(raw)
+        if rel and rel not in normalized:
+            normalized.append(rel)
+    if not normalized:
+        return None
+    try:
+        existing = load_run_snapshots(run_id) or {}
+    except Exception:
+        existing = {}
+    records = {item.get("path"): item for item in existing.get("files") or [] if isinstance(item, dict)}
+    for rel in normalized:
+        records.setdefault(rel, build_file_snapshot(rel))
+    payload = {
+        "schema_version": RUNTIME_RECORD_SCHEMA_VERSION,
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "root": str(ROOT),
+        "run_id": str(run_id),
+        "snapshot_kind": "prewrite",
+        "max_file_bytes": SNAPSHOT_MAX_FILE_BYTES,
+        "files": [records[key] for key in sorted(records)],
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    save_run_snapshots(payload)
+    return payload
+
+
+def snapshot_public_record(payload):
+    files = []
+    for item in payload.get("files") or []:
+        files.append({
+            "path": item.get("path"),
+            "status": item.get("status"),
+            "exists": item.get("exists"),
+            "sha256": item.get("sha256"),
+            "content_bytes": len((item.get("content") or "").encode("utf-8")) if item.get("content") is not None else 0,
+            "reason": item.get("reason"),
+        })
+    return {
+        "run_id": payload.get("run_id"),
+        "snapshot_kind": payload.get("snapshot_kind"),
+        "updated_at": payload.get("updated_at"),
+        "file_count": len(files),
+        "files": files,
+    }
+
+
+def render_snapshot_show(selector="--last", json_mode=False):
+    checkpoint = inspect_recovery_checkpoint().get("checkpoint") or {}
+    run_id = str(selector or "").strip()
+    if run_id == "--last":
+        run_id = str(checkpoint.get("run_id") or RUN_ID)
+    try:
+        payload = load_run_snapshots(run_id)
+    except Exception as exc:
+        raise SystemExit("snapshot not available: " + str(exc))
+    if not payload:
+        raise SystemExit("snapshot not found")
+    public = snapshot_public_record(payload)
+    if json_mode:
+        return json.dumps({
+            "product": PRODUCT_NAME,
+            "version": VERSION,
+            "repository": str(ROOT),
+            "snapshot": public,
+        }, ensure_ascii=False, indent=2, sort_keys=True)
+    lines = ["# lai snapshot", "", "Run ID: " + str(public.get("run_id") or "[unknown]"), "Files: " + str(public.get("file_count") or 0)]
+    for item in public.get("files") or []:
+        lines.append("- " + str(item.get("path")) + " status=" + str(item.get("status")))
+    return "\n".join(lines)
+
+
+def handle_snapshot(args):
+    raw = list(args or [])
+    json_mode = "--json" in raw
+    raw = [item for item in raw if item != "--json"]
+    if raw in (["--help"], ["-h"], ["help"]):
+        print("Usage: lai snapshot show <run-id|--last> [--json]")
+        return
+    if len(raw) == 2 and raw[0] == "show":
+        print(render_snapshot_show(raw[1], json_mode=json_mode))
+        return
+    raise SystemExit("Usage: lai snapshot show <run-id|--last> [--json]")
+
+
 def clear_recovery_checkpoint():
     path = run_checkpoint_path()
     if path.is_file():
@@ -12056,6 +12219,7 @@ def deterministic_command_help(command):
         "--semantics": "Usage: lai semantics [--json]",
         "--recovery": RECOVERY_USAGE,
         "--checkpoint": CHECKPOINT_USAGE,
+        "--snapshot": "Usage: lai snapshot show <run-id|--last> [--json]",
         "--doctor": "Usage: lai doctor",
         "--status": "Usage: lai status",
         "--metrics": "Usage: lai metrics",
@@ -12168,6 +12332,10 @@ def main():
 
     if args and args[0] == "--checkpoint":
         handle_checkpoint(args[1:])
+        return
+
+    if args and args[0] == "--snapshot":
+        handle_snapshot(args[1:])
         return
 
     if args and args[0] == "--doctor":
@@ -13713,6 +13881,11 @@ KEEP: 1,3"""
                     if validation_guard_result is not None:
                         tool_result = validation_guard_result
                     else:
+                        if name in WRITE_TOOLS:
+                            capture_prewrite_snapshots(
+                                RUN_ID,
+                                write_paths_for_call(name, args),
+                            )
                         tool_result = run_tool(name, args)
 
                 record_exploration_exhaustion()
