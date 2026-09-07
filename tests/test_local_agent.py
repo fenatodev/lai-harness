@@ -54,6 +54,16 @@ class LocalAgentTest(unittest.TestCase):
         self.root = self.base / "repo"
         self.root.mkdir()
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "lai-tests@example.invalid"],
+            cwd=self.root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "lai tests"],
+            cwd=self.root,
+            check=True,
+        )
         agent.ROOT = self.root.resolve()
         agent.STATE_BASE = self.base / "data" / "state"
         agent.RUN_CHECKPOINT_CONTEXT = None
