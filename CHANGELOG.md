@@ -1,3 +1,8 @@
+## [Unreleased]
+
+### Added
+- Add deterministic `lai operating-mode` plus `docs/OPERATING-MODE.md` to codify local-first milestone batching, release batching, read-only external evidence, and capability-based compatibility policy.
+
 ## [0.4.7] - Unreleased
 
 ### Added

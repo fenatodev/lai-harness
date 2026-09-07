@@ -4,6 +4,7 @@
 
 - Treat `v0.4.6` plus `lai-gateway` `v0.1.33` as the current stable integration baseline. Do not expand remote authority until timeline quality, trust, and context quality improve.
 - `v0.4.7` stability focus: enrich control-run event timelines with metadata-only execution milestones that polling clients can display without reading stdout, stderr, task text, transcripts, file contents, or workspace paths.
+- `v0.4.8` operating-mode policy: codify local-first milestone batches, delayed release/version ritual, read-only external evidence before current/uncertain/strategic decisions, and capability-based compatibility before more context-intelligence work.
 - Next after event quality: improve token-efficient context intelligence through structured repo maps, symbol summaries, and compact diff/test/process views.
 - Continue incremental subsystem extraction from `src/local-agent` only when a tested runtime slice is ready; no Big Bang modular rewrite.
 - Keep update-evidence convergence under dogfood across stable upgrades; add automation only when repeated evidence proves it saves more time than it costs.

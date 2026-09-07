@@ -553,6 +553,34 @@ class LocalAgentTest(unittest.TestCase):
         self.assertEqual(payload["version"], agent.VERSION)
         self.assertIn(payload["overall"], {"ready", "blocked"})
 
+    def test_operating_mode_command_is_deterministic_and_policy_aligned(self):
+        result = subprocess.run(
+            [str(SOURCE), "operating-mode", "--json"],
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            timeout=5,
+            check=True,
+        )
+        self.assertEqual(result.stderr, "")
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["mode"], "local_first_milestone_batches")
+        self.assertEqual(payload["external_evidence"]["mode"], "read_only_untrusted_evidence")
+        self.assertIn("focused tests", payload["development"]["feedback"])
+        self.assertIn("required capabilities", payload["compatibility"]["preference"])
+
+        text_result = subprocess.run(
+            [str(SOURCE), "operating-mode"],
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            timeout=5,
+            check=True,
+        )
+        self.assertIn("# lai operating mode", text_result.stdout)
+        self.assertIn("External evidence", text_result.stdout)
+        self.assertNotIn("sk-", text_result.stdout)
+
     def test_top_level_help_is_successful_and_non_executing(self):
         for args in (["--help"], ["-h"], ["help"]):
             proc = subprocess.run(
@@ -576,6 +604,7 @@ class LocalAgentTest(unittest.TestCase):
                 "spec | semantic",
                 "release-check",
                 "workspace",
+                "operating-mode",
             ):
                 self.assertIn(command, proc.stdout)
             self.assertEqual(proc.stderr, "")

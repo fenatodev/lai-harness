@@ -189,6 +189,7 @@ lai release-check --target 0.4.7 --json
 lai release-pack --target 0.4.7 --with-vsix --json
 lai release-governance --target 0.4.7 --remote --json
 lai project-handoff --target 0.4.7 --remote --json
+lai operating-mode --json
 ```
 
 See [Stable readiness](docs/STABLE-READINESS.md), [Release governance](docs/RELEASE-GOVERNANCE.md), [Release checklist](docs/RELEASE-CHECKLIST.md), and [Release notes](docs/RELEASE-NOTES.md).

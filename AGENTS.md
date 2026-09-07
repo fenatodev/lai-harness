@@ -45,6 +45,10 @@ Use the narrowest relevant check while developing.
 
 `make milestone-gate` is the canonical expensive local gate. Use it once at a milestone/release boundary rather than chaining overlapping targets. `make validate` remains the publication/package sub-gate and includes the current strict type-check ratchet. `requirements-dev.in` is the human-maintained development-sensor manifest and `requirements.txt` is its generated pinned lock; the runtime installer must remain third-party-dependency-free.
 
+## Operating Mode
+
+`docs/OPERATING-MODE.md` is the canonical policy for local-first milestone batches, release batching, capability-based compatibility, and read-only external evidence. `lai operating-mode` exposes the same policy deterministically for agents and automation. Follow it unless a higher-priority instruction or safety rule says otherwise.
+
 ## Development Workflow
 
 1. Work on a dedicated branch. A stabilization milestone may contain multiple small, independently validated specs and commits.
