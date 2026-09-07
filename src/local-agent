@@ -480,11 +480,11 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "context",
-            "description": "Return bounded repository context metadata: map, changes, checks/tests, or symbols. Metadata only; no file bodies, Makefile recipes, test bodies, or raw diffs.",
+            "description": "Return bounded repository context metadata: map, changes, checks/tests, runs, or symbols. Metadata only; no file bodies, Makefile recipes, test bodies, or raw diffs.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "operation": {"type": "string", "enum": ["map", "changes", "checks", "tests", "symbols"]},
+                    "operation": {"type": "string", "enum": ["map", "changes", "checks", "tests", "runs", "symbols"]},
                     "path": {"type": "string"},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 80},
                     "max_files": {"type": "integer", "minimum": 1, "maximum": 400},
@@ -3838,6 +3838,11 @@ def tool_context(args):
                 limit=_tool_context_int(args, "limit", 40, 120)
             )
             return render_context_checks(payload)
+        if operation == "runs":
+            payload = context_runs_payload(
+                limit=_tool_context_int(args, "limit", 10, 50)
+            )
+            return render_context_runs(payload)
         if operation == "symbols":
             path = str(args.get("path") or "").strip()
             if not path:
@@ -3848,7 +3853,7 @@ def tool_context(args):
             return render_context_symbols(payload)
     except SystemExit as exc:
         return "ERROR: " + str(exc)
-    return "ERROR: context operation must be map, changes, checks, tests, or symbols"
+    return "ERROR: context operation must be map, changes, checks, tests, runs, or symbols"
 
 
 def tool_web_search(args):
@@ -10640,6 +10645,104 @@ def render_context_checks(payload):
     lines.append("Trust: " + str(payload.get("trust", "")))
     return "\n".join(lines)
 
+def _context_run_summary(run):
+    validations = run.get("validation_events") or []
+    last_validation = run_history_validation_summary(validations[-1]) if validations else None
+    failure = run_history_last_failure(run)
+    safe_failure = None
+    if failure:
+        safe_failure = {
+            "ts": failure.get("ts"),
+            "type": failure.get("type"),
+            "status": failure.get("status"),
+        }
+    modified = [str(path) for path in (run.get("modified_paths") or []) if path]
+    return {
+        "run_id": run.get("run_id"),
+        "control_run_id": run.get("run_id"),
+        "last_ts": run.get("last_ts"),
+        "mode": run.get("mode"),
+        "status": run.get("status"),
+        "api_calls": int(run.get("api_calls") or 0),
+        "tool_calls": int(run.get("tool_calls") or 0),
+        "validation_count": int(run.get("validation_count") or 0),
+        "last_validation": (
+            {
+                "ts": last_validation.get("ts"),
+                "status": last_validation.get("status"),
+            }
+            if last_validation else None
+        ),
+        "last_failure": safe_failure,
+        "tools": dict(sorted((run.get("tools") or {}).items())),
+        "policy": dict(sorted((run.get("policy") or {}).items())),
+        "phases": list(run.get("phases") or [])[-12:],
+        "modified_path_count": len(modified),
+        "modified_paths_sample": modified[:12],
+    }
+
+
+def context_runs_payload(limit=10):
+    limit = max(1, min(int(limit), 50))
+    runs = collect_run_history()
+    recent = runs[-limit:]
+    recovery = inspect_recovery_checkpoint()
+    checkpoint = checkpoint_public_record(recovery)
+    return {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "runs_version": 1,
+        "repository": ".",
+        "metadata_only": True,
+        "inspected_content": False,
+        "run_count": len(runs),
+        "run_limit": limit,
+        "run_list_truncated": len(runs) > limit,
+        "runs": [_context_run_summary(run) for run in recent],
+        "checkpoint": checkpoint,
+        "checkpoint_status": recovery.get("status"),
+        "trust": "Advisory run/process metadata only. Inspect run details before relying on output or failure reasons.",
+    }
+
+
+def render_context_runs(payload):
+    lines = [
+        "# lai context runs",
+        f"Product: {payload.get('product')} {payload.get('version')}",
+        f"Repository: {payload.get('repository')}",
+        f"Metadata-only: {str(payload.get('metadata_only')).lower()}",
+        f"Recorded runs: {int(payload.get('run_count') or 0)}",
+        "",
+        "## Recent runs",
+    ]
+    for run in payload.get("runs", []):
+        tools = ",".join(f"{name}:{count}" for name, count in (run.get("tools") or {}).items()) or "-"
+        failure = "yes" if run.get("last_failure") else "no"
+        lines.append(
+            f"- {run.get('run_id')} | last={run.get('last_ts') or '[unknown]'} | "
+            f"mode={run.get('mode') or 'unknown'} | status={run.get('status') or 'unknown'} | "
+            f"failure={failure} | tools={int(run.get('tool_calls') or 0)} [{tools}] | "
+            f"validations={int(run.get('validation_count') or 0)} | modified_paths={int(run.get('modified_path_count') or 0)}"
+        )
+    if not payload.get("runs"):
+        lines.append("- [none]")
+    if payload.get("run_list_truncated"):
+        lines.append("- [truncated]")
+    lines.extend(["", "## Recovery checkpoint"])
+    checkpoint = payload.get("checkpoint")
+    if checkpoint:
+        lines.append(
+            f"- {checkpoint.get('run_id')} | mode={checkpoint.get('mode')} | "
+            f"phase={checkpoint.get('phase')} | status={checkpoint.get('status')} | "
+            f"resumable={'yes' if checkpoint.get('resumable') else 'no'} | "
+            f"tracked_paths={int(checkpoint.get('tracked_path_count') or 0)}"
+        )
+    else:
+        lines.append(f"- {payload.get('checkpoint_status') or 'none'}")
+    lines.append("")
+    lines.append("Trust: " + str(payload.get("trust", "")))
+    return "\n".join(lines)
+
 def _parse_context_positive_int(raw, *, label, maximum, minimum=1):
     try:
         value = int(raw)
@@ -10779,7 +10882,7 @@ def render_context_symbols(payload):
 def handle_context(args):
     args = list(args or [])
     if args and args[0] in {"--help", "-h", "help"}:
-        print("Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context checks [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]")
+        print("Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context checks [--json] [--limit N] | lai context runs [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]")
         return
     if args and args[0] in {"checks", "tests"}:
         json_mode = False
@@ -10804,6 +10907,29 @@ def handle_context(args):
         else:
             print(render_context_checks(payload))
         return
+    if args and args[0] == "runs":
+        json_mode = False
+        limit = 10
+        rest = args[1:]
+        idx = 0
+        while idx < len(rest):
+            current = rest[idx]
+            if current == "--json":
+                json_mode = True
+                idx += 1
+            elif current == "--limit":
+                if idx + 1 >= len(rest):
+                    raise SystemExit("--limit requires a value")
+                limit = _parse_context_positive_int(rest[idx + 1], label="--limit", maximum=50)
+                idx += 2
+            else:
+                raise SystemExit("Usage: lai context runs [--json] [--limit N]")
+        payload = context_runs_payload(limit=limit)
+        if json_mode:
+            print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        else:
+            print(render_context_runs(payload))
+        return
     if args and args[0] == "symbols":
         json_mode = False
         limit = 80
@@ -10821,12 +10947,12 @@ def handle_context(args):
                 limit = _parse_context_positive_int(rest[idx + 1], label="--limit", maximum=200)
                 idx += 2
             elif current.startswith("-"):
-                raise SystemExit("Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context checks [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]")
+                raise SystemExit("Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context checks [--json] [--limit N] | lai context runs [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]")
             elif path_arg is None:
                 path_arg = current
                 idx += 1
             else:
-                raise SystemExit("Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context checks [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]")
+                raise SystemExit("Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context checks [--json] [--limit N] | lai context runs [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]")
         if not path_arg:
             raise SystemExit("Usage: lai context symbols <path> [--json] [--limit N]")
         payload = context_symbols_payload(path_arg, limit=limit)
@@ -10851,7 +10977,7 @@ def handle_context(args):
                 limit = _parse_context_positive_int(rest[idx + 1], label="--limit", maximum=200)
                 idx += 2
             else:
-                raise SystemExit("Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context checks [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]")
+                raise SystemExit("Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context checks [--json] [--limit N] | lai context runs [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]")
         payload = context_git_changes_payload(limit=limit)
         if json_mode:
             print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
@@ -10880,7 +11006,7 @@ def handle_context(args):
                 max_paths = _parse_context_positive_int(rest[idx + 1], label="--max-paths", maximum=200, minimum=0)
                 idx += 2
             else:
-                raise SystemExit("Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context checks [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]")
+                raise SystemExit("Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context checks [--json] [--limit N] | lai context runs [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]")
         payload = repository_context_map(max_files=max_files, max_paths=max_paths)
         if json_mode:
             print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
@@ -13380,7 +13506,7 @@ def deterministic_command_help(command):
         "--project-handoff": PROJECT_HANDOFF_USAGE,
         "--workspace": "Usage: lai workspace status|create|clone-smoke|clean [options]",
         "--operating-mode": OPERATING_MODE_USAGE,
-        "--context": "Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context checks [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]",
+        "--context": "Usage: lai context <query> | lai context map [--json] [--max-files N] [--max-paths N] | lai context changes [--json] [--limit N] | lai context checks [--json] [--limit N] | lai context runs [--json] [--limit N] | lai context symbols <path> [--json] [--limit N]",
         "--update-intelligence": "Usage: lai update [plan [--json]|check --remote [--json]|latest [--json]|triage [--json]]",
         "--model-eval": "Usage: lai model [plan [--json]|sample|run [--scenario ID] [--repeat 1..5] [--json]|score <results.jsonl|latest> [...]]",
         "--semantics": "Usage: lai semantics [--json]",

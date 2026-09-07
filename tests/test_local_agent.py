@@ -3649,15 +3649,17 @@ class LocalAgentTest(unittest.TestCase):
         changes = agent.tool_context({"operation": "changes", "limit": 5})
         checks = agent.tool_context({"operation": "checks", "limit": 5})
         tests_alias = agent.tool_context({"operation": "tests", "limit": 5})
+        runs = agent.tool_context({"operation": "runs", "limit": 5})
         symbols = agent.tool_context({"operation": "symbols", "path": "module.py", "limit": 5})
         repo_map = agent.tool_context({"operation": "map", "max_files": 20, "max_paths": 4})
         self.assertIn("# lai context changes", changes)
         self.assertIn("# lai context checks", checks)
         self.assertIn("# lai context checks", tests_alias)
+        self.assertIn("# lai context runs", runs)
         self.assertIn("# lai context symbols", symbols)
         self.assertIn("# lai context map", repo_map)
         self.assertIn("worker", symbols)
-        combined = changes + checks + tests_alias + symbols + repo_map
+        combined = changes + checks + tests_alias + runs + symbols + repo_map
         self.assertNotIn("secret-body", combined)
         self.assertNotIn("```", combined)
         self.assertIn("metadata", combined.lower())
@@ -3665,6 +3667,63 @@ class LocalAgentTest(unittest.TestCase):
             agent.evaluate_tool_policy("context", {"operation": "map"}, mode="plan")["decision"],
             "ALLOW",
         )
+
+    def test_context_runs_are_metadata_only_and_secret_free(self):
+        run = agent.empty_run_history_record("run-123")
+        run.update({
+            "last_ts": "2026-09-07T00:00:00Z",
+            "mode": "implement",
+            "status": "completed",
+            "tool_calls": 2,
+            "tools": {"read": 1, "context": 1},
+            "policy": {"ALLOW": 2},
+            "validation_count": 1,
+            "validation_events": [{
+                "ts": "2026-09-07T00:00:01Z",
+                "type": "validation",
+                "command": "echo sk-secret-command",
+                "result": "Traceback sk-secret-result",
+            }],
+            "events": [{
+                "ts": "2026-09-07T00:00:01Z",
+                "type": "validation",
+                "command": "echo sk-secret-command",
+                "result": "Traceback sk-secret-result",
+            }],
+            "modified_paths": ["src/local-agent"],
+            "phases": ["started", "completed"],
+        })
+        recovery = {"status": "none", "resumable": False, "checkpoint": None, "reasons": []}
+        with mock.patch.object(agent, "collect_run_history", return_value=[run]), \
+             mock.patch.object(agent, "inspect_recovery_checkpoint", return_value=recovery):
+            payload = agent.context_runs_payload(limit=5)
+        dumped = json.dumps(payload)
+        self.assertEqual(payload["runs_version"], 1)
+        self.assertTrue(payload["metadata_only"])
+        self.assertEqual(payload["repository"], ".")
+        self.assertEqual(payload["runs"][0]["run_id"], "run-123")
+        self.assertEqual(payload["runs"][0]["last_failure"]["status"], "fail")
+        self.assertNotIn("command", payload["runs"][0]["last_failure"])
+        self.assertNotIn("command", payload["runs"][0]["last_validation"])
+        self.assertNotIn("sk-secret", dumped)
+        rendered = agent.render_context_runs(payload)
+        self.assertIn("# lai context runs", rendered)
+        self.assertIn("run-123", rendered)
+        self.assertNotIn("sk-secret", rendered)
+
+    def test_deterministic_context_runs_cli_needs_no_server(self):
+        env = {**os.environ, "LAI_DATA_DIR": str(self.base / "data")}
+        result = subprocess.run(
+            [str(SOURCE.parent / "lai"), "context", "runs", "--json", "--limit", "2"],
+            cwd=self.root, env=env, text=True, capture_output=True,
+            timeout=5, check=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["runs_version"], 1)
+        self.assertTrue(payload["metadata_only"])
+        self.assertEqual(payload["repository"], ".")
+        self.assertIn("checkpoint_status", payload)
+        self.assertEqual(result.stderr, "")
 
     def test_context_checks_are_metadata_only_and_suggests_feedback(self):
         (self.root / "Makefile").write_text(

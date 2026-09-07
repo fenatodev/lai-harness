@@ -43,6 +43,13 @@ lai context checks
 lai context checks --json --limit 40
 ```
 
+Use the compact run/process view to inspect recent run state and recovery-checkpoint metadata without reading outputs:
+
+```bash
+lai context runs
+lai context runs --json --limit 10
+```
+
 Use symbol summaries to inspect a file's top-level navigation shape without reading implementation bodies:
 
 ```bash
@@ -50,9 +57,9 @@ lai context symbols src/local-agent
 lai context symbols src/local-agent --json --limit 80
 ```
 
-The map reports repository-relative files, directory/suffix groups, manifests, changed paths, and semantic subsystem path matches. The changes view reports staged/unstaged/untracked counts, bounded repository-relative paths, and shortstat only. The checks view reports Makefile target names, validation profile names, test file paths, test method counts, changed-path samples, and suggested feedback loops without executing commands. Symbol summaries report function/class/method names and line numbers only. These views are metadata-only and never include file contents, Makefile recipes, test bodies, stdout, stderr, transcripts, tokens, or raw diffs.
+The map reports repository-relative files, directory/suffix groups, manifests, changed paths, and semantic subsystem path matches. The changes view reports staged/unstaged/untracked counts, bounded repository-relative paths, and shortstat only. The checks view reports Makefile target names, validation profile names, test file paths, test method counts, changed-path samples, and suggested feedback loops without executing commands. The runs view reports recent run ids, modes, statuses, tool/validation counts, phase names, modified path counts, and recovery checkpoint status without output text or failure reasons. Symbol summaries report function/class/method names and line numbers only. These views are metadata-only and never include file contents, Makefile recipes, test bodies, stdout, stderr, transcripts, tokens, or raw diffs.
 
-For model runs in context-intelligence modes, LAI injects a much smaller prompt map containing only aggregate directory/suffix groups, changed paths, and semantic subsystem ids. The same metadata views are also available through the structured `context` tool so shell-free remote modes can inspect map, changes, checks/tests, and symbols without calling `bash`. This is intended to reduce early repository-discovery calls without treating metadata as file evidence.
+For model runs in context-intelligence modes, LAI injects a much smaller prompt map containing only aggregate directory/suffix groups, changed paths, and semantic subsystem ids. The same metadata views are also available through the structured `context` tool so shell-free remote modes can inspect map, changes, checks/tests, runs, and symbols without calling `bash`. This is intended to reduce early repository-discovery calls without treating metadata as file evidence.
 
 ## Inventory bounds
 
@@ -80,6 +87,10 @@ Generic task words are filtered before matching. Identical scores are ordered by
 `lai context checks` summarizes Makefile target names, validation profiles, test file counts, test method counts, changed-path samples, and suggested feedback loops. It does not print Makefile recipes or test bodies, and it does not run validation commands.
 
 Use it to choose the cheapest trustworthy feedback loop during active development. `make milestone-gate` remains reserved for milestone/release freeze unless risk evidence justifies an earlier full gate.
+
+## Run/process state
+
+`lai context runs` summarizes recent run/process metadata and recovery-checkpoint state without printing stdout, stderr, task text, validation output, failure reasons, absolute state paths, or private runtime file paths. It is meant for orientation before inspecting a specific run through the existing explicit run-history commands.
 
 ## Prompt contract
 
