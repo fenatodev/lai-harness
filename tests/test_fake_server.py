@@ -1,4 +1,5 @@
 import importlib.util
+import io
 from importlib.machinery import SourceFileLoader
 import json
 import os
@@ -10,6 +11,7 @@ import tempfile
 import unittest
 import urllib.error
 import urllib.request
+from unittest import mock
 
 from fake_llama_server import FakeLlamaServer
 
@@ -68,6 +70,52 @@ class FakeServerTest(unittest.TestCase):
             chat = next(item for item in server.requests if item[0] == "POST")
             self.assertEqual(chat[2]["Authorization"], "Bearer synthetic-test-key")
             self.assertEqual(chat[3]["model"], agent.MODEL)
+
+
+    def test_api_call_reports_http_errors_without_traceback_or_secrets(self):
+        def bad_request(payload, requests):
+            return 400, {
+                "error": {
+                    "message": "invalid request for Bearer synthetic-test-key at /" + "home/example/private",
+                    "type": "invalid_request",
+                }
+            }
+
+        with FakeLlamaServer(responder=bad_request) as server:
+            old_port = agent.LLAMA_PORT
+            old_metrics_dir = agent.METRICS_DIR
+            old_metrics_file = agent.METRICS_FILE
+            agent.LLAMA_PORT = server.port
+            agent.METRICS_DIR = self.root / "metrics"
+            agent.METRICS_FILE = agent.METRICS_DIR / "events.jsonl"
+            try:
+                with self.assertRaises(agent.ModelAPIError) as caught:
+                    agent.api_call(
+                        server.host,
+                        [{"role": "user", "content": "hello"}],
+                        use_tools=False,
+                    )
+            finally:
+                agent.LLAMA_PORT = old_port
+                agent.METRICS_DIR = old_metrics_dir
+                agent.METRICS_FILE = old_metrics_file
+        text = str(caught.exception)
+        self.assertIn("model API HTTP 400", text)
+        self.assertIn("invalid request", text)
+        self.assertNotIn("synthetic-test-key", text)
+        self.assertNotIn("Bearer synthetic", text)
+        self.assertNotIn("/" + "home/example", text)
+
+    def test_lifecycle_prints_model_api_error_without_python_traceback(self):
+        with mock.patch.object(agent, "main", side_effect=agent.ModelAPIError("model API HTTP 400: bad request")), \
+                mock.patch.object(agent, "finalize_run_checkpoint") as finalize, \
+                mock.patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            with self.assertRaises(SystemExit) as caught:
+                agent.run_main_with_checkpoint_lifecycle()
+        self.assertEqual(caught.exception.code, 1)
+        self.assertIn("MODEL_API_ERROR: model API HTTP 400: bad request", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
+        finalize.assert_called_once_with("failed", reason="ModelAPIError")
 
     def test_connection_failure_is_reported(self):
         sock = socket.socket()

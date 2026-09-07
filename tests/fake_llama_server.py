@@ -54,7 +54,12 @@ class FakeLlamaServer:
                 elif not self.authorized():
                     self.send_json(401, {"error": "unauthorized"})
                 else:
-                    self.send_json(200, owner.responder(payload, owner.requests))
+                    response = owner.responder(payload, owner.requests)
+                    if isinstance(response, tuple):
+                        status, body = response
+                        self.send_json(status, body)
+                    else:
+                        self.send_json(200, response)
 
             def log_message(self, format, *args):
                 return

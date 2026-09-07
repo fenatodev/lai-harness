@@ -3058,6 +3058,48 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("Workflow: full", system)
         self.assertIn("REQ-001", system)
 
+    def test_remote_control_child_does_not_inject_implicit_workspace_context(self):
+        stale_state = agent.load_workspace_state()
+        stale_state["last_task"] = "stale release-check investigation"
+        stale_state["last_answer"] = "stale release-check answer"
+        stale_state["recent_files"] = ["docs/RELEASE-CHECKLIST.md"]
+        agent.save_workspace_state(stale_state)
+
+        captured = {}
+
+        def stop_at_model(host, messages, **kwargs):
+            captured["messages"] = messages
+            raise RuntimeError("STOP_AT_MODEL")
+
+        readiness = {
+            "overall": "ready",
+            "git": {"branch": "current-branch", "clean": True, "status": "[clean]"},
+            "server": {"authentication_ok": True},
+        }
+
+        with mock.patch.dict(os.environ, {agent.CONTROL_RUN_CHILD_ENV: "1"}, clear=False), \
+             mock.patch.object(agent, "CLI_ARGS", ["--diagnose", "current isolated status check"]), \
+             mock.patch.object(agent, "server_ready", return_value=True), \
+             mock.patch.object(agent, "collect_readiness_status", return_value=readiness), \
+             mock.patch.object(agent, "load_mode_skill", return_value="synthetic diagnose skill"), \
+             mock.patch.object(agent, "api_call", side_effect=stop_at_model), \
+             mock.patch.object(agent, "record_metric_event"), \
+             mock.patch.object(agent, "record_audit_event"):
+            with self.assertRaisesRegex(RuntimeError, "STOP_AT_MODEL"):
+                agent.main()
+
+        combined = "\n".join(
+            str(message.get("content") or "")
+            for message in captured["messages"]
+        )
+        self.assertIn("current isolated status check", combined)
+        self.assertIn("DIAGNOSE PREFLIGHT", combined)
+        self.assertIn("Branch: current-branch", combined)
+        self.assertIn("Readiness overall: ready", combined)
+        self.assertNotIn("stale release-check investigation", combined)
+        self.assertNotIn("stale release-check answer", combined)
+        self.assertNotIn("docs/RELEASE-CHECKLIST.md", combined)
+
     def test_main_injects_ranked_context_only_in_selected_modes(self):
         candidate = [{
             "path": "src/worker.py", "score": 80,

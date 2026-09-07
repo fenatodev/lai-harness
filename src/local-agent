@@ -95,6 +95,50 @@ CONFIG_BASE = CONFIG["config_dir"]
 SKILLS_DIR = CONFIG["skills_dir"]
 
 
+class ModelAPIError(RuntimeError):
+    """Bounded, secret-free local model API failure."""
+
+
+def redact_model_api_error_text(text, *, api_key="", limit=800):
+    value = str(text or "")
+    if api_key:
+        value = value.replace(api_key, "<redacted>")
+    value = re.sub(r"Bearer\s+\S+", "Bearer <redacted>", value)
+    value = re.sub(
+        r"(?i)(api[_-]?key|token|secret|password)([\"']?\s*[:=]\s*[\"']?)[^\"'\s,}]+",
+        r"\1\2<redacted>",
+        value,
+    )
+    value = re.sub(r"/home/[^\s\"']+", "<path>", value)
+    value = " ".join(value.split())
+    if len(value) > limit:
+        return value[:limit] + "…"
+    return value
+
+
+def model_api_http_error_message(exc, *, api_key=""):
+    try:
+        raw = exc.read(4096).decode("utf-8", errors="replace")
+    except Exception:
+        raw = ""
+
+    detail = ""
+    if raw:
+        try:
+            payload = json.loads(raw)
+            error = payload.get("error") if isinstance(payload, dict) else None
+            if isinstance(error, dict):
+                detail = str(error.get("message") or error.get("type") or error.get("code") or "")
+            elif isinstance(error, str):
+                detail = error
+        except Exception:
+            detail = raw
+    detail = redact_model_api_error_text(detail or raw, api_key=api_key)
+    if detail:
+        return f"model API HTTP {exc.code}: {detail}"
+    return f"model API HTTP {exc.code}: {exc.reason}"
+
+
 def parse_standard_skill(path, expected_name=None):
     text = path.read_text(encoding="utf-8", errors="replace")
 
@@ -8635,6 +8679,36 @@ def collect_readiness_status():
     }
 
 
+def render_diagnose_preflight_context(status=None):
+    status = collect_readiness_status() if status is None else status
+    git = status.get("git") or {}
+    server = status.get("server") or {}
+    git_status = str(git.get("status") or "[unknown]")
+    clean = bool(git.get("clean"))
+    if clean:
+        git_summary = "clean"
+    elif git_status and git_status != "[unknown]":
+        git_summary = f"dirty ({len(git_status.splitlines())} status line(s))"
+    else:
+        git_summary = "unknown"
+    server_auth = server.get("authentication_ok")
+    if server_auth is True:
+        server_summary = "ok"
+    elif server_auth is False:
+        server_summary = "failed"
+    else:
+        server_summary = "unknown"
+    return "\n".join([
+        "DIAGNOSE PREFLIGHT (deterministic metadata, not raw logs)",
+        f"Product: {PRODUCT_NAME} {VERSION}",
+        "Branch: " + str(git.get("branch") or "[unknown]"),
+        "Git status: " + git_summary,
+        "Readiness overall: " + str(status.get("overall") or "unknown"),
+        "Model server authentication: " + server_summary,
+        "For simple branch, git status, or readiness questions, answer from this preflight without extra discovery. Do not report unknown for fields listed above.",
+    ])
+
+
 def render_readiness_status(json_mode=False):
     status = collect_readiness_status()
 
@@ -10052,6 +10126,30 @@ def api_call(
             result = json.loads(
                 response.read().decode()
             )
+    except urllib.error.HTTPError as e:
+        duration_ms = (
+            _metrics_time.perf_counter()
+            - started
+        ) * 1000.0
+
+        message = model_api_http_error_message(e, api_key=key)
+        record_metric_event({
+            "type": "api",
+            "duration_ms": round(duration_ms, 2),
+            "error": "HTTPError",
+            "http_status": int(e.code),
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "max_tokens": max_tokens,
+            "tool_schema_count": len(
+                selected_tools
+                if use_tools
+                else []
+            ),
+        })
+
+        raise ModelAPIError(message) from None
     except Exception as e:
         duration_ms = (
             _metrics_time.perf_counter()
@@ -14055,9 +14153,16 @@ def main():
         ),
     })
 
+    remote_control_child = os.environ.get(CONTROL_RUN_CHILD_ENV) == "1"
+
     prior_workspace_state = load_workspace_state()
+    prompt_workspace_state = (
+        {}
+        if remote_control_child
+        else prior_workspace_state
+    )
     prior_workspace_context = render_workspace_handoff(
-        prior_workspace_state,
+        prompt_workspace_state,
         compact=True,
     )
 
@@ -14102,7 +14207,7 @@ def main():
     active_spec_context = render_active_spec_context(active_spec)
     ranked_context = (
         rank_context_candidates(
-            task, workspace_state=prior_workspace_state, active_spec=active_spec,
+            task, workspace_state=prompt_workspace_state, active_spec=active_spec,
             limit=CONTEXT_RESULT_LIMIT,
         )
         if mode in CONTEXT_INTELLIGENCE_MODES
@@ -14185,7 +14290,6 @@ If the provided selection does not support a factual claim, omit that claim.
 Describe what the text actually shows before adding interpretation.
 Answer in at most 60 words unless the user explicitly requests more detail."""
 
-    remote_control_child = os.environ.get(CONTROL_RUN_CHILD_ENV) == "1"
     try:
         selected_tool_names = tool_names_for_mode(
             mode, remote_control_child=remote_control_child
@@ -14255,6 +14359,9 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
 
     if ranked_context_text:
         system += '\n\n' + ranked_context_text
+
+    if remote_control_child and mode == "diagnose":
+        system += "\n\n" + render_diagnose_preflight_context()
 
     if mode == "release":
         system += "\n\n" + render_release_preflight_context()
@@ -15762,6 +15869,13 @@ def run_main_with_checkpoint_lifecycle():
             reason=f"SystemExit:{exc.code}",
         )
         raise
+    except ModelAPIError as exc:
+        finalize_run_checkpoint(
+            "failed",
+            reason="ModelAPIError",
+        )
+        print(f"MODEL_API_ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
     except BaseException as exc:
         finalize_run_checkpoint(
             "failed",
