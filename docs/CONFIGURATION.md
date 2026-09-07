@@ -42,7 +42,7 @@ The control-plane token is independent from the llama.cpp API key. Initialize it
 
 ## Server workflow
 
-For WSL with a Windows-hosted `llama-server`, the WSL launcher calls `powershell.exe` with `scripts/start-secure.ps1` only when the configured server is not already running securely. Set `LAI_WINDOWS_LAUNCHER` in WSL and set `LAI_LLAMA_SERVER`, `LAI_API_KEY_FILE_WINDOWS`, and optional model/log settings in Windows. `LAI_MODEL` may be either a Hugging Face model identifier or a local GGUF file path; local files are passed with `--model`, while identifiers use `-hf`.
+For WSL with a Windows-hosted `llama-server`, the WSL launcher calls `powershell.exe` with `scripts/start-secure.ps1` only when the configured server is not already running securely. The default launcher path, Windows key path, and `llama-server.exe` are auto-discovered when possible; the launcher injects runtime values inside PowerShell instead of relying on fragile WSL-to-Windows environment inheritance. Set `LAI_WINDOWS_LAUNCHER`, `LAI_LLAMA_SERVER`, or `LAI_API_KEY_FILE_WINDOWS` only as overrides. `LAI_MODEL` may be either a Hugging Face model identifier or a local GGUF file path; local files are passed with `--model`, while identifiers use `-hf`.
 
 The reference PowerShell launcher requires a `llama-server` build with `--api-key-file` support so the key does not appear in process arguments. Tune `LAI_CTX_SIZE`, `LAI_GPU_LAYERS`, and `LAI_PARALLEL` for the selected model and hardware; the small local-code path validated with 4096 context and CPU layers.
 

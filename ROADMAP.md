@@ -29,7 +29,7 @@
 - Add deterministic wave orchestration for subagents/delegates using explicit dependencies and disjoint file ownership.
 - Add quality-gate ratchets: measure as warning, enforce no-regression, then promote to required gate when debt reaches zero.
 - Add token-efficient structured views for Git, tests, diffs, process state, and other verbose evidence.
-- Use model-evaluation data to decide whether Qwen Coder or another <=8 GB model should replace the current baseline.
+- Keep the Ministral baseline until another <=8 GiB candidate beats it with repeated, decision-eligible local model-evaluation evidence; Qwen dogfood did not clear that bar for the current milestone.
 - Explore signed releases and provenance attestations.
 
 Roadmap items are intentions, not commitments. Model redistribution and automatic downloading are deliberately out of scope.

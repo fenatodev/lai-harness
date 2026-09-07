@@ -1,3 +1,25 @@
+## [0.4.4] - 2026-09-06
+
+### Added
+- Added authenticated `DELETE /v1/sessions/{session_id}` for repository-scoped persistent-session lifecycle cleanup.
+- Added control-session deletion in the typed session module with repository ownership checks, symlink rejection, and secret-free public records.
+
+### Changed
+- Hardened `scripts/ministral-start` for post-reboot WSL/Windows startup by auto-discovering the checkout-local Windows launcher, key-file Windows path, and `llama-server.exe` without printing key material.
+- Updated the gateway contract and control-plane documentation so companion clients can delete stale sessions without gaining shell, Git, model-management, source-checkout, commit, push, PR, tag, or release authority.
+
+### Validation
+- Local Qwen2.5-Coder 7B Q4_K_M dogfood completed all five model-evaluation scenarios but scored 55.4/100 and remains not decision-eligible for a default-model switch.
+- Focused control-session and control-plane lifecycle tests must pass before integration; full milestone validation remains required before publication.
+
+## [0.4.3] - 2026-09-06
+
+### Fixed
+- Hardened Windows model runtime startup by keeping model API keys out of launcher arguments and accepting already-running secure local model servers.
+
+### Changed
+- Updated llama.cpp Windows startup guidance for local GGUF paths, explicit API key files, context size, GPU layer, and parallelism settings.
+
 ## [0.4.2] - 2026-09-06
 
 - Added a stable gateway contract manifest for the separate `lai-gateway` companion: deterministic `lai gateway-contract --json`, authenticated `GET /v1/gateway-contract`, schema metadata, route inventory, request/session/run limits, run modes, companion token-handling expectations, and explicit forbidden capabilities.

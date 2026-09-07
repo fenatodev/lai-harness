@@ -65,7 +65,18 @@ Returns up to 50 sanitized historical run summaries from the existing observabil
 
 ### Persistent sessions
 
-`POST /v1/sessions` with an empty JSON object creates a repository-scoped session and returns a generated `cs-<16 hex>` identifier. `GET /v1/sessions?limit=N` lists bounded summaries for the currently served repository, and `GET /v1/sessions/<session_id>` returns the retained compact turns. Every route remains bearer-authenticated.
+`POST /v1/sessions` with an empty JSON object creates a repository-scoped session and returns a generated `cs-<16 hex>` identifier. `GET /v1/sessions?limit=N` lists bounded summaries for the currently served repository, `GET /v1/sessions/<session_id>` returns the retained compact turns, and `DELETE /v1/sessions/<session_id>` removes one repository-scoped session. Every route remains bearer-authenticated.
+
+Local operators can inspect and remove repository-scoped session records without starting the control plane:
+
+```bash
+lai sessions
+lai sessions show <session-id>
+lai sessions delete <session-id>
+```
+
+Session deletion removes only the current repository's matching persistent session record. It does not delete runs, metrics, audit events, source files, workspaces, Git branches, or remote resources.
+
 
 Session state lives under `$LAI_DATA_DIR/control-sessions` as schema-versioned JSON, outside the repository. The directory is restricted to mode `0700`; session files are atomically replaced and restricted to `0600`. Each file is bound to the canonical repository root, so a session from another checkout is treated as unavailable rather than injected across projects. At most 100 session files are retained, each session keeps at most 12 turns, stored tasks are capped at 1200 characters, stored assistant text at 1800 characters, and prior context injected into a later run is capped at 6000 characters.
 

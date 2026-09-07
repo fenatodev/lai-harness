@@ -1,3 +1,34 @@
+## lai harness v0.4.4 — control-session lifecycle
+
+`v0.4.4` adds bounded lifecycle control for repository-scoped persistent sessions. It is driven by gateway dogfood: mobile/private clients can now create, inspect, and delete stale LAI sessions without gaining shell, Git, source-checkout, model-management, commit, push, PR, tag, or release authority.
+
+### What changed
+
+- Added authenticated `DELETE /v1/sessions/{session_id}` to remove one persistent control session for the currently served repository.
+- Added local `lai sessions`, `lai sessions show <session-id>`, and `lai sessions delete <session-id>` commands for deterministic session cleanup without starting the control plane.
+- Added typed session deletion with repository ownership checks, invalid-id rejection, symlink rejection, and secret-free public records.
+- Updated the gateway contract, control-plane docs, README, and project handoff examples for the new session lifecycle boundary.
+- Hardened `scripts/ministral-start` for reboot recovery by auto-discovering the checkout-local Windows launcher, converting the key-file path for PowerShell, locating `llama-server.exe`, and refusing to print key material.
+
+### Safety boundary
+
+- Session deletion removes only the matching repository-scoped session JSON record outside the source checkout.
+- It does not delete runs, metrics, audit events, workspaces, source files, Git branches, tags, releases, model files, or remote resources.
+- The new CLI commands are local, deterministic, model-free, and do not read or print API keys.
+
+### Local model dogfood evidence
+
+A one-repeat local model-evaluation run against a user-supplied Qwen2.5-Coder 7B Q4_K_M GGUF completed all five required scenarios but is not decision-eligible for a default-model switch: average score 55.4/100, with planning passing, debug and implementation failing, and review/security only partial. The result supports keeping the current default until another small local model wins on correctness and validation, not just availability.
+
+### Release commands
+
+```bash
+lai release-check --target 0.4.4 --json
+lai release-pack --target 0.4.4 --with-vsix --json
+lai release-governance --target 0.4.4 --remote --json
+lai project-handoff --target 0.4.4 --remote --json
+```
+
 ## lai harness v0.4.3 — runtime startup hardening
 
 `v0.4.3` packages the Windows/WSL llama.cpp startup hardening needed for repeatable local-model operation with the companion gateway. It keeps the Harness control-plane boundary unchanged while making the authenticated model-server launcher safer and more useful for local GGUF files.

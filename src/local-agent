@@ -61,6 +61,7 @@ from lai_sessions import (
     append_control_session_turn as append_control_session_turn,
     control_session_public_record as control_session_public_record,
     create_control_session as create_control_session,
+    delete_control_session as delete_control_session,
     list_control_sessions as list_control_sessions,
     load_control_session as load_control_session,
     render_control_session_task as render_control_session_task,
@@ -75,7 +76,7 @@ from lai_web import (
     search_web_evidence as search_web_evidence,
 )
 
-VERSION = "0.4.3"
+VERSION = "0.4.4"
 PRODUCT_NAME = "lai harness"
 def render_config_status(config=None):
     return _render_config_status(CONFIG if config is None else config, VERSION)
@@ -4390,6 +4391,174 @@ def control_session_payload(server, session_id):
     }
 
 
+def control_delete_session(server, session_id):
+    checked = validate_control_session_id(session_id)
+    with server.control_session_lock:
+        deleted = delete_control_session(
+            control_session_base(), checked, str(ROOT.resolve())
+        )
+    return {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "repository": str(ROOT),
+        "session": {
+            "schema_version": deleted["schema_version"],
+            "session_id": deleted["session_id"],
+            "deleted": True,
+            "turn_count": deleted["turn_count"],
+        },
+    }
+
+
+CONTROL_SESSIONS_USAGE = "Usage: lai sessions [--limit N] [--json] | lai sessions show <session-id> [--json] | lai sessions delete <session-id> [--json]"
+
+
+def _control_session_delete_payload(session_id):
+    deleted = delete_control_session(control_session_base(), session_id, str(ROOT.resolve()))
+    return {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "repository": str(ROOT),
+        "session": {
+            "schema_version": deleted["schema_version"],
+            "session_id": deleted["session_id"],
+            "deleted": True,
+            "turn_count": deleted["turn_count"],
+        },
+    }
+
+
+def render_control_sessions_list(limit=10, json_mode=False):
+    sessions = list_control_sessions(control_session_base(), str(ROOT.resolve()), limit=limit)
+    payload = {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "repository": str(ROOT),
+        "sessions": [control_session_public_record(session, include_turns=False) for session in sessions],
+    }
+    if json_mode:
+        return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    lines = [
+        "# lai sessions",
+        "",
+        f"Repository: {ROOT}",
+        f"Session directory: {control_session_base()}",
+        f"Sessions shown: {len(payload['sessions'])}",
+        "",
+        "## Recent sessions",
+    ]
+    if not payload["sessions"]:
+        lines.append("- [none]")
+    else:
+        for session in payload["sessions"]:
+            lines.append(
+                f"- {session['session_id']} | updated={session['updated_at']} | turns={session['turn_count']}"
+            )
+    lines.extend([
+        "",
+        "Use `lai sessions show <session-id>` to inspect compact turns.",
+        "Use `lai sessions delete <session-id>` to remove a stale repository-scoped session.",
+    ])
+    return "\n".join(lines)
+
+
+def render_control_session_show(session_id, json_mode=False):
+    session = load_control_session(control_session_base(), session_id, str(ROOT.resolve()))
+    payload = {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "repository": str(ROOT),
+        "session": control_session_public_record(session),
+    }
+    if json_mode:
+        return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    lines = [
+        "# lai session show",
+        "",
+        f"Repository: {ROOT}",
+        f"Session ID: {payload['session']['session_id']}",
+        f"Created: {payload['session']['created_at']}",
+        f"Updated: {payload['session']['updated_at']}",
+        f"Turns: {payload['session']['turn_count']}",
+        "",
+        "## Turns",
+    ]
+    turns = payload["session"].get("turns") or []
+    if not turns:
+        lines.append("- [none]")
+    else:
+        for turn in turns:
+            lines.append(
+                f"- {turn['control_run_id']} | {turn['mode']} | {turn['status']} | {turn['finished_at']}"
+            )
+    return "\n".join(lines)
+
+
+def render_control_session_delete(session_id, json_mode=False):
+    payload = _control_session_delete_payload(session_id)
+    if json_mode:
+        return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    session = payload["session"]
+    return "\n".join([
+        "# lai session delete",
+        "",
+        f"Repository: {payload['repository']}",
+        f"Session ID: {session['session_id']}",
+        "Deleted: yes",
+        f"Turns removed: {session['turn_count']}",
+    ])
+
+
+def parse_control_session_limit(args, default=10):
+    if "--limit" not in args:
+        return default
+    index = args.index("--limit")
+    try:
+        value = int(args[index + 1])
+    except Exception:
+        raise SystemExit("Invalid --limit value")
+    if value < 1 or value > 50:
+        raise SystemExit("--limit must be between 1 and 50")
+    del args[index:index + 2]
+    return value
+
+
+def handle_control_sessions(args):
+    raw = list(args)
+    json_mode = "--json" in raw
+    raw = [item for item in raw if item != "--json"]
+    if not raw or raw[0].startswith("--"):
+        command = "list"
+        command_args = raw
+    else:
+        command = raw[0]
+        command_args = raw[1:]
+    try:
+        if command == "list":
+            limit = parse_control_session_limit(command_args, default=10)
+            if command_args:
+                raise SystemExit(CONTROL_SESSIONS_USAGE)
+            print(render_control_sessions_list(limit=limit, json_mode=json_mode))
+            return
+        if command == "show":
+            if len(command_args) != 1:
+                raise SystemExit(CONTROL_SESSIONS_USAGE)
+            print(render_control_session_show(command_args[0], json_mode=json_mode))
+            return
+        if command == "delete":
+            if len(command_args) != 1:
+                raise SystemExit(CONTROL_SESSIONS_USAGE)
+            print(render_control_session_delete(command_args[0], json_mode=json_mode))
+            return
+    except FileNotFoundError as exc:
+        raise SystemExit(f"Control session not found: {exc.filename or raw[-1]}") from exc
+    except PermissionError as exc:
+        raise SystemExit("Control session belongs to another repository") from exc
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    raise SystemExit(CONTROL_SESSIONS_USAGE)
+
+
 def control_api_key_path(config=None):
     config = CONFIG if config is None else config
     return Path(config["control_api_key_file"]).expanduser()
@@ -4557,6 +4726,7 @@ def control_gateway_contract_payload():
         {"method": "POST", "path": "/v1/sessions", "auth_required": True, "purpose": "create a repository-scoped persistent session"},
         {"method": "GET", "path": "/v1/sessions?limit=N", "auth_required": True, "purpose": "list bounded persistent-session summaries without turn bodies"},
         {"method": "GET", "path": "/v1/sessions/{session_id}", "auth_required": True, "purpose": "read one repository-scoped session with retained compact turns"},
+        {"method": "DELETE", "path": "/v1/sessions/{session_id}", "auth_required": True, "purpose": "delete one repository-scoped persistent session"},
         {"method": "POST", "path": "/v1/policy-check", "auth_required": True, "purpose": "classify one tool request without execution"},
     ]
     return {
@@ -6037,6 +6207,21 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
         if not self._require_auth():
             return
         parsed = urllib.parse.urlsplit(self.path)
+        session_match = re.fullmatch(r"/v1/sessions/(cs-[0-9a-f]{16})", parsed.path)
+        if session_match:
+            try:
+                payload = control_delete_session(self.server, session_match.group(1))
+            except FileNotFoundError:
+                self._json(404, {"error": {"code": "session_not_found", "message": "control session not found"}})
+                return
+            except PermissionError:
+                self._json(404, {"error": {"code": "session_not_found", "message": "control session not found"}})
+                return
+            except ValueError:
+                self._json(500, {"error": {"code": "session_state_invalid", "message": "control session state is invalid"}})
+                return
+            self._json(200, payload)
+            return
         if re.fullmatch(r"/v1/runs/cr-[0-9a-f]{16}/promotion", parsed.path):
             self._json(405, {"error": {"code": "method_not_allowed", "message": "method not allowed"}})
             return
@@ -11475,6 +11660,10 @@ def main():
 
     if args and args[0] == "--audit":
         print_lai_audit()
+        return
+
+    if args and args[0] == "--sessions":
+        handle_control_sessions(args[1:])
         return
 
     if args and args[0] == "--runs":

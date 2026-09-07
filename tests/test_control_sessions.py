@@ -82,6 +82,35 @@ class ControlSessionsTest(unittest.TestCase):
             sessions.list_control_sessions(self.base, str(other_repo)), []
         )
 
+    def test_delete_control_session_is_repo_scoped_and_symlink_safe(self):
+        first = sessions.create_control_session(
+            self.base, "2026-09-06T00:00:00Z", str(self.repo), "cs-6666666666666666"
+        )
+        deleted = sessions.delete_control_session(self.base, first["session_id"], str(self.repo))
+        self.assertTrue(deleted["deleted"])
+        self.assertEqual(deleted["session_id"], first["session_id"])
+        with self.assertRaises(FileNotFoundError):
+            sessions.load_control_session(self.base, first["session_id"], str(self.repo))
+        with self.assertRaises(FileNotFoundError):
+            sessions.delete_control_session(self.base, first["session_id"], str(self.repo))
+
+        second = sessions.create_control_session(
+            self.base, "2026-09-06T00:01:00Z", str(self.repo), "cs-7777777777777777"
+        )
+        other_repo = Path(self.temp.name) / "other-repo-delete"
+        other_repo.mkdir()
+        with self.assertRaises(PermissionError):
+            sessions.delete_control_session(self.base, second["session_id"], str(other_repo))
+        self.assertTrue(sessions.control_session_path(self.base, second["session_id"]).is_file())
+
+        symlink_id = "cs-8888888888888888"
+        target = Path(self.temp.name) / "linked-session.json"
+        target.write_text("{}", encoding="utf-8")
+        sessions.control_session_path(self.base, symlink_id).symlink_to(target)
+        with self.assertRaisesRegex(ValueError, "must not be a symlink"):
+            sessions.delete_control_session(self.base, symlink_id, str(self.repo))
+
+
     def test_rejects_unsafe_ids_symlinks_and_future_schema(self):
         with self.assertRaises(ValueError):
             sessions.create_control_session(self.base, "now", str(self.repo), "../escape")

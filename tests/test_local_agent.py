@@ -521,6 +521,111 @@ class LocalAgentTest(unittest.TestCase):
         self.assertEqual(json.loads(agent.AUDIT_FILE.read_text())["type"], "smoke")
 
 
+    def test_control_sessions_cli_lists_shows_and_deletes_repo_scoped_sessions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp) / "data"
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            session_dir = data_dir / "control-sessions"
+            session_dir.mkdir(parents=True, mode=0o700)
+            session_id = "cs-1234567890abcdef"
+            session_path = session_dir / f"{session_id}.json"
+            session_payload = {
+                "schema_version": 1,
+                "session_id": session_id,
+                "repository": str(repo.resolve()),
+                "created_at": "2026-09-06T00:00:00Z",
+                "updated_at": "2026-09-06T00:01:00Z",
+                "turns": [
+                    {
+                        "control_run_id": "cr-1234567890abcdef",
+                        "mode": "plan",
+                        "status": "succeeded",
+                        "task": "bounded session task",
+                        "assistant": "bounded answer",
+                        "created_at": "2026-09-06T00:00:00Z",
+                        "finished_at": "2026-09-06T00:01:00Z",
+                    }
+                ],
+            }
+            session_path.write_text(json.dumps(session_payload), encoding="utf-8")
+            session_path.chmod(0o600)
+            env = {**os.environ, "LAI_DATA_DIR": str(data_dir)}
+
+            listed = subprocess.run(
+                [str(SOURCE), "--sessions", "--json"],
+                cwd=repo,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            listed_payload = json.loads(listed.stdout)
+            self.assertEqual(listed_payload["sessions"][0]["session_id"], session_id)
+            self.assertNotIn("turns", listed_payload["sessions"][0])
+
+            limited_default = subprocess.run(
+                [str(SOURCE), "--sessions", "--limit", "1", "--json"],
+                cwd=repo,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertEqual(
+                json.loads(limited_default.stdout)["sessions"][0]["session_id"],
+                session_id,
+            )
+
+            limited_explicit = subprocess.run(
+                [str(SOURCE), "--sessions", "list", "--limit", "1", "--json"],
+                cwd=repo,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertEqual(
+                json.loads(limited_explicit.stdout)["sessions"][0]["session_id"],
+                session_id,
+            )
+
+            shown = subprocess.run(
+                [str(SOURCE), "--sessions", "show", session_id],
+                cwd=repo,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("# lai session show", shown.stdout)
+            self.assertIn(session_id, shown.stdout)
+            self.assertIn("cr-1234567890abcdef", shown.stdout)
+
+            deleted = subprocess.run(
+                [str(SOURCE), "--sessions", "delete", session_id, "--json"],
+                cwd=repo,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            deleted_payload = json.loads(deleted.stdout)
+            self.assertTrue(deleted_payload["session"]["deleted"])
+            self.assertEqual(deleted_payload["session"]["session_id"], session_id)
+            self.assertFalse(session_path.exists())
+
+            missing = subprocess.run(
+                [str(SOURCE), "--sessions", "show", session_id],
+                cwd=repo,
+                env=env,
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertIn("Control session not found", missing.stderr)
+
+
     def test_run_history_lists_shows_tails_and_exports_recorded_runs(self):
         data_dir = self.base / "data"
         metrics_dir = data_dir / "metrics"
@@ -2933,7 +3038,7 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("release channel (`prerelease` or `stable`)", publishing)
         self.assertIn("expected GitHub `prerelease` flag", publishing)
         self.assertTrue(
-            release_notes.startswith(f"## lai harness v{agent.VERSION} — runtime startup hardening")
+            release_notes.startswith(f"## lai harness v{agent.VERSION} — control-session lifecycle")
         )
         self.assertIn("lai harness v0.4.0 — stable core graduation", release_notes)
         self.assertIn("lai harness v0.4.0-beta.24", release_notes)

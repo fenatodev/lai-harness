@@ -30,3 +30,16 @@ The payload must not include bearer tokens, model API keys, secret file contents
 The contract does not grant generic remote shell, direct source-checkout writes, dependency installation, commit/push/merge/PR authority, tag/release publication, browser automation, JavaScript execution, direct llama.cpp exposure, or token disclosure.
 
 Schema file: [`schemas/runtime/gateway_contract.schema.json`](../schemas/runtime/gateway_contract.schema.json).
+
+## Session lifecycle
+
+The contract includes repository-scoped persistent-session lifecycle routes:
+
+```http
+POST /v1/sessions
+GET /v1/sessions?limit=N
+GET /v1/sessions/{session_id}
+DELETE /v1/sessions/{session_id}
+```
+
+Deletion removes only the matching session record for the currently served repository. It does not delete runs, metrics, audit logs, source files, workspaces, Git branches, tags, releases, model files, or remote resources.
