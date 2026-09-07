@@ -3069,6 +3069,7 @@ class LocalAgentTest(unittest.TestCase):
             system = captured["messages"][0]["content"]
             self.assertIn("CONTEXT MAP", system)
             self.assertIn("metadata_only_not_evidence", system)
+            self.assertIn("CONTEXT CHANGES", system)
             self.assertIn("CONTEXT CANDIDATES", system)
             self.assertIn("src/worker.py", system)
 
@@ -3089,6 +3090,7 @@ class LocalAgentTest(unittest.TestCase):
 
         system = captured["messages"][0]["content"]
         self.assertNotIn("CONTEXT MAP", system)
+        self.assertNotIn("CONTEXT CHANGES", system)
         self.assertNotIn("CONTEXT CANDIDATES", system)
 
     def test_deterministic_spec_status_needs_no_server(self):

@@ -10324,6 +10324,37 @@ def render_context_map(payload, max_items=12):
 
 
 
+def render_context_changes_prompt(payload, max_chars=650):
+    lines = [
+        "CONTEXT CHANGES (advisory Git metadata only; inspect diffs before relying on changes):",
+        f"- overall={payload.get('overall')} staged={payload.get('counts', {}).get('staged', 0)} unstaged={payload.get('counts', {}).get('unstaged', 0)} untracked={payload.get('counts', {}).get('untracked', 0)}",
+    ]
+    shortstat = payload.get("shortstat") or {}
+    if shortstat.get("staged"):
+        lines.append(f"- staged_shortstat={shortstat.get('staged')}")
+    if shortstat.get("unstaged"):
+        lines.append(f"- unstaged_shortstat={shortstat.get('unstaged')}")
+    entries = payload.get("entries") or []
+    if entries:
+        lines.append("- paths:")
+        for item in entries[:8]:
+            labels = []
+            if item.get("staged"):
+                labels.append("staged")
+            if item.get("unstaged"):
+                labels.append("unstaged")
+            if item.get("untracked"):
+                labels.append("untracked")
+            suffix = ",".join(labels) or "changed"
+            lines.append(f"  - {item.get('path')} [{suffix}]")
+    else:
+        lines.append("- paths: [none]")
+    if payload.get("entry_list_truncated"):
+        lines.append("- paths_truncated=true")
+    return "\n".join(lines)[:max(120, min(int(max_chars), 1200))]
+
+
+
 def render_context_map_prompt(payload, max_chars=900):
     max_chars = max(240, min(int(max_chars), 1200))
     lines = [
@@ -13933,6 +13964,11 @@ def main():
         if mode in CONTEXT_INTELLIGENCE_MODES
         else ""
     )
+    context_changes_text = (
+        render_context_changes_prompt(context_git_changes_payload(limit=8))
+        if mode in CONTEXT_INTELLIGENCE_MODES
+        else ""
+    )
 
     host = gateway()
 
@@ -14063,6 +14099,9 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
 
     if context_map_text:
         system += "\n\n" + context_map_text
+
+    if context_changes_text:
+        system += "\n\n" + context_changes_text
 
     if ranked_context_text:
         system += '\n\n' + ranked_context_text

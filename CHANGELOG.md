@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Added
+- Inject a compact metadata-only Git changes summary into context-intelligence modes so agents see worktree shape without raw diffs.
 - Add deterministic `lai context runs` for metadata-only recent run/process state and recovery checkpoint status without outputs or failure reasons.
 - Add deterministic context intelligence views for repo maps, compact Git changes, validation/test checks, symbol summaries, and a shell-free structured `context` tool for local and remote modes.
 - Add deterministic `lai operating-mode` plus `docs/OPERATING-MODE.md` to codify local-first milestone batching, release batching, read-only external evidence, capability-based compatibility, and product-progress decision gates.
