@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lai.local/schemas/runtime/snapshot.schema.json",
+  "title": "LAI pre-write snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "product",
+    "version",
+    "root",
+    "run_id",
+    "snapshot_kind",
+    "max_file_bytes",
+    "files",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "product": {"type": "string"},
+    "version": {"type": "string"},
+    "root": {"type": "string"},
+    "run_id": {"type": "string", "minLength": 1},
+    "snapshot_kind": {"const": "prewrite"},
+    "max_file_bytes": {"type": "integer", "minimum": 1},
+    "updated_at": {"type": "string"},
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "status"],
+        "properties": {
+          "path": {"type": "string"},
+          "status": {"enum": ["captured", "skipped"]},
+          "exists": {"type": ["boolean", "null"]},
+          "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+          "content": {"type": ["string", "null"]},
+          "reason": {"type": ["string", "null"]}
+        }
+      }
+    }
+  }
+}

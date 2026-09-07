@@ -64,6 +64,7 @@ class RuntimeRecordsTest(unittest.TestCase):
             "audit_event.schema.json",
             "workspace_state.schema.json",
             "checkpoint.schema.json",
+            "snapshot.schema.json",
             "control_session.schema.json",
             "gateway_contract.schema.json",
         }
