@@ -3649,19 +3649,21 @@ class LocalAgentTest(unittest.TestCase):
             "def test_tool():\n    assert 'secret-body'\n"
         )
         changes = agent.tool_context({"operation": "changes", "limit": 5})
+        diff = agent.tool_context({"operation": "diff", "limit": 5})
         checks = agent.tool_context({"operation": "checks", "limit": 5})
         tests_alias = agent.tool_context({"operation": "tests", "limit": 5})
         runs = agent.tool_context({"operation": "runs", "limit": 5})
         symbols = agent.tool_context({"operation": "symbols", "path": "module.py", "limit": 5})
         repo_map = agent.tool_context({"operation": "map", "max_files": 20, "max_paths": 4})
         self.assertIn("# lai context changes", changes)
+        self.assertIn("# lai context diff", diff)
         self.assertIn("# lai context checks", checks)
         self.assertIn("# lai context checks", tests_alias)
         self.assertIn("# lai context runs", runs)
         self.assertIn("# lai context symbols", symbols)
         self.assertIn("# lai context map", repo_map)
         self.assertIn("worker", symbols)
-        combined = changes + checks + tests_alias + runs + symbols + repo_map
+        combined = changes + diff + checks + tests_alias + runs + symbols + repo_map
         self.assertNotIn("secret-body", combined)
         self.assertNotIn("```", combined)
         self.assertIn("metadata", combined.lower())
@@ -3725,6 +3727,49 @@ class LocalAgentTest(unittest.TestCase):
         self.assertTrue(payload["metadata_only"])
         self.assertEqual(payload["repository"], ".")
         self.assertIn("checkpoint_status", payload)
+        self.assertEqual(result.stderr, "")
+
+    def test_context_diff_is_metadata_only_with_numstat(self):
+        (self.root / "tracked.py").write_text("old line\nkeep\n", encoding="utf-8")
+        subprocess.run(["git", "add", "tracked.py"], cwd=self.root, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=self.root, check=True)
+        (self.root / "tracked.py").write_text("new secret line\nkeep\nextra\n", encoding="utf-8")
+        (self.root / "untracked.py").write_text("untracked secret body\n", encoding="utf-8")
+
+        payload = agent.context_git_diff_payload(limit=10)
+        dumped = json.dumps(payload)
+        self.assertEqual(payload["diff_version"], 1)
+        self.assertTrue(payload["metadata_only"])
+        self.assertFalse(payload["inspected_content"])
+        self.assertEqual(payload["repository"], ".")
+        self.assertGreaterEqual(payload["totals"]["unstaged_additions"], 1)
+        self.assertGreaterEqual(payload["totals"]["unstaged_deletions"], 1)
+        self.assertEqual(payload["totals"]["untracked_paths"], 1)
+        self.assertIn("tracked.py", dumped)
+        self.assertIn("untracked.py", dumped)
+        self.assertNotIn("new secret line", dumped)
+        self.assertNotIn("untracked secret body", dumped)
+        rendered = agent.render_context_diff(payload)
+        self.assertIn("# lai context diff", rendered)
+        self.assertIn("unstaged_additions", rendered)
+        self.assertNotIn("secret", rendered)
+
+    def test_deterministic_context_diff_cli_needs_no_server(self):
+        (self.root / "tracked.py").write_text("old\n", encoding="utf-8")
+        subprocess.run(["git", "add", "tracked.py"], cwd=self.root, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=self.root, check=True)
+        (self.root / "tracked.py").write_text("new hidden value\n", encoding="utf-8")
+        env = {**os.environ, "LAI_DATA_DIR": str(self.base / "data")}
+        result = subprocess.run(
+            [str(SOURCE.parent / "lai"), "context", "diff", "--json", "--limit", "3"],
+            cwd=self.root, env=env, text=True, capture_output=True,
+            timeout=5, check=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["diff_version"], 1)
+        self.assertTrue(payload["metadata_only"])
+        self.assertIn("tracked.py", result.stdout)
+        self.assertNotIn("new hidden value", result.stdout)
         self.assertEqual(result.stderr, "")
 
     def test_context_checks_are_metadata_only_and_suggests_feedback(self):

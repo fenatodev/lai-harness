@@ -36,6 +36,13 @@ lai context changes
 lai context changes --json --limit 60
 ```
 
+Use the compact diff summary when the next step needs per-file addition/deletion counts without reading hunks:
+
+```bash
+lai context diff
+lai context diff --json --limit 60
+```
+
 Use the validation/test inventory to choose a cheap feedback loop without reading Makefile recipes or test bodies:
 
 ```bash
@@ -57,9 +64,9 @@ lai context symbols src/local-agent
 lai context symbols src/local-agent --json --limit 80
 ```
 
-The map reports repository-relative files, directory/suffix groups, manifests, changed paths, and semantic subsystem path matches. The changes view reports staged/unstaged/untracked counts, bounded repository-relative paths, and shortstat only. The checks view reports Makefile target names, validation profile names, test file paths, test method counts, changed-path samples, and suggested feedback loops without executing commands. The runs view reports recent run ids, modes, statuses, tool/validation counts, phase names, modified path counts, and recovery checkpoint status without output text or failure reasons. Symbol summaries report function/class/method names and line numbers only. These views are metadata-only and never include file contents, Makefile recipes, test bodies, stdout, stderr, transcripts, tokens, or raw diffs.
+The map reports repository-relative files, directory/suffix groups, manifests, changed paths, and semantic subsystem path matches. The changes view reports staged/unstaged/untracked counts, bounded repository-relative paths, and shortstat only. The diff view reports per-file staged/unstaged addition and deletion counts plus untracked path counts without raw hunks. The checks view reports Makefile target names, validation profile names, test file paths, test method counts, changed-path samples, and suggested feedback loops without executing commands. The runs view reports recent run ids, modes, statuses, tool/validation counts, phase names, modified path counts, and recovery checkpoint status without output text or failure reasons. Symbol summaries report function/class/method names and line numbers only. These views are metadata-only and never include file contents, Makefile recipes, test bodies, stdout, stderr, transcripts, tokens, or raw diffs.
 
-For model runs in context-intelligence modes, LAI injects a much smaller prompt map containing only aggregate directory/suffix groups, changed paths, and semantic subsystem ids, plus a compact Git changes summary containing only status counts, shortstat, and bounded paths. The same metadata views are also available through the structured `context` tool so shell-free remote modes can inspect map, changes, checks/tests, runs, and symbols without calling `bash`. This is intended to reduce early repository-discovery calls without treating metadata as file evidence.
+For model runs in context-intelligence modes, LAI injects a much smaller prompt map containing only aggregate directory/suffix groups, changed paths, and semantic subsystem ids, plus a compact Git changes summary containing only status counts, shortstat, and bounded paths. The same metadata views are also available through the structured `context` tool so shell-free remote modes can inspect map, changes, diff, checks/tests, runs, and symbols without calling `bash`. This is intended to reduce early repository-discovery calls without treating metadata as file evidence.
 
 ## Inventory bounds
 
@@ -90,7 +97,7 @@ Use it to choose the cheapest trustworthy feedback loop during active developmen
 
 ## Run/process state
 
-`lai context runs` summarizes recent run/process metadata and recovery-checkpoint state without printing stdout, stderr, task text, validation output, failure reasons, absolute state paths, or private runtime file paths. It is meant for orientation before inspecting a specific run through the existing explicit run-history commands.
+`lai context runs` summarizes recent run/process metadata and recovery-checkpoint state without printing stdout, stderr, task text, validation output, failure reasons, raw diffs, absolute state paths, or private runtime file paths. It is meant for orientation before inspecting a specific run through the existing explicit run-history commands.
 
 ## Prompt contract
 
