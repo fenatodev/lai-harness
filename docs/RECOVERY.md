@@ -36,6 +36,16 @@ The command does not contact the model. It reports one of:
 
 Compatibility compares the repository root, branch, Git status, and every recorded tracked-file hash. Any mismatch blocks resume.
 
+## Clearing stale checkpoints
+
+After confirming that an interrupted checkpoint is stale or intentionally abandoned, discard it explicitly:
+
+```bash
+lai recovery clear
+```
+
+This removes only the current workspace's recovery checkpoint outside the repository. It does not mutate repository files, run history, metrics, audit logs, or model state.
+
 ## Explicit resume
 
 When `lai recovery` reports a compatible interrupted run, resume with:

@@ -2454,6 +2454,25 @@ class LocalAgentTest(unittest.TestCase):
         agent.CONFIG["api_key_file"] = key_file
         self.assertEqual(agent.llama_api_key(), "synthetic-test-key")
 
+    def test_recovery_clear_removes_checkpoint_without_model(self):
+        checkpoint = agent.build_run_checkpoint("plan", "synthetic task", "started")
+        agent.save_run_checkpoint(checkpoint)
+        self.assertTrue(agent.run_checkpoint_path().is_file())
+        buffer = io.StringIO()
+        with mock.patch.object(agent, "CLI_ARGS", ["--recovery", "clear"]), \
+                mock.patch.object(agent, "api_call") as api_call, \
+                redirect_stdout(buffer):
+            agent.main()
+        self.assertIn("Recovery checkpoint cleared.", buffer.getvalue())
+        self.assertFalse(agent.run_checkpoint_path().exists())
+        api_call.assert_not_called()
+
+        buffer = io.StringIO()
+        with mock.patch.object(agent, "CLI_ARGS", ["--recovery", "--help"]), \
+                redirect_stdout(buffer):
+            agent.main()
+        self.assertIn("Usage: lai recovery [clear]", buffer.getvalue())
+
     def test_configuration_helpers_are_reexported_from_typed_module(self):
         import lai_config
 

@@ -874,6 +874,9 @@ WEB_USAGE = (
 )
 
 
+RECOVERY_USAGE = "Usage: lai recovery [clear]"
+
+
 MODE_USAGE = """Usage: lai <mode> <task>
 
 Modes:
@@ -10594,6 +10597,28 @@ def print_recovery_status():
         print("Blocked: " + str(reason))
 
 
+def clear_recovery_checkpoint():
+    path = run_checkpoint_path()
+    if path.is_file():
+        path.unlink()
+        return True
+    return False
+
+
+def handle_recovery(args):
+    if not args:
+        print_recovery_status()
+        return
+    if len(args) == 1 and args[0] in {"--help", "-h", "help"}:
+        print(RECOVERY_USAGE)
+        return
+    if len(args) == 1 and args[0] == "clear":
+        removed = clear_recovery_checkpoint()
+        print("Recovery checkpoint cleared." if removed else "No recovery checkpoint found.")
+        return
+    raise SystemExit(RECOVERY_USAGE)
+
+
 RUN_CHECKPOINT_CONTEXT = None
 
 
@@ -11993,7 +12018,7 @@ def main():
         return
 
     if args and args[0] == "--recovery":
-        print_recovery_status()
+        handle_recovery(args[1:])
         return
 
     if args and args[0] == "--doctor":
