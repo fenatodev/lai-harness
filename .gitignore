@@ -22,3 +22,9 @@ api-key*
 
 # Local development environment
 .venv/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.secrets/
+*.sqlite
+*.sqlite3

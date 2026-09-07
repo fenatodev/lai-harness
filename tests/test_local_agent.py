@@ -418,6 +418,44 @@ class LocalAgentTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             agent.render_policy_check(["--stdin", "--tool", "bash", "--json"], stdin_text="{}")
 
+    def test_mcp_help_is_successful_and_non_executing(self):
+        cases = [
+            (["--help"], "Usage: lai mcp [status|tools|policy-check]"),
+            (["help"], "Usage: lai mcp [status|tools|policy-check]"),
+            (["status", "--help"], "Usage: lai mcp status [--json]"),
+            (["tools", "--help"], "Usage: lai mcp tools [--json]"),
+            (["policy-check", "--help"], "Usage: lai mcp policy-check"),
+        ]
+        for args, expected in cases:
+            with self.subTest(args=args):
+                buffer = io.StringIO()
+                with redirect_stdout(buffer):
+                    agent.handle_mcp(args)
+                output = buffer.getvalue()
+                self.assertIn(expected, output)
+                self.assertNotIn("# lai mcp status", output)
+                self.assertNotIn("# lai mcp tools", output)
+
+    def test_mcp_status_and_tools_reject_unknown_flags(self):
+        with self.assertRaises(SystemExit):
+            agent.handle_mcp(["status", "--bogus"])
+        with self.assertRaises(SystemExit):
+            agent.handle_mcp(["tools", "--bogus"])
+        with self.assertRaises(SystemExit):
+            agent.handle_mcp(["status", "--help", "--bogus"])
+        with self.assertRaises(SystemExit):
+            agent.handle_mcp(["tools", "--help", "--bogus"])
+
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            agent.handle_mcp(["policy-check", "--help"])
+        policy_output = buffer.getvalue()
+        self.assertIn("Usage: lai mcp policy-check", policy_output)
+        self.assertNotIn("DENY", policy_output)
+
+        with self.assertRaises(SystemExit):
+            agent.handle_mcp(["policy-check"])
+
     def test_mcp_status_discovers_config_and_never_prints_secret_values(self):
         empty_payload = json.loads(agent.render_mcp_status(json_mode=True))
         self.assertEqual(empty_payload["overall"], "no_config")
@@ -706,6 +744,15 @@ class LocalAgentTest(unittest.TestCase):
             self.assertNotEqual(missing.returncode, 0)
             self.assertIn("Control session not found", missing.stderr)
 
+
+    def test_run_history_public_record_keeps_control_run_id_alias(self):
+        record = agent.run_history_public_record({
+            "run_id": "cr-1234567890abcdef",
+            "mode": "plan",
+            "status": "succeeded",
+        })
+        self.assertEqual(record["run_id"], "cr-1234567890abcdef")
+        self.assertEqual(record["control_run_id"], "cr-1234567890abcdef")
 
     def test_run_history_lists_shows_tails_and_exports_recorded_runs(self):
         data_dir = self.base / "data"

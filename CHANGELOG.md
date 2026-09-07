@@ -2,15 +2,20 @@
 
 ### Added
 - Added `lai mcp status`, `lai mcp tools`, and `lai mcp policy-check` as a non-executing governed MCP broker foundation.
+- Added successful `lai mcp --help`, `lai mcp help`, and subcommand help output so MCP help is explicit, non-executing, and not reported as an error.
 - Added authenticated `GET /v1/mcp/status`, `GET /v1/mcp/tools`, and `POST /v1/mcp/policy-check` control-plane routes.
+- Corrected `GET /v1/runs?limit=N` to list in-memory control-run records with `control_run_id` rather than internal historical agent run IDs, preserving `run_id` as a history alias for compatibility.
 - Added repository-local MCP config discovery for `.cursor/mcp.json`, `.mcp.json`, and `.agents/mcp_config.json`.
 
 ### Security
 - MCP tool execution remains disabled; `call-tool` policy checks are denied.
 - Credential-shaped MCP env values must use `${ENV_VAR}` interpolation and literal values are blocked without being printed.
+- Generalized publication and VSIX scans for private Linux home paths, WSL/Windows user-profile paths, and known local IPs, and hardened `.gitignore` for local private/runtime/build artifacts.
+- Expanded gateway-contract regression coverage so the Harness explicitly advertises the full run/session route set consumed by `lai-gateway`.
 
 ### Validation
-- MCP status, config discovery, secret redaction, and non-executing policy checks are covered by focused tests.
+- MCP status, config discovery, help output, unknown-flag rejection, secret redaction, and non-executing policy checks are covered by focused tests.
+- Official local `make milestone-gate` passed with Ruff, pytest, Harness Score L4, unittest, strict mypy, generalized publication scan, and VSIX inspection green.
 
 ## [0.4.4] - 2026-09-06
 

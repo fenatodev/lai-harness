@@ -61,7 +61,7 @@ Reuses the deterministic `lai readiness` collector. It may probe the configured 
 
 ### `GET /v1/runs?limit=N`
 
-Returns up to 50 sanitized historical run summaries from the existing observability store. This remains the historical list endpoint.
+Returns up to 50 sanitized in-memory control-run summaries for runs created through the control plane. Each listed item includes `control_run_id`, matching `GET /v1/runs/<control_run_id>`. The local `lai runs` command remains the historical observability view.
 
 ### Persistent sessions
 

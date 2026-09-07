@@ -8,7 +8,7 @@
 - Expand automated model-evaluation fixtures from observed dogfood failures and use repeated evidence before any default-model change.
 - Keep generic `bash` out of remote control profiles; evolve the structured `validate`/sandbox boundary from measured fixtures rather than exposing shell text.
 - Expand end-to-end fixtures for every mode and guard.
-- Dogfood repository-scoped persistent remote sessions with `lai-gateway`; add lifecycle/delete/compaction controls only from measured gateway needs, without expanding remote authority.
+- Dogfood repository-scoped persistent remote sessions with `lai-gateway`; current 0.4.5/0.1.31 dogfood covers installed Gateway CLI and private HTTP session create/list/get/delete against temporary `lai serve`, with lifecycle/delete controls kept inside the existing authenticated route set and no expanded remote authority.
 - Dogfood read-only public web search/fetch evidence with SSRF/redirect/content bounds; expand providers or extraction only from measured failures before any browser-action capability.
 - Dogfood the governed MCP broker foundation; only add allowlisted MCP execution after config validation, policy checks, and audit boundaries prove sufficient.
 

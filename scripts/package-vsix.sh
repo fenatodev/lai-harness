@@ -40,7 +40,7 @@ fi
 set +e
 scan_matches="$(
     grep -Ein \
-        '(business-automation|/home/fenato/|C:\\Users\\fenat|BEGIN .*PRIVATE KEY)' \
+        '(business-automation|/home/[[:alnum:]_.-]+/|/mnt/c/Users/[[:alnum:]_.-]+|C:\\Users\\[[:alnum:]_.-]+|172\.29\.[0-9]{1,3}\.[0-9]{1,3}|100\.107\.179\.6|192\.168\.15\.4|BEGIN .*PRIVATE KEY)' \
         "$scan_file"
 )"
 scan_rc=$?

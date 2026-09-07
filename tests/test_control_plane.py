@@ -206,13 +206,22 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertIn("plan", payload["run_modes"]["read_only"])
         self.assertIn("implement", payload["run_modes"]["work"])
         paths = {(route["method"], route["path"]) for route in payload["routes"]}
-        self.assertIn(("GET", "/v1/gateway-contract"), paths)
-        self.assertIn(("POST", "/v1/runs"), paths)
-        self.assertIn(("POST", "/v1/sessions"), paths)
-        self.assertIn(("DELETE", "/v1/sessions/{session_id}"), paths)
-        self.assertIn(("GET", "/v1/mcp/status"), paths)
-        self.assertIn(("GET", "/v1/mcp/tools"), paths)
-        self.assertIn(("POST", "/v1/mcp/policy-check"), paths)
+        for required in (
+            ("GET", "/v1/gateway-contract"),
+            ("GET", "/v1/status"),
+            ("GET", "/v1/readiness"),
+            ("GET", "/v1/runs?limit=N"),
+            ("POST", "/v1/runs"),
+            ("GET", "/v1/runs/{control_run_id}"),
+            ("GET", "/v1/sessions?limit=N"),
+            ("POST", "/v1/sessions"),
+            ("GET", "/v1/sessions/{session_id}"),
+            ("DELETE", "/v1/sessions/{session_id}"),
+            ("GET", "/v1/mcp/status"),
+            ("GET", "/v1/mcp/tools"),
+            ("POST", "/v1/mcp/policy-check"),
+        ):
+            self.assertIn(required, paths)
         shown = json.dumps(payload, sort_keys=True)
         self.assertNotIn("synthetic-control-token", shown)
         self.assertNotIn("llama-api-key", shown)
@@ -242,11 +251,30 @@ class ControlPlaneTest(unittest.TestCase):
             },
         }
         fake_readiness = {"overall": "ready", "checks": []}
-        fake_runs = [{"run_id": "run-1", "status": "completed"}]
+        control_run_id = "cr-1234567890abcdef"
+        with self.server.control_run_lock:
+            self.server.control_run_records[control_run_id] = {
+                "control_run_id": control_run_id,
+                "mode": "plan",
+                "status": "succeeded",
+                "task_chars": 12,
+                "created_at": "2026-09-07T00:00:00Z",
+                "started_at": "2026-09-07T00:00:00Z",
+                "finished_at": "2026-09-07T00:00:01Z",
+                "exit_code": 0,
+                "stdout": "bounded output",
+                "stderr": "",
+                "stdout_truncated": False,
+                "stderr_truncated": False,
+                "cancel_requested": False,
+                "tool_profile": agent.CONTROL_RUN_TOOL_PROFILE,
+                "session_id": None,
+                "session_context_chars": 0,
+                "session_turns_used": 0,
+                "session_persisted": None,
+            }
         with mock.patch.object(agent, "control_status_payload", return_value=fake_status), \
-                mock.patch.object(agent, "collect_readiness_status", return_value=fake_readiness), \
-                mock.patch.object(agent, "collect_run_history", return_value=fake_runs), \
-                mock.patch.object(agent, "run_history_public_record", side_effect=lambda run: run):
+                mock.patch.object(agent, "collect_readiness_status", return_value=fake_readiness):
             status_code, payload = self.request("/v1/status", token=self.token)
             self.assertEqual(status_code, 200)
             self.assertTrue(payload["capabilities"]["model_execution"])
@@ -262,7 +290,8 @@ class ControlPlaneTest(unittest.TestCase):
 
             status_code, payload = self.request("/v1/runs?limit=1", token=self.token)
             self.assertEqual(status_code, 200)
-            self.assertEqual(payload["runs"][0]["run_id"], "run-1")
+            self.assertEqual(payload["runs"][0]["control_run_id"], control_run_id)
+            self.assertEqual(payload["runs"][0]["status"], "succeeded")
 
     def test_persistent_session_endpoints_create_list_get_and_reopen(self):
         status, payload = self.request(

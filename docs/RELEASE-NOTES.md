@@ -5,10 +5,15 @@
 ### What changed
 
 - Added `lai mcp status`, `lai mcp tools`, and `lai mcp policy-check`.
+- Added `lai mcp --help`, `lai mcp help`, and subcommand help as successful non-executing help output.
 - Added authenticated `GET /v1/mcp/status`, `GET /v1/mcp/tools`, and `POST /v1/mcp/policy-check` control-plane routes.
+- `GET /v1/runs?limit=N` now lists control-plane run records with `control_run_id`, while local `lai runs` remains the historical observability view.
 - Added MCP config discovery for `.cursor/mcp.json`, `.mcp.json`, and `.agents/mcp_config.json` using `mcpServers` or `servers` maps.
 - Added credential-shaped env validation: values for keys such as `TOKEN`, `API_KEY`, `SECRET`, `PASSWORD`, and `AUTH` must use `${ENV_VAR}` interpolation.
 - Added secret-free output that lists env key names but never env values.
+- Added strict MCP subcommand argument handling so unknown `status`/`tools` flags fail instead of being silently ignored.
+- Generalized publication/VSIX scans and `.gitignore` coverage for private paths, known local IPs, and local runtime/build artifacts.
+- Gateway-contract regression coverage now asserts the full run/session route set consumed by `lai-gateway`, including list and read endpoints.
 - Added policy behavior that allows read-only non-executing status/list checks and denies `call-tool` execution in this foundation milestone.
 
 ### Safety boundary
@@ -17,6 +22,15 @@
 - No MCP tool is executed.
 - No environment variable value, credential file, control token, model key, shell authority, Git mutation, PR, tag, release, or remote resource mutation is exposed.
 - Literal credential-shaped MCP env values block the config and are redacted from output.
+- Publication and VSIX packaging gates reject private local paths and known local network IPs before release artifacts are accepted.
+
+### Validation gate
+
+```bash
+make milestone-gate
+```
+
+Local milestone evidence: Ruff passed; pytest passed with 287 tests and 109 subtests; Harness Score passed at L4 100/108; `validate.sh` passed with 287 unittest tests, strict mypy over seven source files, generalized publication scan, and VSIX inspection green.
 
 ### Release commands
 

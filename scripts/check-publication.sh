@@ -60,8 +60,12 @@ check_forbidden() {
 }
 
 check_forbidden "private project name" 'business-automation'
-check_forbidden "personal Linux path" '/home/fenato/'
-check_forbidden "personal Windows path" 'C:\\Users\\fenat'
+check_forbidden "personal Linux home path" '/home/[[:alnum:]_.-]+/'
+check_forbidden "personal WSL Windows-user path" '/mnt/c/Users/[[:alnum:]_.-]+'
+check_forbidden "personal Windows user path" 'C:\\Users\\[[:alnum:]_.-]+'
+check_forbidden "local WSL NAT IP" '172\.29\.[0-9]{1,3}\.[0-9]{1,3}'
+check_forbidden "known local tailnet IP" '100\.107\.179\.6'
+check_forbidden "known local LAN IP" '192\.168\.15\.4'
 check_forbidden "private-key material" 'BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY'
 check_forbidden "common committed secret assignment" '(api[_-]?key|password|token|secret)[[:space:]]*[:=][[:space:]]*[A-Za-z0-9+/=_-]{24,}'
 
@@ -75,4 +79,4 @@ if [[ "$failed" -ne 0 ]]; then
     exit 1
 fi
 
-echo "Publication scan passed: no forbidden private paths, project names, key material, or runtime artifacts found."
+echo "Publication scan passed: no forbidden private paths, known local IPs, project names, key material, or runtime artifacts found."

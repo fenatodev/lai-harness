@@ -840,10 +840,13 @@ def render_policy_result(policy):
 
 
 MCP_USAGE = "Usage: lai mcp [status|tools|policy-check] [--json]"
+MCP_STATUS_USAGE = "Usage: lai mcp status [--json]"
+MCP_TOOLS_USAGE = "Usage: lai mcp tools [--json]"
 MCP_POLICY_USAGE = (
     "Usage: lai mcp policy-check --operation status|list-tools|call-tool "
     "[--server NAME] [--tool NAME] [--json]"
 )
+MCP_HELP_ARGS = {"-h", "--help", "help"}
 
 
 def mcp_status_payload():
@@ -955,6 +958,10 @@ def parse_mcp_policy_args(args):
 
 
 def render_mcp_policy_check(args):
+    if args and args[0] in MCP_HELP_ARGS:
+        if len(args) == 1:
+            return MCP_POLICY_USAGE
+        raise SystemExit(MCP_POLICY_USAGE)
     options = parse_mcp_policy_args(args)
     payload = control_mcp_policy_payload(options)
     if options["json"]:
@@ -962,14 +969,40 @@ def render_mcp_policy_check(args):
     return f"{payload['decision']}: {payload['reason']}"
 
 
+def _parse_mcp_json_only_args(args, usage):
+    json_mode = False
+    for item in args:
+        if item == "--json":
+            json_mode = True
+            continue
+        raise SystemExit(usage)
+    return json_mode
+
+
 def handle_mcp(args):
     command = args[0] if args else "status"
     rest = args[1:] if args else []
+    if command in MCP_HELP_ARGS:
+        print(MCP_USAGE)
+        print(MCP_STATUS_USAGE)
+        print(MCP_TOOLS_USAGE)
+        print(MCP_POLICY_USAGE)
+        return
     if command == "status":
-        print(render_mcp_status(json_mode="--json" in rest))
+        if rest and rest[0] in MCP_HELP_ARGS:
+            if len(rest) == 1:
+                print(MCP_STATUS_USAGE)
+                return
+            raise SystemExit(MCP_STATUS_USAGE)
+        print(render_mcp_status(json_mode=_parse_mcp_json_only_args(rest, MCP_STATUS_USAGE)))
         return
     if command == "tools":
-        print(render_mcp_tools(json_mode="--json" in rest))
+        if rest and rest[0] in MCP_HELP_ARGS:
+            if len(rest) == 1:
+                print(MCP_TOOLS_USAGE)
+                return
+            raise SystemExit(MCP_TOOLS_USAGE)
+        print(render_mcp_tools(json_mode=_parse_mcp_json_only_args(rest, MCP_TOOLS_USAGE)))
         return
     if command == "policy-check":
         print(render_mcp_policy_check(rest))
@@ -4861,7 +4894,7 @@ def control_gateway_contract_payload():
         {"method": "GET", "path": "/v1/gateway-contract", "auth_required": True, "purpose": "discover this stable gateway contract"},
         {"method": "GET", "path": "/v1/status", "auth_required": True, "purpose": "read current product, repository, queue, and capability status"},
         {"method": "GET", "path": "/v1/readiness", "auth_required": True, "purpose": "read deterministic readiness checks"},
-        {"method": "GET", "path": "/v1/runs?limit=N", "auth_required": True, "purpose": "list bounded historical control-run summaries"},
+        {"method": "GET", "path": "/v1/runs?limit=N", "auth_required": True, "purpose": "list bounded in-memory control-run summaries"},
         {"method": "POST", "path": "/v1/runs", "auth_required": True, "purpose": "enqueue a bounded asynchronous control run"},
         {"method": "GET", "path": "/v1/runs/{control_run_id}", "auth_required": True, "purpose": "read one control-run result"},
         {"method": "DELETE", "path": "/v1/runs/{control_run_id}", "auth_required": True, "purpose": "request cancellation for a queued or active control run"},
@@ -5015,15 +5048,20 @@ def control_status_payload(server=None):
     }
 
 
-def control_runs_payload(limit=10):
+def control_runs_payload(server, limit=10):
     if not isinstance(limit, int) or not 1 <= limit <= 50:
         raise ValueError("limit must be between 1 and 50")
-    runs = collect_run_history()
+    if server is None or not hasattr(server, "control_run_lock"):
+        records = []
+    else:
+        with server.control_run_lock:
+            records = list(server.control_run_records.values())[-limit:]
+            records = [_control_run_public_record_locked(server, record) for record in records]
     return {
         "product": PRODUCT_NAME,
         "version": VERSION,
         "repository": str(ROOT),
-        "runs": [run_history_public_record(run) for run in runs[-limit:]],
+        "runs": records,
     }
 
 
@@ -6221,7 +6259,7 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
             query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
             try:
                 limit = int((query.get("limit") or ["10"])[0])
-                payload = control_runs_payload(limit=limit)
+                payload = control_runs_payload(self.server, limit=limit)
             except (TypeError, ValueError):
                 self._json(400, {"error": {"code": "invalid_limit", "message": "limit must be between 1 and 50"}})
                 return
@@ -7425,6 +7463,7 @@ def run_history_public_record(run):
     ]
     return {
         "run_id": run["run_id"],
+        "control_run_id": run["run_id"],
         "first_ts": run.get("first_ts"),
         "last_ts": run.get("last_ts"),
         "mode": run.get("mode"),

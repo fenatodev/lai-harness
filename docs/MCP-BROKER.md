@@ -4,6 +4,11 @@
 
 ```bash
 lai mcp status
+lai mcp --help
+lai mcp status --help
+lai mcp tools --help
+lai mcp policy-check --help
+lai mcp help
 lai mcp status --json
 lai mcp tools
 lai mcp tools --json
@@ -26,6 +31,7 @@ The supported server maps are `mcpServers` and `servers`.
 
 - MCP tool execution is disabled in this foundation milestone.
 - The commands are deterministic, local, model-free, and do not start MCP servers.
+- Unknown `status` and `tools` flags fail closed with usage output instead of being silently ignored.
 - Credential-shaped env keys such as `TOKEN`, `API_KEY`, `SECRET`, `PASSWORD`, and `AUTH` must use `${ENV_VAR}` interpolation in config files.
 - The status payload lists env key names, never env values.
 - Literal credential-shaped env values block the config and are not printed.
@@ -43,3 +49,7 @@ The same foundation is available through authenticated loopback control-plane ro
 - `POST /v1/mcp/policy-check`
 
 These routes preserve the same non-execution boundary as the CLI.
+
+## Validation
+
+The v0.4.5 local freeze gate is `make milestone-gate`. It covers Ruff, pytest, Harness Score L4, the publication/package gate, strict mypy, publication scanning, and VSIX inspection.
