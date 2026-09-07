@@ -11012,11 +11012,32 @@ def handle_rollback(args):
 
 
 def clear_recovery_checkpoint():
+    checkpoint = None
+    try:
+        checkpoint = load_run_checkpoint()
+    except Exception:
+        checkpoint = None
     path = run_checkpoint_path()
+    checkpoint_removed = False
     if path.is_file():
         path.unlink()
-        return True
-    return False
+        checkpoint_removed = True
+    snapshot_removed = False
+    run_id = (
+        str(checkpoint.get("run_id") or "")
+        if isinstance(checkpoint, dict)
+        else ""
+    )
+    if run_id:
+        snapshot_path = run_snapshot_path(run_id)
+        if snapshot_path.is_file():
+            snapshot_path.unlink()
+            snapshot_removed = True
+    return {
+        "checkpoint_removed": checkpoint_removed,
+        "snapshot_removed": snapshot_removed,
+        "run_id": run_id or None,
+    }
 
 
 def handle_recovery(args):
@@ -11027,8 +11048,13 @@ def handle_recovery(args):
         print(RECOVERY_USAGE)
         return
     if len(args) == 1 and args[0] == "clear":
-        removed = clear_recovery_checkpoint()
-        print("Recovery checkpoint cleared." if removed else "No recovery checkpoint found.")
+        cleared = clear_recovery_checkpoint()
+        if cleared["checkpoint_removed"]:
+            print("Recovery checkpoint cleared.")
+        else:
+            print("No recovery checkpoint found.")
+        if cleared["snapshot_removed"]:
+            print("Recovery snapshot cleared.")
         return
     raise SystemExit(RECOVERY_USAGE)
 

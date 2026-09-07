@@ -6,6 +6,7 @@
 - Add explicit hash-checked `lai rollback` with dry-run support for active recovery checkpoints.
 
 ### Changed
+- `lai recovery clear` now removes the associated pre-write snapshot so stale rollback content is not left behind after abandoning recovery state.
 - Reprioritize the roadmap around stable recovery, context quality, and incremental modularization before expanding MCP/browser authority.
 
 ### Validation

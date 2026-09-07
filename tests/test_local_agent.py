@@ -2507,17 +2507,24 @@ class LocalAgentTest(unittest.TestCase):
         agent.CONFIG["api_key_file"] = key_file
         self.assertEqual(agent.llama_api_key(), "synthetic-test-key")
 
-    def test_recovery_clear_removes_checkpoint_without_model(self):
-        checkpoint = agent.build_run_checkpoint("plan", "synthetic task", "started")
+    def test_recovery_clear_removes_checkpoint_snapshot_without_model(self):
+        sample = self.root / "sample.txt"
+        sample.write_text("private rollback content\n", encoding="utf-8")
+        checkpoint = agent.build_run_checkpoint("plan", "synthetic task", "started", tracked_paths=["sample.txt"])
         agent.save_run_checkpoint(checkpoint)
+        agent.capture_prewrite_snapshots(checkpoint["run_id"], ["sample.txt"])
         self.assertTrue(agent.run_checkpoint_path().is_file())
+        self.assertTrue(agent.run_snapshot_path(checkpoint["run_id"]).is_file())
         buffer = io.StringIO()
         with mock.patch.object(agent, "CLI_ARGS", ["--recovery", "clear"]), \
                 mock.patch.object(agent, "api_call") as api_call, \
                 redirect_stdout(buffer):
             agent.main()
         self.assertIn("Recovery checkpoint cleared.", buffer.getvalue())
+        self.assertIn("Recovery snapshot cleared.", buffer.getvalue())
+        self.assertNotIn("private rollback content", buffer.getvalue())
         self.assertFalse(agent.run_checkpoint_path().exists())
+        self.assertFalse(agent.run_snapshot_path(checkpoint["run_id"]).exists())
         api_call.assert_not_called()
 
         buffer = io.StringIO()

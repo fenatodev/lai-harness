@@ -70,7 +70,7 @@ After confirming that an interrupted checkpoint is stale or intentionally abando
 lai recovery clear
 ```
 
-This removes only the current workspace's recovery checkpoint outside the repository. It does not mutate repository files, run history, metrics, audit logs, or model state.
+This removes the current workspace's recovery checkpoint and the associated pre-write snapshot outside the repository. It does not mutate repository files, run history, metrics, audit logs, or model state.
 
 ## Explicit resume
 
