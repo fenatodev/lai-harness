@@ -873,6 +873,25 @@ WEB_USAGE = (
     "lai web fetch <https-url> [--max-chars 200..N] [--json]"
 )
 
+
+MODE_USAGE = """Usage: lai <mode> <task>
+
+Modes:
+  plan        Produce a bounded implementation or research plan.
+  debug       Reproduce and explain a failure before proposing a fix.
+  diagnose    Inspect project state and identify likely blockers.
+  review      Review current code or Git changes with evidence.
+  security    Trace risks and unsafe input/output paths.
+  release     Inspect deterministic release readiness evidence.
+  fix         Apply a small targeted fix with validation.
+  ci-fix      Repair CI/test failures with validation.
+  test        Add or repair tests without broad refactoring.
+  refactor    Improve structure without changing behavior.
+  implement   Implement scoped functionality with validation.
+
+Mode help is deterministic and never contacts the model endpoint.
+"""
+
 MCP_USAGE = "Usage: lai mcp [status|tools|policy-check] [--json]"
 MCP_STATUS_USAGE = "Usage: lai mcp status [--json]"
 MCP_TOOLS_USAGE = "Usage: lai mcp tools [--json]"
@@ -12189,6 +12208,9 @@ def main():
         if args and args[0] in supported_modes:
             mode = supported_modes[args[0]]
             args = args[1:]
+            if args and args[0] in {"--help", "-h", "help"}:
+                print(MODE_USAGE)
+                return
         task = " ".join(args).strip()
 
     selection_mode = mode == "selection"

@@ -1,6 +1,7 @@
 ## [0.4.5] - 2026-09-07
 
 ### Added
+- Added deterministic help output for mode commands such as `lai plan --help` and `lai implement --help` so mode help never falls through into model execution.
 - Added deterministic top-level `lai --help`, `lai -h`, and `lai help` output so help never falls through into model execution.
 - Added `lai web search` and `lai web fetch` as bounded read-only CLI dogfood surfaces for public web evidence without invoking the model.
 - Added `lai mcp status`, `lai mcp tools`, and `lai mcp policy-check` as a non-executing governed MCP broker foundation.

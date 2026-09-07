@@ -336,6 +336,32 @@ class LocalAgentTest(unittest.TestCase):
                 self.assertEqual(policy["decision"], expected)
 
 
+    def test_mode_help_is_successful_and_non_executing(self):
+        for command in [
+            "--plan",
+            "--debug",
+            "--diagnose",
+            "--review",
+            "--security",
+            "--release",
+            "--fix",
+            "--ci-fix",
+            "--test",
+            "--refactor",
+            "--implement",
+        ]:
+            with self.subTest(command=command):
+                buffer = io.StringIO()
+                with mock.patch.object(agent, "CLI_ARGS", [command, "--help"]), \
+                        mock.patch.object(agent, "api_call") as api_call, \
+                        mock.patch.object(agent, "record_metric_event") as metric, \
+                        redirect_stdout(buffer):
+                    agent.main()
+                self.assertIn("Usage: lai <mode> <task>", buffer.getvalue())
+                self.assertIn("Mode help is deterministic", buffer.getvalue())
+                api_call.assert_not_called()
+                metric.assert_not_called()
+
     def test_web_cli_search_fetch_help_and_errors_are_deterministic(self):
         search_payload = {
             "query": "safe harness",
