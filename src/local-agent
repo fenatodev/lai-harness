@@ -839,6 +839,33 @@ def render_policy_result(policy):
     return None
 
 
+
+LAI_USAGE = """Usage: lai <command> [options]
+
+Core commands:
+  doctor                 Check the configured local model endpoint.
+  config                 Show safe effective configuration.
+  readiness | ready      Run deterministic readiness checks.
+  serve                  Start the authenticated loopback control API.
+  control-token          Initialize or inspect the control API token.
+  gateway-contract       Print the Gateway compatibility contract.
+  sessions               List, show, or delete repository-scoped sessions.
+  runs | run             Inspect local run history.
+  mcp                    Inspect non-executing MCP broker status and policy.
+  model                  Run deterministic model-evaluation helpers.
+  update                 Run bounded update-intelligence checks.
+  release-check          Run deterministic release readiness checks.
+  release-pack           Generate local release artifacts.
+  project-handoff        Generate next-chat handoff context.
+  workspace              Manage safe local workspaces.
+
+Mode commands:
+  plan debug diagnose review security release
+  fix ci-fix test refactor implement
+
+Use `lai <command> --help` for command-specific usage where available.
+"""
+
 MCP_USAGE = "Usage: lai mcp [status|tools|policy-check] [--json]"
 MCP_STATUS_USAGE = "Usage: lai mcp status [--json]"
 MCP_TOOLS_USAGE = "Usage: lai mcp tools [--json]"
@@ -11769,6 +11796,10 @@ def render_project_handoff(args=None):
 
 def main():
     args = list(CLI_ARGS)
+
+    if args and args[0] in {"--help", "-h", "help"}:
+        print(LAI_USAGE)
+        return
 
     if args and args[0] in {"--version", "-V"}:
         print(f"{PRODUCT_NAME} {VERSION}")

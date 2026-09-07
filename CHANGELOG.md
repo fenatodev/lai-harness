@@ -1,6 +1,7 @@
 ## [0.4.5] - 2026-09-07
 
 ### Added
+- Added deterministic top-level `lai --help`, `lai -h`, and `lai help` output so help never falls through into model execution.
 - Added `lai mcp status`, `lai mcp tools`, and `lai mcp policy-check` as a non-executing governed MCP broker foundation.
 - Added successful `lai mcp --help`, `lai mcp help`, and subcommand help output so MCP help is explicit, non-executing, and not reported as an error.
 - Added authenticated `GET /v1/mcp/status`, `GET /v1/mcp/tools`, and `POST /v1/mcp/policy-check` control-plane routes.

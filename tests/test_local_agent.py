@@ -418,6 +418,21 @@ class LocalAgentTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             agent.render_policy_check(["--stdin", "--tool", "bash", "--json"], stdin_text="{}")
 
+
+    def test_top_level_help_is_successful_and_non_executing(self):
+        for args in (["--help"], ["-h"], ["help"]):
+            proc = subprocess.run(
+                [str(SOURCE), *args],
+                cwd=self.root,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("Usage: lai <command> [options]", proc.stdout)
+            self.assertIn("release-check", proc.stdout)
+            self.assertIn("mcp", proc.stdout)
+            self.assertEqual(proc.stderr, "")
+
     def test_mcp_help_is_successful_and_non_executing(self):
         cases = [
             (["--help"], "Usage: lai mcp [status|tools|policy-check]"),
