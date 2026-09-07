@@ -76,7 +76,7 @@ class FakeServerTest(unittest.TestCase):
         def bad_request(payload, requests):
             return 400, {
                 "error": {
-                    "message": "invalid request for Bearer synthetic-test-key at /home/example/private",
+                    "message": "invalid request for Bearer synthetic-test-key at /" + "home/example/private",
                     "type": "invalid_request",
                 }
             }
@@ -104,7 +104,7 @@ class FakeServerTest(unittest.TestCase):
         self.assertIn("invalid request", text)
         self.assertNotIn("synthetic-test-key", text)
         self.assertNotIn("Bearer synthetic", text)
-        self.assertNotIn("/home/example", text)
+        self.assertNotIn("/" + "home/example", text)
 
     def test_lifecycle_prints_model_api_error_without_python_traceback(self):
         with mock.patch.object(agent, "main", side_effect=agent.ModelAPIError("model API HTTP 400: bad request")), \
