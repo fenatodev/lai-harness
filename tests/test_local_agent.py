@@ -3638,6 +3638,49 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("git_changed", shown)
         self.assertNotIn("timeout = 30", shown)
         self.assertLessEqual(len(shown), 180)
+    def test_context_changes_are_metadata_only_bounded_and_secret_free(self):
+        (self.root / "tracked.py").write_text("old value\n")
+        subprocess.run(["git", "add", "tracked.py"], cwd=self.root, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=self.root, check=True)
+        (self.root / "tracked.py").write_text("new secret value\n")
+        (self.root / "new.py").write_text("untracked secret value\n")
+        payload = agent.context_git_changes_payload(limit=1)
+        full_payload = agent.context_git_changes_payload(limit=10)
+        self.assertEqual(payload["overall"], "dirty")
+        self.assertTrue(payload["metadata_only"])
+        self.assertEqual(payload["repository"], ".")
+        self.assertEqual(payload["entry_limit"], 1)
+        self.assertEqual(payload["entry_count"], 2)
+        self.assertTrue(payload["entry_list_truncated"])
+        self.assertEqual(payload["counts"]["unstaged"], 1)
+        self.assertEqual(payload["counts"]["untracked"], 1)
+        full_dumped = json.dumps(full_payload)
+        self.assertIn("tracked.py", full_dumped)
+        self.assertIn("new.py", full_dumped)
+        dumped = json.dumps(payload) + full_dumped
+        self.assertNotIn("new secret value", dumped)
+        self.assertNotIn("untracked secret value", dumped)
+        rendered = agent.render_context_changes(payload)
+        self.assertIn("# lai context changes", rendered)
+        self.assertIn("Metadata-only: true", rendered)
+        self.assertNotIn("secret value", rendered)
+
+    def test_deterministic_context_changes_cli_needs_no_server(self):
+        (self.root / "worker.py").write_text("timeout = 30\n")
+        env = {**__import__("os").environ, "LAI_DATA_DIR": str(self.base / "data")}
+        result = subprocess.run(
+            [str(SOURCE.parent / "lai"), "context", "changes", "--json", "--limit", "5"],
+            cwd=self.root, env=env, text=True, capture_output=True,
+            timeout=5, check=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["changes_version"], 1)
+        self.assertEqual(payload["overall"], "dirty")
+        self.assertTrue(payload["metadata_only"])
+        self.assertIn("worker.py", result.stdout)
+        self.assertNotIn("timeout = 30", result.stdout)
+        self.assertEqual(result.stderr, "")
+
     def test_context_map_is_metadata_only_bounded_and_semantic(self):
         (self.root / "src").mkdir()
         (self.root / "docs").mkdir()

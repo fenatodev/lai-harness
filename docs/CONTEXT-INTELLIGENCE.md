@@ -29,7 +29,14 @@ lai context map
 lai context map --json --max-files 400 --max-paths 80
 ```
 
-The map reports repository-relative files, directory/suffix groups, manifests, changed paths, and semantic subsystem path matches. It is metadata-only and never includes file contents, stdout, stderr, transcripts, tokens, or raw diffs.
+Use the compact Git change view when the next step needs current worktree shape without reading raw diffs:
+
+```bash
+lai context changes
+lai context changes --json --limit 60
+```
+
+The map reports repository-relative files, directory/suffix groups, manifests, changed paths, and semantic subsystem path matches. The changes view reports staged/unstaged/untracked counts, bounded repository-relative paths, and shortstat only. Both are metadata-only and never include file contents, stdout, stderr, transcripts, tokens, or raw diffs.
 
 For model runs in context-intelligence modes, LAI injects a much smaller prompt map containing only aggregate directory/suffix groups, changed paths, and semantic subsystem ids. This is intended to reduce early repository-discovery calls without treating metadata as file evidence.
 
