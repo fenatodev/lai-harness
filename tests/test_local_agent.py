@@ -336,6 +336,41 @@ class LocalAgentTest(unittest.TestCase):
                 self.assertEqual(policy["decision"], expected)
 
 
+    def test_command_help_is_successful_and_non_executing(self):
+        cases = {
+            "--control-token": "Usage: lai control-token",
+            "--control-serve": "Usage: lai serve",
+            "--sessions": "Usage: lai sessions",
+            "--run": "Usage: lai runs",
+            "--runs": "Usage: lai runs",
+            "--model-eval": "Usage: lai model",
+            "--update-intelligence": "Usage: lai update",
+            "--release-check": "Usage: lai release-check",
+            "--release-pack": "Usage: lai release-pack",
+            "--release-governance": "Usage: lai release-governance",
+            "--project-handoff": "Usage: lai project-handoff",
+            "--workspace": "Usage: lai workspace",
+            "--readiness": "Usage: lai readiness",
+            "--gateway-contract": "Usage: lai gateway-contract",
+            "--policy-check": "Usage: lai policy-check",
+            "--recovery": "Usage: lai recovery",
+            "--semantics": "Usage: lai semantics",
+            "--status": "Usage: lai status",
+            "--metrics": "Usage: lai metrics",
+            "--audit": "Usage: lai audit",
+        }
+        for command, expected in cases.items():
+            with self.subTest(command=command):
+                buffer = io.StringIO()
+                with mock.patch.object(agent, "CLI_ARGS", [command, "--help"]), \
+                        mock.patch.object(agent, "api_call") as api_call, \
+                        mock.patch.object(agent, "record_metric_event") as metric, \
+                        redirect_stdout(buffer):
+                    agent.main()
+                self.assertIn(expected, buffer.getvalue())
+                api_call.assert_not_called()
+                metric.assert_not_called()
+
     def test_mode_help_is_successful_and_non_executing(self):
         for command in [
             "--plan",

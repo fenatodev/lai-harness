@@ -1,6 +1,7 @@
 ## [0.4.5] - 2026-09-07
 
 ### Added
+- Added successful deterministic help for core CLI subcommands that previously treated `--help` as an error or executed a status command.
 - Added explicit `lai recovery clear` for discarding stale interrupted checkpoints without touching repository files or invoking the model.
 - Added deterministic help output for mode commands such as `lai plan --help` and `lai implement --help` so mode help never falls through into model execution.
 - Added deterministic top-level `lai --help`, `lai -h`, and `lai help` output so help never falls through into model execution.

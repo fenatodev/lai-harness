@@ -71,6 +71,23 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertIn("lai-server-stop", restart_source)
             self.assertIn("lai-server-start", restart_source)
 
+            for command, expected in {
+                "doctor": "Usage: lai doctor",
+                "config": "Usage: lai config",
+                "status": "Usage: lai status",
+            }.items():
+                with self.subTest(command=command):
+                    help_result = subprocess.run(
+                        [str(bin_dir / "lai"), command, "--help"],
+                        cwd=sample_repo,
+                        env=install_env,
+                        text=True,
+                        capture_output=True,
+                        check=True,
+                    )
+                    self.assertIn(expected, help_result.stdout)
+                    self.assertEqual(help_result.stderr, "")
+
             version = subprocess.run(
                 [str(bin_dir / "lai"), "version"],
                 cwd=sample_repo,

@@ -11930,12 +11930,53 @@ def render_project_handoff(args=None):
 
 
 
+
+def deterministic_command_help(command):
+    usage = {
+        "--show-config": "Usage: lai --show-config",
+        "--config-status": "Usage: lai config",
+        "--control-token": CONTROL_TOKEN_USAGE,
+        "--control-serve": CONTROL_SERVE_USAGE,
+        "--gateway-contract": "Usage: lai gateway-contract [--json]",
+        "--policy-check": POLICY_CHECK_USAGE,
+        "--mcp": MCP_USAGE,
+        "--web": WEB_USAGE,
+        "--readiness": "Usage: lai readiness [--json]",
+        "--release-check": "Usage: lai release-check [--target VERSION] [--json]",
+        "--release-pack": "Usage: lai release-pack [--target VERSION] [--out DIR] [--with-vsix] [--force] [--json]",
+        "--release-governance": RELEASE_GOVERNANCE_USAGE,
+        "--project-handoff": PROJECT_HANDOFF_USAGE,
+        "--workspace": "Usage: lai workspace status|create|clone-smoke|clean [options]",
+        "--context": "Usage: lai context <query>",
+        "--update-intelligence": "Usage: lai update [plan [--json]|check --remote [--json]|latest [--json]|triage [--json]]",
+        "--model-eval": "Usage: lai model [plan [--json]|sample|run [--scenario ID] [--repeat 1..5] [--json]|score <results.jsonl|latest> [...]]",
+        "--semantics": "Usage: lai semantics [--json]",
+        "--recovery": RECOVERY_USAGE,
+        "--doctor": "Usage: lai doctor",
+        "--status": "Usage: lai status",
+        "--metrics": "Usage: lai metrics",
+        "--audit": "Usage: lai audit",
+        "--sessions": CONTROL_SESSIONS_USAGE,
+        "--runs": "Usage: lai runs [--limit N] | lai run last | lai run show <run-id|--last> | lai run tail <run-id|--last> [--limit N] | lai run export <run-id|--last> [--out DIR]",
+        "--run": "Usage: lai runs [--limit N] | lai run last | lai run show <run-id|--last> | lai run tail <run-id|--last> [--limit N] | lai run export <run-id|--last> [--out DIR]",
+        "--spec-status": "Usage: lai spec",
+        "--handoff": "Usage: lai handoff [note]",
+    }
+    return usage.get(command)
+
+
 def main():
     args = list(CLI_ARGS)
 
     if args and args[0] in {"--help", "-h", "help"}:
         print(LAI_USAGE)
         return
+
+    if len(args) >= 2 and args[1] in {"--help", "-h", "help"}:
+        usage = deterministic_command_help(args[0])
+        if usage:
+            print(usage)
+            return
 
     if args and args[0] in {"--version", "-V"}:
         print(f"{PRODUCT_NAME} {VERSION}")

@@ -4,6 +4,7 @@
 
 ### What changed
 
+- Core CLI subcommands now use deterministic successful help output instead of treating `--help` as an error or running status commands.
 - `lai recovery clear` now discards stale interrupted checkpoints explicitly, without repository mutation or model access.
 - Mode commands such as `lai plan --help`, `lai review --help`, and `lai implement --help` now print deterministic usage without invoking the model.
 - Top-level `lai --help`, `lai -h`, and `lai help` now print deterministic command usage without invoking the model.
@@ -34,7 +35,7 @@
 make milestone-gate
 ```
 
-Local milestone evidence: Ruff passed; pytest passed with 291 tests and 120 subtests; Harness Score passed at L4 100/108; `validate.sh` passed with 291 unittest tests, strict mypy over seven source files, generalized publication scan, and VSIX inspection green.
+Local milestone evidence: Ruff passed; pytest passed with 292 tests and 143 subtests; Harness Score passed at L4 100/108; `validate.sh` passed with 292 unittest tests, strict mypy over seven source files, generalized publication scan, and VSIX inspection green.
 
 ### Release commands
 
