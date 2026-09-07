@@ -5047,6 +5047,7 @@ def control_gateway_contract_payload():
         {"method": "GET", "path": "/v1/runs?limit=N", "auth_required": True, "purpose": "list bounded in-memory control-run summaries"},
         {"method": "POST", "path": "/v1/runs", "auth_required": True, "purpose": "enqueue a bounded asynchronous control run"},
         {"method": "GET", "path": "/v1/runs/{control_run_id}", "auth_required": True, "purpose": "read one control-run result"},
+        {"method": "GET", "path": "/v1/runs/{control_run_id}/events", "auth_required": True, "purpose": "read bounded status timeline for one control run without stdout or stderr"},
         {"method": "DELETE", "path": "/v1/runs/{control_run_id}", "auth_required": True, "purpose": "request cancellation for a queued or active control run"},
         {"method": "GET", "path": "/v1/runs/{control_run_id}/promotion", "auth_required": True, "purpose": "inspect a hash-bound safe-workspace promotion proposal"},
         {"method": "POST", "path": "/v1/runs/{control_run_id}/promotion", "auth_required": True, "purpose": "promote an approved exact patch hash into a dedicated feature worktree"},
@@ -5334,6 +5335,80 @@ def control_run_public_record(server, control_run_id):
         if record is None:
             return None
         return _control_run_public_record_locked(server, record)
+
+
+def _control_run_event(name, timestamp, status, **details):
+    event = {
+        "event": name,
+        "status": status,
+        "at": timestamp,
+    }
+    clean_details = {
+        key: value
+        for key, value in details.items()
+        if value is not None and value != ""
+    }
+    if clean_details:
+        event["details"] = clean_details
+    return event
+
+
+def _control_run_events_locked(record):
+    events = []
+    created_at = record.get("created_at")
+    if created_at:
+        events.append(_control_run_event("queued", created_at, "queued"))
+    started_at = record.get("started_at")
+    if started_at:
+        events.append(_control_run_event(
+            "started", started_at, "running",
+            mode=record.get("mode"),
+            tool_profile=record.get("tool_profile"),
+        ))
+    if record.get("workspace_path") and started_at:
+        events.append(_control_run_event(
+            "workspace_prepared", started_at, "running",
+            isolated=True,
+            source_branch=record.get("workspace_source_branch"),
+            source_clean=record.get("workspace_source_clean"),
+        ))
+    if record.get("cancel_requested"):
+        events.append(_control_run_event(
+            "cancel_requested",
+            record.get("finished_at") or control_run_now(),
+            record.get("status") or "running",
+        ))
+    finished_at = record.get("finished_at")
+    if finished_at:
+        events.append(_control_run_event(
+            "finished", finished_at, record.get("status") or "unknown",
+            exit_code=record.get("exit_code"),
+            output_truncated=(
+                bool(record.get("stdout_truncated"))
+                or bool(record.get("stderr_truncated"))
+            ),
+            session_persisted=record.get("session_persisted"),
+        ))
+    return events[:16]
+
+
+def control_run_events_payload(server, control_run_id):
+    with server.control_run_lock:
+        record = server.control_run_records.get(str(control_run_id))
+        if record is None:
+            return None
+        events = _control_run_events_locked(record)
+        return {
+            "product": PRODUCT_NAME,
+            "version": VERSION,
+            "repository": str(ROOT),
+            "control_run_id": record["control_run_id"],
+            "mode": record["mode"],
+            "status": record["status"],
+            "terminal": record.get("status") in CONTROL_RUN_TERMINAL_STATES,
+            "event_count": len(events),
+            "events": events,
+        }
 
 
 def control_run_queue_summary(server):
@@ -6412,6 +6487,14 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
                 payload = control_runs_payload(self.server, limit=limit)
             except (TypeError, ValueError):
                 self._json(400, {"error": {"code": "invalid_limit", "message": "limit must be between 1 and 50"}})
+                return
+            self._json(200, payload)
+            return
+        events_match = re.fullmatch(r"/v1/runs/(cr-[0-9a-f]{16})/events", parsed.path)
+        if events_match and not parsed.query:
+            payload = control_run_events_payload(self.server, events_match.group(1))
+            if payload is None:
+                self._json(404, {"error": {"code": "run_not_found", "message": "control run not found"}})
                 return
             self._json(200, payload)
             return

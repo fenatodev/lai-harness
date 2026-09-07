@@ -177,6 +177,12 @@ Returns `queued`, `running`, `succeeded`, `failed`, or `cancelled` plus timestam
 
 For work runs it additionally returns the isolated workspace path, bounded Git status, changed paths, bounded diff, and a diff-truncation flag. Session-bound runs also return `session_id`, the number of prior turns used, historical-context character count, and whether the terminal turn was persisted. One-shot runs still do not create a control-plane transcript; session-bound runs persist only the bounded compact turn described above.
 
+### `GET /v1/runs/<control_run_id>/events`
+
+Returns a bounded metadata-only timeline derived from the control-run record: `queued`, `started`, optional `workspace_prepared`, optional `cancel_requested`, and terminal `finished` events. It is intended for polling clients that need progress without reading run output. The response does not include task text, stdout, stderr, transcripts, control tokens, model keys, or file contents.
+
+This route is read-only and authenticated like other run endpoints. It is not a streaming API; clients should poll it until `terminal` is true.
+
 ### `DELETE /v1/runs/<control_run_id>`
 
 Cancels only that queued/running control run. A queued run is cancelled before spawn; a running child is terminated and escalated to kill after a short grace period if needed. The route does not delete Git refs, source files, historical run records, metrics, or audit evidence.

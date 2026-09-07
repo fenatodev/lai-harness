@@ -436,6 +436,25 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                     self.assertIsNotNone(terminal)
                     self.assertEqual(terminal["status"], "succeeded", terminal.get("stderr"))
                     self.assertIn("fake response", terminal["stdout"])
+
+                    events_request = urllib.request.Request(
+                        f"http://127.0.0.1:{control_port}/v1/runs/{control_run_id}/events",
+                        headers={"Authorization": f"Bearer {control_secret}"},
+                    )
+                    with urllib.request.urlopen(events_request, timeout=2) as response:
+                        self.assertEqual(response.status, 200)
+                        events_payload = json.loads(response.read().decode("utf-8"))
+                    self.assertEqual(events_payload["control_run_id"], control_run_id)
+                    self.assertTrue(events_payload["terminal"])
+                    self.assertEqual(events_payload["status"], "succeeded")
+                    self.assertIn(
+                        "finished",
+                        [event["event"] for event in events_payload["events"]],
+                    )
+                    events_text = json.dumps(events_payload, sort_keys=True)
+                    self.assertNotIn("fake response", events_text)
+                    self.assertNotIn("stdout", events_text)
+                    self.assertNotIn("stderr", events_text)
                 finally:
                     control_server.terminate()
                     try:

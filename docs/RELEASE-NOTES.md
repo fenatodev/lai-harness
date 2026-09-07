@@ -11,6 +11,7 @@
 - Rollback restores captured UTF-8 file content atomically and deletes files that were created by the run when the pre-write snapshot proves they did not exist.
 - `lai recovery clear` now removes the associated pre-write snapshot as well as the recovery checkpoint, so stale rollback content is not left behind after abandoned recovery state.
 - Added `schemas/runtime/snapshot.schema.json` and documented snapshot records as versioned runtime state.
+- Added authenticated `GET /v1/runs/{control_run_id}/events` for polling clients to display bounded metadata-only progress without reading stdout, stderr, task text, or transcripts.
 - Updated the roadmap to keep stability, rollback, trust, and context quality ahead of MCP/browser authority expansion.
 
 ### Safety boundary
