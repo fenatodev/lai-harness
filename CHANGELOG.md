@@ -8,6 +8,9 @@
 ### Changed
 - Reprioritize the roadmap around stable recovery, context quality, and incremental modularization before expanding MCP/browser authority.
 
+### Validation
+- Installed end-to-end rollback dogfood now covers agent-driven write, checkpoint discovery, private snapshot metadata, dry-run, restore, and drift blocking.
+
 ## [0.4.5] - 2026-09-07
 
 ### Added

@@ -3,7 +3,7 @@
 ## Near term
 
 - Treat `v0.4.5` plus `lai-gateway` `v0.1.31` as the current stable integration baseline. Do not expand remote authority until rollback, trust, and context quality improve.
-- `v0.4.6` stability focus: make recovery/checkpoint state inspectable and prepare hash-checked rollback foundations without using `git reset` or replaying tool calls.
+- `v0.4.6` stability focus: keep recovery/checkpoint state inspectable and harden hash-checked rollback with installed dogfood evidence, without using `git reset` or replaying tool calls.
 - Next after recovery: improve token-efficient context intelligence through structured repo maps, symbol summaries, and compact diff/test/process views.
 - Continue incremental subsystem extraction from `src/local-agent` only when a tested runtime slice is ready; no Big Bang modular rewrite.
 - Keep update-evidence convergence under dogfood across stable upgrades; add automation only when repeated evidence proves it saves more time than it costs.
