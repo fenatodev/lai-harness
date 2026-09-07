@@ -182,6 +182,26 @@ def create_control_session(
     return session
 
 
+def delete_control_session(base: str | Path, session_id: object, repository: object) -> dict[str, object]:
+    checked = validate_control_session_id(session_id)
+    root = _session_base(base)
+    path = root / f"{checked}.json"
+    if path.is_symlink():
+        raise ValueError("control session file must not be a symlink")
+    session = load_control_session(root, checked, repository)
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        raise FileNotFoundError(path) from None
+    return {
+        "schema_version": session["schema_version"],
+        "session_id": checked,
+        "repository": session["repository"],
+        "deleted": True,
+        "turn_count": len(session["turns"]),
+    }
+
+
 def list_control_sessions(
     base: str | Path, repository: object, limit: int = 20
 ) -> list[ControlSession]:

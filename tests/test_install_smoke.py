@@ -541,6 +541,22 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
         self.assertIn('python3 - "$host" "$port" "$key_file"', start_source)
         self.assertIn('python3 - "$host" "$port" "$key_file"', doctor_source)
 
+    def test_model_server_start_auto_discovers_windows_launcher_without_secret_values(self):
+        source = (REPO / "scripts" / "ministral-start").read_text(encoding="utf-8")
+
+        self.assertIn('script_dir="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"', source)
+        self.assertIn('candidate="$script_dir/start-secure.ps1"', source)
+        self.assertIn('key_file_windows=$(wsl_to_windows_path "$key_file")', source)
+        self.assertIn('detect_llama_server()', source)
+        self.assertIn('Get-Command llama-server.exe', source)
+        self.assertIn('LAI_BOOTSTRAP_LLAMA_SERVER="$llama_server"', source)
+        self.assertIn('LAI_BOOTSTRAP_KEY_FILE_WINDOWS="$key_file_windows"', source)
+        self.assertIn('PS_BOOTSTRAP_PATH="$ps_bootstrap"', source)
+        self.assertIn('trap cleanup_ps_bootstrap EXIT', source)
+        self.assertIn('powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$ps_bootstrap_windows"', source)
+        self.assertNotIn('-File "$windows_launcher"', source)
+        self.assertNotIn('synthetic-test-key', source)
+
     def test_windows_secure_launcher_accepts_local_model_files_without_key_argument_fallback(self):
         source = (REPO / "scripts" / "start-secure.ps1").read_text(encoding="utf-8")
 

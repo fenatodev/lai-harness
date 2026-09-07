@@ -1,14 +1,70 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 key_file="${LAI_API_KEY_FILE:-$HOME/.config/lai/llama-api-key}"
 host="${LAI_HOST:-$(ip route | awk '/default/ {print $3; exit}')}"
 port="${LAI_PORT:-8080}"
 windows_launcher="${LAI_WINDOWS_LAUNCHER:-}"
+llama_server="${LAI_LLAMA_SERVER:-}"
+key_file_windows="${LAI_API_KEY_FILE_WINDOWS:-}"
 
 if [[ ! -s "$key_file" ]]; then
     echo "LAI API key is missing: $key_file" >&2
     exit 1
+fi
+
+wsl_to_windows_path() {
+    local input=$1
+    if command -v wslpath >/dev/null 2>&1; then
+        wslpath -w "$input" 2>/dev/null || true
+    fi
+}
+
+detect_windows_launcher() {
+    if [[ -n "$windows_launcher" ]]; then
+        printf '%s\n' "$windows_launcher"
+        return 0
+    fi
+    local candidate="$script_dir/start-secure.ps1"
+    if [[ -f "$candidate" ]]; then
+        local converted
+        converted=$(wsl_to_windows_path "$candidate")
+        if [[ -n "$converted" ]]; then
+            printf '%s\n' "$converted"
+            return 0
+        fi
+        printf '%s\n' "$candidate"
+        return 0
+    fi
+    return 1
+}
+
+detect_llama_server() {
+    if [[ -n "$llama_server" ]]; then
+        printf '%s\n' "$llama_server"
+        return 0
+    fi
+    if command -v llama-server.exe >/dev/null 2>&1; then
+        local exe_path converted
+        exe_path=$(command -v llama-server.exe)
+        converted=$(wsl_to_windows_path "$exe_path")
+        if [[ -n "$converted" ]]; then
+            printf '%s\n' "$converted"
+            return 0
+        fi
+        printf '%s\n' "$exe_path"
+        return 0
+    fi
+    if command -v powershell.exe >/dev/null 2>&1; then
+        powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command '& { $cmd = Get-Command llama-server.exe -ErrorAction SilentlyContinue; if ($cmd) { [Console]::Out.Write($cmd.Source) } }' 2>/dev/null | tr -d '\r'
+        return 0
+    fi
+    return 1
+}
+
+if [[ -z "$key_file_windows" ]]; then
+    key_file_windows=$(wsl_to_windows_path "$key_file")
 fi
 probe_auth() {
     python3 - "$host" "$port" "$key_file" <<'PYCODE'
@@ -59,27 +115,120 @@ if [[ "$(probe_unauth 2>/dev/null || true)" == "200" ]]; then
     exit 1
 fi
 
+windows_launcher=$(detect_windows_launcher || true)
+llama_server=$(detect_llama_server || true)
+
 if [[ -z "$windows_launcher" ]]; then
-    echo "Set LAI_WINDOWS_LAUNCHER to the Windows path of start-secure.ps1." >&2
+    echo "Unable to locate start-secure.ps1; set LAI_WINDOWS_LAUNCHER." >&2
+    exit 1
+fi
+if [[ -z "$llama_server" ]]; then
+    echo "Unable to locate llama-server.exe; set LAI_LLAMA_SERVER." >&2
+    exit 1
+fi
+if [[ -z "$key_file_windows" ]]; then
+    echo "Unable to convert LAI_API_KEY_FILE for Windows; set LAI_API_KEY_FILE_WINDOWS." >&2
+    exit 1
+fi
+if ! command -v powershell.exe >/dev/null 2>&1; then
+    echo "powershell.exe is required to start the Windows llama.cpp server." >&2
     exit 1
 fi
 
-powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
-    -File "$windows_launcher" -HostIp "$host" -Port "$port"
+ps_bootstrap=$(mktemp --suffix=.ps1)
+ps_bootstrap_windows=$(wsl_to_windows_path "$ps_bootstrap")
+if [[ -z "$ps_bootstrap_windows" ]]; then
+    echo "Unable to convert temporary PowerShell bootstrap path." >&2
+    rm -f "$ps_bootstrap"
+    exit 1
+fi
+ps_stdout=$(mktemp)
+ps_stderr=$(mktemp)
+cleanup_ps_bootstrap() {
+    rm -f "$ps_bootstrap" "$ps_stdout" "$ps_stderr"
+}
+trap cleanup_ps_bootstrap EXIT
+PS_BOOTSTRAP_PATH="$ps_bootstrap" \
+LAI_BOOTSTRAP_LLAMA_SERVER="$llama_server" \
+LAI_BOOTSTRAP_KEY_FILE_WINDOWS="$key_file_windows" \
+LAI_BOOTSTRAP_WINDOWS_LAUNCHER="$windows_launcher" \
+LAI_BOOTSTRAP_HOST="$host" \
+LAI_BOOTSTRAP_PORT="$port" \
+LAI_BOOTSTRAP_MODEL="${LAI_MODEL:-}" \
+LAI_BOOTSTRAP_CHAT_TEMPLATE="${LAI_CHAT_TEMPLATE:-}" \
+LAI_BOOTSTRAP_LOG_DIR="${LAI_LOG_DIR:-}" \
+LAI_BOOTSTRAP_CTX_SIZE="${LAI_CTX_SIZE:-}" \
+LAI_BOOTSTRAP_GPU_LAYERS="${LAI_GPU_LAYERS:-}" \
+LAI_BOOTSTRAP_PARALLEL="${LAI_PARALLEL:-}" \
+python3 <<'PYCODE'
+from pathlib import Path
+import os
+
+def ps_sq(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+path = Path(os.environ["PS_BOOTSTRAP_PATH"])
+assignments = {
+    "LAI_LLAMA_SERVER": os.environ["LAI_BOOTSTRAP_LLAMA_SERVER"],
+    "LAI_API_KEY_FILE_WINDOWS": os.environ["LAI_BOOTSTRAP_KEY_FILE_WINDOWS"],
+}
+optional = {
+    "LAI_MODEL": os.environ.get("LAI_BOOTSTRAP_MODEL", ""),
+    "LAI_CHAT_TEMPLATE": os.environ.get("LAI_BOOTSTRAP_CHAT_TEMPLATE", ""),
+    "LAI_LOG_DIR": os.environ.get("LAI_BOOTSTRAP_LOG_DIR", ""),
+    "LAI_CTX_SIZE": os.environ.get("LAI_BOOTSTRAP_CTX_SIZE", ""),
+    "LAI_GPU_LAYERS": os.environ.get("LAI_BOOTSTRAP_GPU_LAYERS", ""),
+    "LAI_PARALLEL": os.environ.get("LAI_BOOTSTRAP_PARALLEL", ""),
+}
+lines = ['$ErrorActionPreference = "Stop"']
+for key, value in assignments.items():
+    lines.append(f"$env:{key} = {ps_sq(value)}")
+for key, value in optional.items():
+    if value:
+        lines.append(f"$env:{key} = {ps_sq(value)}")
+launcher = ps_sq(os.environ["LAI_BOOTSTRAP_WINDOWS_LAUNCHER"])
+host = ps_sq(os.environ["LAI_BOOTSTRAP_HOST"])
+port = int(os.environ["LAI_BOOTSTRAP_PORT"])
+lines.append(f"& {launcher} -HostIp {host} -Port {port}")
+path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PYCODE
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$ps_bootstrap_windows" >"$ps_stdout" 2>"$ps_stderr" &
+ps_pid=$!
+ps_status=""
+ps_finished=0
 
 for _ in $(seq 1 60); do
     if server_is_secure; then
+        if kill -0 "$ps_pid" 2>/dev/null; then
+            kill "$ps_pid" 2>/dev/null || true
+        fi
         echo "LAI model server is ready and authentication is enforced."
         exit 0
     fi
 
     if [[ "$(probe_unauth 2>/dev/null || true)" == "200" ]]; then
+        if kill -0 "$ps_pid" 2>/dev/null; then
+            kill "$ps_pid" 2>/dev/null || true
+        fi
         echo "Refusing insecure LAI model server: /props accepts unauthenticated requests." >&2
         exit 1
+    fi
+
+    if [[ "$ps_finished" = "0" ]] && ! kill -0 "$ps_pid" 2>/dev/null; then
+        if wait "$ps_pid"; then
+            ps_finished=1
+        else
+            ps_status=$?
+            echo "Windows launcher failed before the model server became ready." >&2
+            exit 1
+        fi
     fi
 
     sleep 1
 done
 
+if kill -0 "$ps_pid" 2>/dev/null; then
+    kill "$ps_pid" 2>/dev/null || true
+fi
 echo "LAI model server did not become ready within 60 seconds." >&2
 exit 1

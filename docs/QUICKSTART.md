@@ -1,7 +1,7 @@
 # Quick start
 
 1. Install and configure LAI using [Installation](INSTALLATION.md).
-2. Start your authenticated `llama.cpp` endpoint directly or run `scripts/ministral-start` after configuring its Windows launcher.
+2. Start your authenticated `llama.cpp` endpoint directly or run `scripts/ministral-start`; on WSL it auto-discovers the checkout-local Windows launcher and key path when possible.
 3. Run `lai doctor`.
 4. Open a trusted Git repository in VS Code and reload the extension host.
 5. Address the participant as `@lai`.

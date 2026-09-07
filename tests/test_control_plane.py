@@ -207,6 +207,7 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertIn(("GET", "/v1/gateway-contract"), paths)
         self.assertIn(("POST", "/v1/runs"), paths)
         self.assertIn(("POST", "/v1/sessions"), paths)
+        self.assertIn(("DELETE", "/v1/sessions/{session_id}"), paths)
         shown = json.dumps(payload, sort_keys=True)
         self.assertNotIn("synthetic-control-token", shown)
         self.assertNotIn("llama-api-key", shown)
@@ -291,6 +292,36 @@ class ControlPlaneTest(unittest.TestCase):
             self.assertEqual(reopened["session"]["session_id"], session_id)
         finally:
             extra.server_close()
+
+    def test_persistent_session_delete_requires_auth_and_removes_only_session(self):
+        status, created = self.request(
+            "/v1/sessions", method="POST", token=self.token, body={}
+        )
+        self.assertEqual(status, 201)
+        session_id = created["session"]["session_id"]
+
+        status, missing_auth = self.request(f"/v1/sessions/{session_id}", method="DELETE")
+        self.assertEqual(status, 401)
+        self.assertEqual(missing_auth["error"]["code"], "unauthorized")
+
+        status, deleted = self.request(f"/v1/sessions/{session_id}", method="DELETE", token=self.token)
+        self.assertEqual(status, 200)
+        self.assertEqual(deleted["session"]["session_id"], session_id)
+        self.assertTrue(deleted["session"]["deleted"])
+        self.assertNotIn("turns", deleted["session"])
+
+        status, shown = self.request(f"/v1/sessions/{session_id}", token=self.token)
+        self.assertEqual(status, 404)
+        self.assertEqual(shown["error"]["code"], "session_not_found")
+
+        status, deleted_again = self.request(f"/v1/sessions/{session_id}", method="DELETE", token=self.token)
+        self.assertEqual(status, 404)
+        self.assertEqual(deleted_again["error"]["code"], "session_not_found")
+
+        status, bad = self.request("/v1/sessions/not-a-session", method="DELETE", token=self.token)
+        self.assertEqual(status, 405)
+        self.assertEqual(bad["error"]["code"], "method_not_allowed")
+
 
     def test_session_bound_runs_reuse_bounded_untrusted_history(self):
         calls = []
@@ -1360,8 +1391,11 @@ class ControlPlaneTest(unittest.TestCase):
             **__import__("os").environ,
             "LAI_CONTROL_API_KEY_FILE": str(self.base / "missing-control-token"),
         }
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind(("127.0.0.1", 0))
+            free_port = str(probe.getsockname()[1])
         result = subprocess.run(
-            [str(SOURCE.parent / "lai"), "serve", "--port", "8765"],
+            [str(SOURCE.parent / "lai"), "serve", "--port", free_port],
             cwd=self.root,
             env=env,
             text=True,
