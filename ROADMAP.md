@@ -10,7 +10,7 @@
 - Expand end-to-end fixtures for every mode and guard.
 - Dogfood repository-scoped persistent remote sessions with `lai-gateway`; current 0.4.5/0.1.31 dogfood covers installed Gateway CLI and private HTTP session create/list/get/delete against temporary `lai serve`, with lifecycle/delete controls kept inside the existing authenticated route set and no expanded remote authority.
 - Keep read-only public web evidence under dogfood through direct `lai web search/fetch` CLI and model-tool usage; expand providers or extraction only from measured failures before any browser-action capability.
-- Dogfood the governed MCP broker foundation; only add allowlisted MCP execution after config validation, policy checks, and audit boundaries prove sufficient.
+- Keep the governed MCP broker foundation under dogfood with temporary repository configs only; current evidence covers env-interpolated config discovery, safe status/tools metadata, `list-tools` policy allow, and `call-tool` denial without enabling real MCP execution.
 
 ## Adjacent projects
 

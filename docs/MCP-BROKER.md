@@ -53,3 +53,5 @@ These routes preserve the same non-execution boundary as the CLI.
 ## Validation
 
 The v0.4.5 local freeze gate is `make milestone-gate`. It covers Ruff, pytest, Harness Score L4, the publication/package gate, strict mypy, publication scanning, and VSIX inspection.
+
+Additional local dogfood used a temporary repository-local `.cursor/mcp.json` with env interpolation. It verified config discovery, non-executing status/tool summaries, allowed `list-tools` policy classification, denied `call-tool`, and no printing of literal secret values or interpolation expressions. No real repository MCP config is checked in.
