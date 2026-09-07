@@ -538,6 +538,21 @@ class LocalAgentTest(unittest.TestCase):
             agent.render_policy_check(["--stdin", "--tool", "bash", "--json"], stdin_text="{}")
 
 
+    def test_direct_local_agent_release_check_subcommand_is_deterministic(self):
+        result = subprocess.run(
+            [str(SOURCE), "release-check", "--target", agent.VERSION, "--json"],
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+        self.assertIn(result.returncode, {0, 1})
+        self.assertEqual(result.stderr, "")
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["version"], agent.VERSION)
+        self.assertIn(payload["overall"], {"ready", "blocked"})
+
     def test_top_level_help_is_successful_and_non_executing(self):
         for args in (["--help"], ["-h"], ["help"]):
             proc = subprocess.run(

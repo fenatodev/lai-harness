@@ -315,6 +315,74 @@ class ControlPlaneTest(unittest.TestCase):
             self.assertEqual(status_code, 404)
             self.assertEqual(missing["error"]["code"], "run_not_found")
 
+    def test_control_run_events_include_metadata_only_execution_milestones(self):
+        control_run_id = "cr-fedcba9876543210"
+        with self.server.control_run_lock:
+            self.server.control_run_records[control_run_id] = {
+                "control_run_id": control_run_id,
+                "mode": "implement",
+                "status": "succeeded",
+                "task_chars": 20,
+                "created_at": "2026-09-07T00:00:00Z",
+                "started_at": "2026-09-07T00:00:01Z",
+                "session_context_loaded_at": "2026-09-07T00:00:02Z",
+                "workspace_prepared_at": "2026-09-07T00:00:03Z",
+                "process_started_at": "2026-09-07T00:00:04Z",
+                "output_captured_at": "2026-09-07T00:00:05Z",
+                "workspace_result_collected_at": "2026-09-07T00:00:06Z",
+                "session_persisted_at": "2026-09-07T00:00:07Z",
+                "finished_at": "2026-09-07T00:00:08Z",
+                "exit_code": 0,
+                "stdout": "secret output",
+                "stderr": "secret stderr",
+                "stdout_truncated": True,
+                "stderr_truncated": False,
+                "cancel_requested": False,
+                "tool_profile": "repository-work-no-shell",
+                "session_id": "cs-1234567890abcdef",
+                "session_context_chars": 42,
+                "session_turns_used": 3,
+                "session_persisted": True,
+                "workspace_path": "/tmp/private-workspace",
+                "workspace_git_status": " M app.py",
+                "workspace_changed_paths": ["app.py", "tests/test_app.py"],
+                "workspace_diff": "secret diff",
+                "workspace_diff_truncated": True,
+                "workspace_source_branch": "main",
+                "workspace_source_clean": True,
+            }
+
+        status_code, payload = self.request(
+            f"/v1/runs/{control_run_id}/events", token=self.token,
+        )
+
+        self.assertEqual(status_code, 200)
+        self.assertEqual([event["event"] for event in payload["events"]], [
+            "queued",
+            "started",
+            "session_context_loaded",
+            "workspace_prepared",
+            "process_started",
+            "output_captured",
+            "workspace_result_collected",
+            "session_persisted",
+            "finished",
+        ])
+        details = {event["event"]: event.get("details", {}) for event in payload["events"]}
+        self.assertEqual(details["session_context_loaded"]["context_chars"], 42)
+        self.assertEqual(details["session_context_loaded"]["turns_used"], 3)
+        self.assertEqual(details["workspace_result_collected"]["changed_path_count"], 2)
+        self.assertTrue(details["workspace_result_collected"]["diff_truncated"])
+        self.assertTrue(details["output_captured"]["output_truncated"])
+        shown = json.dumps(payload, sort_keys=True)
+        self.assertNotIn("secret output", shown)
+        self.assertNotIn("secret stderr", shown)
+        self.assertNotIn("secret diff", shown)
+        self.assertNotIn("/tmp/private-workspace", shown)
+        self.assertNotIn("stdout", shown)
+        self.assertNotIn("stderr", shown)
+        self.assertNotIn("workspace_diff", shown)
+
     def test_persistent_session_endpoints_create_list_get_and_reopen(self):
         status, payload = self.request(
             "/v1/sessions", method="POST", token=self.token, body={}

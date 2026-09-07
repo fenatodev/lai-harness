@@ -1,4 +1,15 @@
-## [0.4.6] - Unreleased
+## [0.4.7] - Unreleased
+
+### Added
+- Enrich `GET /v1/runs/{control_run_id}/events` with metadata-only execution milestones for session context loading, workspace preparation, child process start, bounded output capture, workspace result collection, and session persistence.
+
+### Security
+- Keep run-event timelines free of task text, stdout, stderr, transcripts, file contents, workspace paths, and raw diffs while still reporting bounded progress metadata.
+
+### Changed
+- Update the stable integration baseline to `lai harness` v0.4.6 plus `lai-gateway` v0.1.33, and prepare the Harness package metadata for v0.4.7.
+
+## [0.4.6] - 2026-09-07
 
 ### Added
 - Add authenticated `GET /v1/runs/{control_run_id}/events` for bounded metadata-only control-run timelines without stdout, stderr, task text, or transcripts.
