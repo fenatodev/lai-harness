@@ -4,6 +4,7 @@
 
 ### What changed
 
+- Top-level `lai --help` now lists the existing status, recovery, observability, spec, semantic, and workspace surfaces so operators do not need to discover them by reading source.
 - Core CLI subcommands now use deterministic successful help output instead of treating `--help` as an error or running status commands.
 - `lai recovery clear` now discards stale interrupted checkpoints explicitly, without repository mutation or model access.
 - Mode commands such as `lai plan --help`, `lai review --help`, and `lai implement --help` now print deterministic usage without invoking the model.

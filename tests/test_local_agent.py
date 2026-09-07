@@ -548,8 +548,18 @@ class LocalAgentTest(unittest.TestCase):
                 check=True,
             )
             self.assertIn("Usage: lai <command> [options]", proc.stdout)
-            self.assertIn("release-check", proc.stdout)
-            self.assertIn("mcp", proc.stdout)
+            for command in (
+                "status",
+                "readiness | ready",
+                "recovery",
+                "mcp",
+                "web",
+                "metrics | audit",
+                "spec | semantic",
+                "release-check",
+                "workspace",
+            ):
+                self.assertIn(command, proc.stdout)
             self.assertEqual(proc.stderr, "")
 
     def test_mcp_help_is_successful_and_non_executing(self):
