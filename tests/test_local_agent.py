@@ -554,6 +554,7 @@ class LocalAgentTest(unittest.TestCase):
                 "recovery",
                 "checkpoint",
                 "snapshot",
+                "rollback",
                 "mcp",
                 "web",
                 "metrics | audit",
@@ -2595,6 +2596,46 @@ class LocalAgentTest(unittest.TestCase):
                 redirect_stdout(buffer):
             agent.main()
         self.assertEqual(json.loads(buffer.getvalue())["snapshot"]["file_count"], 2)
+        api_call.assert_not_called()
+
+    def test_rollback_restores_snapshot_only_when_checkpoint_hash_matches(self):
+        sample = self.root / "sample.txt"
+        created = self.root / "created.txt"
+        sample.write_text("before\n", encoding="utf-8")
+        agent.capture_prewrite_snapshots("run-rollback", ["sample.txt", "created.txt"])
+        sample.write_text("after\n", encoding="utf-8")
+        created.write_text("new file\n", encoding="utf-8")
+        checkpoint = agent.build_run_checkpoint(
+            "implement", "rollback task", "tool_completed",
+            tracked_paths=["sample.txt", "created.txt"],
+        )
+        checkpoint["run_id"] = "run-rollback"
+        agent.save_run_checkpoint(checkpoint)
+
+        dry_run = json.loads(agent.render_rollback(["run-rollback", "--dry-run", "--json"]))
+        self.assertEqual(dry_run["action_count"], 2)
+        self.assertEqual(dry_run["blocked_count"], 0)
+        self.assertTrue(sample.is_file())
+        self.assertTrue(created.is_file())
+
+        applied = json.loads(agent.render_rollback(["run-rollback", "--json"]))
+        self.assertEqual(applied["action_count"], 2)
+        self.assertEqual(applied["blocked_count"], 0)
+        self.assertEqual(sample.read_text(encoding="utf-8"), "before\n")
+        self.assertFalse(created.exists())
+
+        sample.write_text("external drift\n", encoding="utf-8")
+        blocked = agent.collect_rollback_plan("run-rollback", dry_run=True)
+        self.assertEqual(blocked["action_count"], 0)
+        self.assertGreaterEqual(blocked["blocked_count"], 1)
+        self.assertIn("current file hash differs", json.dumps(blocked))
+
+        buffer = io.StringIO()
+        with mock.patch.object(agent, "CLI_ARGS", ["--rollback", "--last", "--dry-run", "--json"]), \
+                mock.patch.object(agent, "api_call") as api_call, \
+                redirect_stdout(buffer):
+            agent.main()
+        self.assertIn("blocked_count", buffer.getvalue())
         api_call.assert_not_called()
 
     def test_configuration_helpers_are_reexported_from_typed_module(self):

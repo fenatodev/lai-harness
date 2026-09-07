@@ -855,6 +855,7 @@ Core commands:
   recovery               Inspect or clear recovery checkpoints.
   checkpoint             List or show active recovery checkpoints.
   snapshot               Show pre-write snapshot metadata for rollback preparation.
+  rollback               Restore captured pre-write snapshots with hash checks.
   mcp                    Inspect non-executing MCP broker status and policy.
   web                    Search/fetch bounded public web evidence.
   model                  Run deterministic model-evaluation helpers.
@@ -882,6 +883,7 @@ WEB_USAGE = (
 
 RECOVERY_USAGE = "Usage: lai recovery [clear]"
 CHECKPOINT_USAGE = "Usage: lai checkpoint [list [--json]|show <run-id|--last> [--json]]"
+ROLLBACK_USAGE = "Usage: lai rollback <run-id|--last> [--dry-run] [--json]"
 
 
 MODE_USAGE = """Usage: lai <mode> <task>
@@ -10863,6 +10865,124 @@ def handle_snapshot(args):
     raise SystemExit("Usage: lai snapshot show <run-id|--last> [--json]")
 
 
+def resolve_rollback_run_id(selector):
+    wanted = str(selector or "").strip()
+    checkpoint = load_run_checkpoint()
+    if wanted == "--last":
+        if not checkpoint:
+            raise SystemExit("rollback requires an active checkpoint")
+        return str(checkpoint.get("run_id") or "")
+    return wanted
+
+
+def collect_rollback_plan(selector, dry_run=True):
+    run_id = resolve_rollback_run_id(selector)
+    if not run_id:
+        raise SystemExit("rollback requires a run id")
+    checkpoint = load_run_checkpoint()
+    if not checkpoint or checkpoint.get("run_id") != run_id:
+        raise SystemExit("rollback requires the active checkpoint for that run")
+    expected_hashes = checkpoint.get("tracked_hashes") or {}
+    if not isinstance(expected_hashes, dict):
+        raise SystemExit("rollback checkpoint hash map is invalid")
+    snapshot = load_run_snapshots(run_id)
+    if not snapshot:
+        raise SystemExit("rollback snapshot not found")
+    actions = []
+    blocked = []
+    for item in snapshot.get("files") or []:
+        rel = normalize_snapshot_path(item.get("path"))
+        if not rel:
+            blocked.append({"path": item.get("path"), "reason": "invalid snapshot path"})
+            continue
+        candidate = ROOT.resolve() / rel
+        expected_current = expected_hashes.get(rel)
+        current_hashes = hash_repository_paths([rel])
+        current_hash = current_hashes.get(rel)
+        if not expected_current:
+            blocked.append({"path": rel, "reason": "missing checkpoint hash"})
+            continue
+        if current_hash != expected_current:
+            blocked.append({"path": rel, "reason": "current file hash differs from checkpoint"})
+            continue
+        if item.get("status") != "captured":
+            blocked.append({"path": rel, "reason": item.get("reason") or "snapshot not captured"})
+            continue
+        if item.get("exists") is False:
+            actions.append({"path": rel, "action": "delete-created-file", "sha256": current_hash})
+            continue
+        content = item.get("content")
+        if not isinstance(content, str):
+            blocked.append({"path": rel, "reason": "snapshot content missing"})
+            continue
+        before_hash = item.get("sha256")
+        if hashlib.sha256(content.encode("utf-8")).hexdigest() != before_hash:
+            blocked.append({"path": rel, "reason": "snapshot content hash mismatch"})
+            continue
+        actions.append({"path": rel, "action": "restore-file", "before_sha256": before_hash, "current_sha256": current_hash})
+    return {
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "repository": str(ROOT),
+        "run_id": run_id,
+        "dry_run": bool(dry_run),
+        "action_count": len(actions),
+        "blocked_count": len(blocked),
+        "actions": actions,
+        "blocked": blocked,
+    }
+
+
+def apply_rollback_plan(selector, dry_run=True):
+    plan = collect_rollback_plan(selector, dry_run=dry_run)
+    if plan["blocked"]:
+        return plan
+    if dry_run:
+        return plan
+    snapshot = load_run_snapshots(plan["run_id"])
+    by_path = {item.get("path"): item for item in snapshot.get("files") or []}
+    for action in plan["actions"]:
+        rel = action["path"]
+        candidate = ROOT.resolve() / rel
+        item = by_path[rel]
+        if action["action"] == "delete-created-file":
+            candidate.unlink()
+        elif action["action"] == "restore-file":
+            candidate.write_text(item["content"], encoding="utf-8")
+    plan["dry_run"] = False
+    plan["applied"] = True
+    record_audit_event({
+        "type": "rollback",
+        "run_id": plan["run_id"],
+        "actions": [{"path": item["path"], "action": item["action"]} for item in plan["actions"]],
+    })
+    return plan
+
+
+def render_rollback(args):
+    raw = list(args or [])
+    if raw in (["--help"], ["-h"], ["help"]):
+        return ROLLBACK_USAGE
+    json_mode = "--json" in raw
+    dry_run = "--dry-run" in raw
+    raw = [item for item in raw if item not in {"--json", "--dry-run"}]
+    if len(raw) != 1:
+        raise SystemExit(ROLLBACK_USAGE)
+    payload = apply_rollback_plan(raw[0], dry_run=dry_run)
+    if json_mode:
+        return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    lines = ["# lai rollback", "", "Run ID: " + str(payload.get("run_id")), "Dry run: " + str(payload.get("dry_run")).lower(), "Actions: " + str(payload.get("action_count")), "Blocked: " + str(payload.get("blocked_count"))]
+    for item in payload.get("actions") or []:
+        lines.append("- " + item["action"] + ": " + item["path"])
+    for item in payload.get("blocked") or []:
+        lines.append("BLOCKED: " + str(item.get("path")) + " — " + str(item.get("reason")))
+    return "\n".join(lines)
+
+
+def handle_rollback(args):
+    print(render_rollback(args))
+
+
 def clear_recovery_checkpoint():
     path = run_checkpoint_path()
     if path.is_file():
@@ -12220,6 +12340,7 @@ def deterministic_command_help(command):
         "--recovery": RECOVERY_USAGE,
         "--checkpoint": CHECKPOINT_USAGE,
         "--snapshot": "Usage: lai snapshot show <run-id|--last> [--json]",
+        "--rollback": ROLLBACK_USAGE,
         "--doctor": "Usage: lai doctor",
         "--status": "Usage: lai status",
         "--metrics": "Usage: lai metrics",
@@ -12336,6 +12457,10 @@ def main():
 
     if args and args[0] == "--snapshot":
         handle_snapshot(args[1:])
+        return
+
+    if args and args[0] == "--rollback":
+        handle_rollback(args[1:])
         return
 
     if args and args[0] == "--doctor":

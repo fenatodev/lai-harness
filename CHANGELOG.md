@@ -3,6 +3,7 @@
 ### Added
 - Start the next stability milestone with `lai checkpoint list/show` for deterministic recovery-checkpoint inventory before rollback support.
 - Add private pre-write snapshot capture plus `lai snapshot show` metadata output as the foundation for future hash-checked rollback.
+- Add explicit hash-checked `lai rollback` with dry-run support for active recovery checkpoints.
 
 ### Changed
 - Reprioritize the roadmap around stable recovery, context quality, and incremental modularization before expanding MCP/browser authority.

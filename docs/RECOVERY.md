@@ -42,7 +42,16 @@ Write-capable runs also capture private pre-write snapshots outside the reposito
 lai snapshot show --last --json
 ```
 
-Snapshot output reports metadata only: paths, hashes, byte counts, and capture status. It intentionally does not print captured file contents. Rollback still requires a separate restore command with hash validation; do not treat snapshots as automatic rollback.
+Snapshot output reports metadata only: paths, hashes, byte counts, and capture status. It intentionally does not print captured file contents.
+
+Rollback is explicit and hash-checked:
+
+```bash
+lai rollback --last --dry-run --json
+lai rollback --last
+```
+
+Rollback requires the active recovery checkpoint for that run. The current file hash must still match the checkpoint hash before LAI restores captured content or deletes a file that did not exist before the run. Drift blocks rollback instead of overwriting silently.
 
 The command does not contact the model. It reports one of:
 

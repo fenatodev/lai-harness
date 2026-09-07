@@ -153,6 +153,17 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertIn("Usage: lai snapshot", snapshot_help.stdout)
             self.assertEqual(snapshot_help.stderr, "")
 
+            rollback_help = subprocess.run(
+                [str(bin_dir / "lai"), "rollback", "--help"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("Usage: lai rollback", rollback_help.stdout)
+            self.assertEqual(rollback_help.stderr, "")
+
             invalid_web = subprocess.run(
                 [str(bin_dir / "lai"), "web", "fetch", "http://example.com/"],
                 cwd=sample_repo,
