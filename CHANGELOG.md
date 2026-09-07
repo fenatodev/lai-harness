@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.4.8] - 2026-09-07
+
 ### Added
 - Add deterministic `lai context diff` for metadata-only per-file Git numstat and untracked path counts without raw hunks.
 - Inject a compact metadata-only Git changes summary into context-intelligence modes so agents see worktree shape without raw diffs.
@@ -12,6 +14,10 @@
 - Add deterministic `lai context symbols <path>` for bounded function/class/method navigation metadata without source bodies.
 - Add a structured shell-free `context` tool exposing map, changes, and symbols metadata to agent modes without raw file bodies or diffs.
 
+### Changed
+- Count the structured `context` tool as read-only exploration so repeated metadata probing cannot bypass pre-write progress guards.
+- Expand the semantic code contract so context-intelligence discovery covers the new context metadata views and structured tool.
+
 ## [0.4.7] - 2026-09-07
 
 ### Added
@@ -21,8 +27,6 @@
 - Keep run-event timelines free of task text, stdout, stderr, transcripts, file contents, workspace paths, and raw diffs while still reporting bounded progress metadata.
 
 ### Changed
-- Count the structured `context` tool as read-only exploration so repeated metadata probing cannot bypass pre-write progress guards.
-- Expand the semantic code contract so context-intelligence discovery covers the new context metadata views and structured tool.
 - Update the stable integration baseline to `lai harness` v0.4.6 plus `lai-gateway` v0.1.33, and prepare the Harness package metadata for v0.4.7.
 
 ## [0.4.6] - 2026-09-07

@@ -1,3 +1,41 @@
+## lai harness v0.4.8 — context intelligence and operating policy
+
+`v0.4.8` improves day-to-day development quality for constrained local models by packaging deterministic context-intelligence views and a codified operating-mode policy. It does not enable shell authority for remote read-only profiles, MCP tool execution, browser automation, dependency updates, model switching, commits, pushes, tags, releases, or remote resource mutation.
+
+### What changed
+
+- Added `lai operating-mode` and `docs/OPERATING-MODE.md` so local-first milestone batching, delayed release ritual, read-only external evidence, product-progress gates, and capability-based compatibility are inspectable without contacting the model.
+- Added `lai context map` for metadata-only repository structure, manifest, changed-path, directory/suffix, and semantic-subsystem orientation.
+- Added `lai context changes` and `lai context diff` for compact Git status, shortstat, and per-file addition/deletion counts without raw hunks.
+- Added `lai context checks` for Makefile target names, validation profile names, test inventory, and suggested feedback loops without reading recipes or executing commands.
+- Added `lai context runs` for recent run/process and recovery-checkpoint metadata without stdout, stderr, task text, transcripts, failure reasons, workspace paths, file contents, or raw diffs.
+- Added `lai context symbols <path>` for bounded Python/JavaScript function, class, and method navigation metadata without source bodies.
+- Exposed the same metadata views through the shell-free structured `context` tool for local and remote modes, and injects compact map/change summaries into context-intelligence modes to reduce early repository-discovery overhead.
+- Counts the structured `context` tool as read-only exploration so repeated metadata probing cannot bypass pre-write progress guards.
+
+### Safety boundary
+
+- Context views are advisory metadata only; files and diffs still must be inspected before relying on implementation behavior.
+- The context tool does not expose raw file bodies, raw diffs, stdout, stderr, transcripts, model keys, local credentials, private paths, Makefile recipes, or test bodies.
+- Operating-mode policy is inspectable guidance and does not add release, GitHub, dependency-management, model-lifecycle, browser, MCP execution, or remote-write authority.
+
+### Validation gate
+
+```bash
+make milestone-gate
+```
+
+Local milestone evidence: Ruff passed; pytest passed with 311 tests and 144 subtests; Harness Score passed at L4 100/108; `validate.sh` passed with 311 unittest tests, strict mypy over seven source files, generalized publication scan, and VSIX inspection green in 167.65s. Gateway stack compatibility also passed from `lai-gateway` 0.1.34 against this checkout with Harness `0.4.8 >= 0.4.6`, contract compatibility ok, MCP foundation non-executing, and `overall=ready_for_local_commit`.
+
+### Release commands
+
+```bash
+lai release-check --target 0.4.8 --json
+lai release-pack --target 0.4.8 --with-vsix --json
+lai release-governance --target 0.4.8 --remote --json
+lai project-handoff --target 0.4.8 --remote --json
+```
+
 ## lai harness v0.4.7 — control-run event timeline
 
 `v0.4.7` improves progress observability for the Gateway and other polling clients by enriching control-run event timelines with metadata-only execution milestones. It does not enable shell authority, write-capable Gateway runs, MCP tool execution, browser automation, downloads, commits, pushes, tags, releases, or remote resource mutation.
