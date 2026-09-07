@@ -853,6 +853,7 @@ Core commands:
   sessions               List, show, or delete repository-scoped sessions.
   runs | run             Inspect local run history.
   recovery               Inspect or clear recovery checkpoints.
+  checkpoint             List or show active recovery checkpoints.
   mcp                    Inspect non-executing MCP broker status and policy.
   web                    Search/fetch bounded public web evidence.
   model                  Run deterministic model-evaluation helpers.
@@ -879,6 +880,7 @@ WEB_USAGE = (
 
 
 RECOVERY_USAGE = "Usage: lai recovery [clear]"
+CHECKPOINT_USAGE = "Usage: lai checkpoint [list [--json]|show <run-id|--last> [--json]]"
 
 
 MODE_USAGE = """Usage: lai <mode> <task>
@@ -10602,6 +10604,102 @@ def print_recovery_status():
         print("Blocked: " + str(reason))
 
 
+def checkpoint_public_record(state):
+    checkpoint = state.get("checkpoint") or {}
+    if not checkpoint:
+        return None
+    tracked_hashes = checkpoint.get("tracked_hashes") or {}
+    tracked_paths = sorted(tracked_hashes) if isinstance(tracked_hashes, dict) else []
+    return {
+        "run_id": str(checkpoint.get("run_id") or ""),
+        "mode": checkpoint.get("mode"),
+        "phase": checkpoint.get("phase"),
+        "status": state.get("status"),
+        "terminal": bool(checkpoint.get("terminal")),
+        "resumable": bool(state.get("resumable")),
+        "updated_at": checkpoint.get("updated_at"),
+        "last_tool": checkpoint.get("last_tool"),
+        "tracked_path_count": len(tracked_paths),
+        "tracked_paths": tracked_paths[:50],
+        "reasons": state.get("reasons") or [],
+    }
+
+
+def render_checkpoint_list(json_mode=False):
+    state = inspect_recovery_checkpoint()
+    record = checkpoint_public_record(state)
+    checkpoints = [record] if record else []
+    if json_mode:
+        return json.dumps({
+            "product": PRODUCT_NAME,
+            "version": VERSION,
+            "repository": str(ROOT),
+            "checkpoint_count": len(checkpoints),
+            "checkpoints": checkpoints,
+        }, ensure_ascii=False, indent=2, sort_keys=True)
+    lines = ["# lai checkpoints", "", f"Count: {len(checkpoints)}"]
+    for item in checkpoints:
+        lines.append("")
+        lines.append("- Run ID: " + str(item.get("run_id") or "[unknown]"))
+        lines.append("  Status: " + str(item.get("status") or "[unknown]"))
+        lines.append("  Mode: " + str(item.get("mode") or "[unknown]"))
+        lines.append("  Phase: " + str(item.get("phase") or "[unknown]"))
+        lines.append("  Resumable: " + str(bool(item.get("resumable"))).lower())
+        lines.append("  Tracked paths: " + str(item.get("tracked_path_count") or 0))
+    return "\n".join(lines)
+
+
+def render_checkpoint_show(selector, json_mode=False):
+    state = inspect_recovery_checkpoint()
+    record = checkpoint_public_record(state)
+    wanted = str(selector or "").strip()
+    if wanted == "--last":
+        wanted = str(record.get("run_id") if record else "")
+    if not record or not wanted or record.get("run_id") != wanted:
+        raise SystemExit("checkpoint not found")
+    if json_mode:
+        return json.dumps({
+            "product": PRODUCT_NAME,
+            "version": VERSION,
+            "repository": str(ROOT),
+            "checkpoint": record,
+        }, ensure_ascii=False, indent=2, sort_keys=True)
+    lines = [
+        "# lai checkpoint",
+        "",
+        "Run ID: " + str(record.get("run_id") or "[unknown]"),
+        "Status: " + str(record.get("status") or "[unknown]"),
+        "Mode: " + str(record.get("mode") or "[unknown]"),
+        "Phase: " + str(record.get("phase") or "[unknown]"),
+        "Updated: " + str(record.get("updated_at") or "[unknown]"),
+        "Resumable: " + str(bool(record.get("resumable"))).lower(),
+        "Terminal: " + str(bool(record.get("terminal"))).lower(),
+        "Tracked paths: " + str(record.get("tracked_path_count") or 0),
+    ]
+    paths = record.get("tracked_paths") or []
+    if paths:
+        lines.extend(["", "## Tracked paths", *("- " + path for path in paths)])
+    for reason in record.get("reasons") or []:
+        lines.append("Blocked: " + str(reason))
+    return "\n".join(lines)
+
+
+def handle_checkpoint(args):
+    raw = list(args or [])
+    json_mode = "--json" in raw
+    raw = [item for item in raw if item != "--json"]
+    if not raw or raw == ["list"]:
+        print(render_checkpoint_list(json_mode=json_mode))
+        return
+    if raw in (["--help"], ["-h"], ["help"]):
+        print(CHECKPOINT_USAGE)
+        return
+    if len(raw) == 2 and raw[0] == "show":
+        print(render_checkpoint_show(raw[1], json_mode=json_mode))
+        return
+    raise SystemExit(CHECKPOINT_USAGE)
+
+
 def clear_recovery_checkpoint():
     path = run_checkpoint_path()
     if path.is_file():
@@ -11957,6 +12055,7 @@ def deterministic_command_help(command):
         "--model-eval": "Usage: lai model [plan [--json]|sample|run [--scenario ID] [--repeat 1..5] [--json]|score <results.jsonl|latest> [...]]",
         "--semantics": "Usage: lai semantics [--json]",
         "--recovery": RECOVERY_USAGE,
+        "--checkpoint": CHECKPOINT_USAGE,
         "--doctor": "Usage: lai doctor",
         "--status": "Usage: lai status",
         "--metrics": "Usage: lai metrics",
@@ -12065,6 +12164,10 @@ def main():
 
     if args and args[0] == "--recovery":
         handle_recovery(args[1:])
+        return
+
+    if args and args[0] == "--checkpoint":
+        handle_checkpoint(args[1:])
         return
 
     if args and args[0] == "--doctor":

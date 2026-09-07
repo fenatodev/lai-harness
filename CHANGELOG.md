@@ -1,3 +1,11 @@
+## [0.4.6] - Unreleased
+
+### Added
+- Start the next stability milestone with `lai checkpoint list/show` for deterministic recovery-checkpoint inventory before rollback support.
+
+### Changed
+- Reprioritize the roadmap around stable recovery, context quality, and incremental modularization before expanding MCP/browser authority.
+
 ## [0.4.5] - 2026-09-07
 
 ### Added

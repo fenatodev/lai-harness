@@ -552,6 +552,7 @@ class LocalAgentTest(unittest.TestCase):
                 "status",
                 "readiness | ready",
                 "recovery",
+                "checkpoint",
                 "mcp",
                 "web",
                 "metrics | audit",
@@ -2522,6 +2523,42 @@ class LocalAgentTest(unittest.TestCase):
                 redirect_stdout(buffer):
             agent.main()
         self.assertIn("Usage: lai recovery [clear]", buffer.getvalue())
+
+    def test_checkpoint_cli_lists_and_shows_active_checkpoint_without_model(self):
+        sample = self.root / "sample.txt"
+        sample.write_text("stable\n", encoding="utf-8")
+        checkpoint = agent.build_run_checkpoint(
+            "implement", "synthetic task", "tool_completed",
+            tracked_paths=["sample.txt"], last_tool="edit",
+        )
+        agent.save_run_checkpoint(checkpoint)
+
+        list_payload = json.loads(agent.render_checkpoint_list(json_mode=True))
+        self.assertEqual(list_payload["checkpoint_count"], 1)
+        listed = list_payload["checkpoints"][0]
+        self.assertEqual(listed["run_id"], checkpoint["run_id"])
+        self.assertEqual(listed["mode"], "implement")
+        self.assertEqual(listed["tracked_path_count"], 1)
+        self.assertEqual(listed["tracked_paths"], ["sample.txt"])
+        self.assertTrue(listed["resumable"])
+
+        shown = json.loads(agent.render_checkpoint_show(checkpoint["run_id"], json_mode=True))
+        self.assertEqual(shown["checkpoint"]["run_id"], checkpoint["run_id"])
+        self.assertEqual(shown["checkpoint"]["last_tool"], "edit")
+
+        shown_last = json.loads(agent.render_checkpoint_show("--last", json_mode=True))
+        self.assertEqual(shown_last["checkpoint"]["run_id"], checkpoint["run_id"])
+
+        with self.assertRaises(SystemExit):
+            agent.render_checkpoint_show("missing-run", json_mode=True)
+
+        buffer = io.StringIO()
+        with mock.patch.object(agent, "CLI_ARGS", ["--checkpoint", "list", "--json"]), \
+                mock.patch.object(agent, "api_call") as api_call, \
+                redirect_stdout(buffer):
+            agent.main()
+        self.assertEqual(json.loads(buffer.getvalue())["checkpoint_count"], 1)
+        api_call.assert_not_called()
 
     def test_configuration_helpers_are_reexported_from_typed_module(self):
         import lai_config

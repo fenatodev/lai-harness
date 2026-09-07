@@ -27,6 +27,15 @@ Run:
 lai recovery
 ```
 
+For machine-readable checkpoint inventory and detail, use:
+
+```bash
+lai checkpoint list --json
+lai checkpoint show --last --json
+```
+
+The checkpoint command reports active recovery checkpoint metadata, compatibility status, bounded tracked-path names, and hash-count evidence. It does not store file contents or perform rollback; rollback requires a separate content snapshot contract.
+
 The command does not contact the model. It reports one of:
 
 - `none` — no checkpoint exists for the workspace;

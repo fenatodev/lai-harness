@@ -121,6 +121,27 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertIn("Usage: lai web search", web_help.stdout)
             self.assertEqual(web_help.stderr, "")
 
+            checkpoint_help = subprocess.run(
+                [str(bin_dir / "lai"), "checkpoint", "--help"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("Usage: lai checkpoint", checkpoint_help.stdout)
+            self.assertEqual(checkpoint_help.stderr, "")
+
+            checkpoint_list = subprocess.run(
+                [str(bin_dir / "lai"), "checkpoint", "list", "--json"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertEqual(json.loads(checkpoint_list.stdout)["checkpoint_count"], 0)
+
             invalid_web = subprocess.run(
                 [str(bin_dir / "lai"), "web", "fetch", "http://example.com/"],
                 cwd=sample_repo,
