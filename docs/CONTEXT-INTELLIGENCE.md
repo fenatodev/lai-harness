@@ -31,6 +31,8 @@ lai context map --json --max-files 400 --max-paths 80
 
 The map reports repository-relative files, directory/suffix groups, manifests, changed paths, and semantic subsystem path matches. It is metadata-only and never includes file contents, stdout, stderr, transcripts, tokens, or raw diffs.
 
+For model runs in context-intelligence modes, LAI injects a much smaller prompt map containing only aggregate directory/suffix groups, changed paths, and semantic subsystem ids. This is intended to reduce early repository-discovery calls without treating metadata as file evidence.
+
 ## Inventory bounds
 
 The inventory prefers `git ls-files --cached --others --exclude-standard` and falls back to a bounded filesystem walk when Git listing is unavailable or empty.

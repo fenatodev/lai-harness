@@ -10248,6 +10248,38 @@ def render_context_map(payload, max_items=12):
     return "\n".join(lines)
 
 
+
+def render_context_map_prompt(payload, max_chars=900):
+    max_chars = max(240, min(int(max_chars), 1200))
+    lines = [
+        "CONTEXT MAP (advisory repository metadata only; inspect files before relying on contents):",
+        f"- files_indexed={int(payload.get('file_count') or 0)} inventory_limit={int(payload.get('inventory_limit') or 0)}",
+    ]
+    dirs = payload.get("directory_groups") or []
+    if dirs:
+        lines.append(
+            "- top_dirs="
+            + ";".join(f"{item.get('name')}:{item.get('count')}" for item in dirs[:6])
+        )
+    suffixes = payload.get("suffix_groups") or []
+    if suffixes:
+        lines.append(
+            "- top_suffixes="
+            + ";".join(f"{item.get('name')}:{item.get('count')}" for item in suffixes[:6])
+        )
+    changed = payload.get("changed_paths") or []
+    if changed:
+        lines.append("- changed_paths=" + ",".join(str(path) for path in changed[:6]))
+    semantic = payload.get("semantic_subsystems") or []
+    if semantic:
+        lines.append(
+            "- semantic_subsystems="
+            + ";".join(str(item.get("id")) for item in semantic[:8])
+        )
+    lines.append("- trust=metadata_only_not_evidence")
+    return "\n".join(lines)[:max_chars]
+
+
 def _parse_context_positive_int(raw, *, label, maximum, minimum=1):
     try:
         value = int(raw)
@@ -13207,6 +13239,11 @@ def main():
         else []
     )
     ranked_context_text = render_context_candidates(ranked_context) if ranked_context else ""
+    context_map_text = (
+        render_context_map_prompt(repository_context_map(max_paths=0))
+        if mode in CONTEXT_INTELLIGENCE_MODES
+        else ""
+    )
 
     host = gateway()
 
@@ -13334,6 +13371,9 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
 
     if active_spec_context:
         system += "\n\n" + active_spec_context
+
+    if context_map_text:
+        system += "\n\n" + context_map_text
 
     if ranked_context_text:
         system += '\n\n' + ranked_context_text
