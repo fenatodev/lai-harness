@@ -5,6 +5,7 @@
 - Add deterministic `lai context map` for metadata-only repository structure, manifests, changed paths, suffix/directory groups, and semantic subsystem path matches without file contents.
 - Inject a compact metadata-only context map into context-intelligence modes to reduce early repository-discovery tool calls without treating it as evidence.
 - Add deterministic `lai context changes` for compact metadata-only Git status, counts, paths, and shortstat without raw diffs.
+- Add deterministic `lai context symbols <path>` for bounded function/class/method navigation metadata without source bodies.
 
 ## [0.4.7] - 2026-09-07
 

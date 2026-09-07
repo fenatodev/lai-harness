@@ -3638,6 +3638,58 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("git_changed", shown)
         self.assertNotIn("timeout = 30", shown)
         self.assertLessEqual(len(shown), 180)
+    def test_context_symbols_are_metadata_only_for_python_and_javascript(self):
+        (self.root / "module.py").write_text(
+            "SECRET = 'sk-not-real-secret'\n"
+            "class Worker:\n"
+            "    def run(self):\n"
+            "        return SECRET\n"
+            "def helper():\n"
+            "    return SECRET\n",
+            encoding="utf-8",
+        )
+        py_payload = agent.context_symbols_payload("module.py", limit=10)
+        self.assertEqual(py_payload["parser"], "ok")
+        self.assertTrue(py_payload["metadata_only"])
+        names = {item["name"] for item in py_payload["symbols"]}
+        self.assertIn("Worker", names)
+        self.assertIn("Worker.run", names)
+        self.assertIn("helper", names)
+        self.assertNotIn("sk-not-real-secret", json.dumps(py_payload))
+
+        (self.root / "app.js").write_text(
+            "const token = 'sk-not-real-secret';\n"
+            "class Ui {}\n"
+            "function render() { return token; }\n"
+            "const boot = () => token;\n",
+            encoding="utf-8",
+        )
+        js_payload = agent.context_symbols_payload("app.js", limit=10)
+        js_names = {item["name"] for item in js_payload["symbols"]}
+        self.assertIn("Ui", js_names)
+        self.assertIn("render", js_names)
+        self.assertIn("boot", js_names)
+        self.assertNotIn("sk-not-real-secret", json.dumps(js_payload))
+        rendered = agent.render_context_symbols(py_payload)
+        self.assertIn("# lai context symbols", rendered)
+        self.assertNotIn("SECRET", rendered)
+
+    def test_deterministic_context_symbols_cli_needs_no_server(self):
+        (self.root / "module.py").write_text("def worker():\n    return 'secret-body'\n")
+        env = {**__import__("os").environ, "LAI_DATA_DIR": str(self.base / "data")}
+        result = subprocess.run(
+            [str(SOURCE.parent / "lai"), "context", "symbols", "module.py", "--json", "--limit", "5"],
+            cwd=self.root, env=env, text=True, capture_output=True,
+            timeout=5, check=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["symbols_version"], 1)
+        self.assertTrue(payload["metadata_only"])
+        self.assertEqual(payload["path"], "module.py")
+        self.assertEqual(payload["symbols"][0]["name"], "worker")
+        self.assertNotIn("secret-body", result.stdout)
+        self.assertEqual(result.stderr, "")
+
     def test_context_changes_are_metadata_only_bounded_and_secret_free(self):
         (self.root / "tracked.py").write_text("old value\n")
         subprocess.run(["git", "add", "tracked.py"], cwd=self.root, check=True)
