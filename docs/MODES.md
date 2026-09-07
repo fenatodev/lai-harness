@@ -37,4 +37,7 @@ For deterministic release gates, use `lai release-check` instead of asking the m
 
 ## Public web evidence
 
+Direct CLI dogfood is available with `lai web search <query> [--max-results N] [--json]` and `lai web fetch <https-url> [--max-chars N] [--json]`. These commands use the same bounded read-only evidence functions exposed to model tools and do not add browser actions, cookies, credential headers, redirects, non-HTTPS fetches, or stateful web access.
+
+
 `general`, `plan`, `debug`, `diagnose`, `review`, and `security` may receive the bounded read-only `web_search` / `web_fetch` tools. External text is always untrusted evidence. Write-oriented modes do not gain web tools merely because they can edit files, and remote work profiles remain web-free in this cut. See [Web evidence](WEB-EVIDENCE.md).

@@ -852,6 +852,7 @@ Core commands:
   sessions               List, show, or delete repository-scoped sessions.
   runs | run             Inspect local run history.
   mcp                    Inspect non-executing MCP broker status and policy.
+  web                    Search/fetch bounded public web evidence.
   model                  Run deterministic model-evaluation helpers.
   update                 Run bounded update-intelligence checks.
   release-check          Run deterministic release readiness checks.
@@ -865,6 +866,12 @@ Mode commands:
 
 Use `lai <command> --help` for command-specific usage where available.
 """
+
+
+WEB_USAGE = (
+    "Usage: lai web search <query> [--max-results 1..N] [--json] | "
+    "lai web fetch <https-url> [--max-chars 200..N] [--json]"
+)
 
 MCP_USAGE = "Usage: lai mcp [status|tools|policy-check] [--json]"
 MCP_STATUS_USAGE = "Usage: lai mcp status [--json]"
@@ -3651,6 +3658,91 @@ def tool_git(args):
 
     return trim("\n".join(sections))
 
+
+
+def _parse_web_positive_int(raw, *, maximum, label, minimum=1):
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise SystemExit(WEB_USAGE) from exc
+    if not minimum <= value <= maximum:
+        raise SystemExit(f"{label} must be between {minimum} and {maximum}")
+    return value
+
+
+def handle_web_evidence(args):
+    args = list(args)
+    if not args or args[0] in {"--help", "-h", "help"}:
+        print(WEB_USAGE)
+        return
+    command = args.pop(0)
+    json_mode = False
+    try:
+        if command == "search":
+            max_results = WEB_SEARCH_DEFAULT_RESULTS
+            query_parts = []
+            index = 0
+            while index < len(args):
+                value = args[index]
+                if value == "--json":
+                    json_mode = True
+                    index += 1
+                elif value == "--max-results":
+                    if index + 1 >= len(args):
+                        raise SystemExit(WEB_USAGE)
+                    max_results = _parse_web_positive_int(
+                        args[index + 1],
+                        maximum=WEB_SEARCH_MAX_RESULTS,
+                        label="max-results",
+                    )
+                    index += 2
+                elif value.startswith("--"):
+                    raise SystemExit(WEB_USAGE)
+                else:
+                    query_parts.append(value)
+                    index += 1
+            query = " ".join(query_parts).strip()
+            payload = search_web_evidence(query, max_results=max_results)
+            if json_mode:
+                print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+            else:
+                print(render_web_evidence("search", payload))
+            return
+        if command == "fetch":
+            max_chars = WEB_DEFAULT_TEXT_CHARS
+            url = None
+            index = 0
+            while index < len(args):
+                value = args[index]
+                if value == "--json":
+                    json_mode = True
+                    index += 1
+                elif value == "--max-chars":
+                    if index + 1 >= len(args):
+                        raise SystemExit(WEB_USAGE)
+                    max_chars = _parse_web_positive_int(
+                        args[index + 1],
+                        maximum=WEB_MAX_TEXT_CHARS,
+                        label="max-chars",
+                        minimum=200,
+                    )
+                    index += 2
+                elif value.startswith("--"):
+                    raise SystemExit(WEB_USAGE)
+                elif url is None:
+                    url = value
+                    index += 1
+                else:
+                    raise SystemExit(WEB_USAGE)
+            payload = fetch_web_evidence(url, max_chars=max_chars)
+            if json_mode:
+                print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+            else:
+                print(render_web_evidence("fetch", payload))
+            return
+    except ValueError as exc:
+        raise SystemExit(f"ERROR: {exc}") from exc
+    raise SystemExit(WEB_USAGE)
 
 
 def render_web_evidence(kind, payload):
@@ -11835,6 +11927,10 @@ def main():
 
     if args and args[0] == "--mcp":
         handle_mcp(args[1:])
+        return
+
+    if args and args[0] == "--web":
+        handle_web_evidence(args[1:])
         return
 
     if args and args[0] == "--readiness":

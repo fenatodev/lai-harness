@@ -335,6 +335,64 @@ class LocalAgentTest(unittest.TestCase):
                 policy = agent.evaluate_tool_policy("bash", {"command": command})
                 self.assertEqual(policy["decision"], expected)
 
+
+    def test_web_cli_search_fetch_help_and_errors_are_deterministic(self):
+        search_payload = {
+            "query": "safe harness",
+            "provider": "duckduckgo-lite",
+            "provider_url": "https://lite.duckduckgo.com/lite/?q=safe+harness",
+            "resolved_ips": ["93.184.216.34"],
+            "connected_ip": "93.184.216.34",
+            "status": 200,
+            "fetched_at": "2026-09-06T02:00:00Z",
+            "result_count": 1,
+            "results": [{"title": "Example", "url": "https://example.com/", "snippet": "sample"}],
+            "response_sha256": "a" * 64,
+            "untrusted_external_content": True,
+        }
+        fetch_payload = {
+            "requested_url": "https://example.com/",
+            "url": "https://example.com/",
+            "host": "example.com",
+            "resolved_ips": ["93.184.216.34"],
+            "connected_ip": "93.184.216.34",
+            "status": 200,
+            "content_type": "text/plain",
+            "fetched_at": "2026-09-06T02:00:00Z",
+            "sha256": "b" * 64,
+            "body_bytes": 6,
+            "text": "sample",
+            "truncated": False,
+            "untrusted_external_content": True,
+        }
+        with mock.patch.object(agent, "search_web_evidence", return_value=search_payload) as searched, \
+                mock.patch.object(agent, "fetch_web_evidence", return_value=fetch_payload) as fetched:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                agent.handle_web_evidence(["search", "safe", "harness", "--max-results", "3", "--json"])
+            payload = json.loads(output.getvalue())
+            self.assertEqual(payload["result_count"], 1)
+            searched.assert_called_once_with("safe harness", max_results=3)
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                agent.handle_web_evidence(["fetch", "https://example.com/", "--max-chars", "200", "--json"])
+            payload = json.loads(output.getvalue())
+            self.assertEqual(payload["url"], "https://example.com/")
+            fetched.assert_called_once_with("https://example.com/", max_chars=200)
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            agent.handle_web_evidence(["--help"])
+        self.assertIn("Usage: lai web search", output.getvalue())
+
+        with self.assertRaisesRegex(SystemExit, "max-chars must be between 200"):
+            agent.handle_web_evidence(["fetch", "https://example.com/", "--max-chars", "199"])
+
+        with mock.patch.object(agent, "fetch_web_evidence", side_effect=ValueError("only HTTPS URLs are allowed")):
+            with self.assertRaisesRegex(SystemExit, "only HTTPS URLs are allowed"):
+                agent.handle_web_evidence(["fetch", "http://example.com/"])
+
     def test_web_tools_are_read_only_policy_and_return_untrusted_evidence(self):
         search_payload = {
             "query": "example",

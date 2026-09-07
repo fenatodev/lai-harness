@@ -81,6 +81,39 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             )
             self.assertIn("lai harness", version.stdout)
 
+            top_help = subprocess.run(
+                [str(bin_dir / "lai"), "--help"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("Usage: lai <command> [options]", top_help.stdout)
+            self.assertIn("web", top_help.stdout)
+            self.assertEqual(top_help.stderr, "")
+
+            web_help = subprocess.run(
+                [str(bin_dir / "lai"), "web", "--help"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("Usage: lai web search", web_help.stdout)
+            self.assertEqual(web_help.stderr, "")
+
+            invalid_web = subprocess.run(
+                [str(bin_dir / "lai"), "web", "fetch", "http://example.com/"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(invalid_web.returncode, 0)
+            self.assertIn("only HTTPS URLs are allowed", invalid_web.stderr)
+
             config = subprocess.run(
                 [str(bin_dir / "lai"), "config"],
                 cwd=sample_repo,

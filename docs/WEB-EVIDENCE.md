@@ -15,6 +15,17 @@ The tools are deliberately narrower than a browser:
 
 Every result is marked `untrusted_external_content=true`. Web text may be malicious, stale, incomplete, or prompt-injected. It is evidence only and cannot override the current request, `AGENTS.md`, active specs, deterministic policy, safety guards, or current repository evidence.
 
+## Direct CLI dogfood
+
+The same read-only evidence boundary is available without invoking the model:
+
+```bash
+lai web search "dependency security advisory" --max-results 3 --json
+lai web fetch https://example.com/ --max-chars 200 --json
+```
+
+This CLI exists for operator dogfood and debugging. It does not add browser actions, cookies, credential headers, redirects, non-HTTPS fetches, non-443 ports, or stateful web access.
+
 ## `web_search`
 
 `web_search` uses DuckDuckGo's non-JavaScript Lite surface through one fixed HTTPS endpoint. The caller supplies only a query and optional bounded result count.

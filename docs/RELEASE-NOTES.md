@@ -5,6 +5,7 @@
 ### What changed
 
 - Top-level `lai --help`, `lai -h`, and `lai help` now print deterministic command usage without invoking the model.
+- `lai web search` and `lai web fetch` provide direct bounded CLI dogfood for the existing read-only public web evidence tools, without browser actions or stateful web access.
 - Added `lai mcp status`, `lai mcp tools`, and `lai mcp policy-check`.
 - Added `lai mcp --help`, `lai mcp help`, and subcommand help as successful non-executing help output.
 - Added authenticated `GET /v1/mcp/status`, `GET /v1/mcp/tools`, and `POST /v1/mcp/policy-check` control-plane routes.
@@ -31,7 +32,7 @@
 make milestone-gate
 ```
 
-Local milestone evidence: Ruff passed; pytest passed with 288 tests and 109 subtests; Harness Score passed at L4 100/108; `validate.sh` passed with 288 unittest tests, strict mypy over seven source files, generalized publication scan, and VSIX inspection green.
+Local milestone evidence: Ruff passed; pytest passed with 289 tests and 109 subtests; Harness Score passed at L4 100/108; `validate.sh` passed with 289 unittest tests, strict mypy over seven source files, generalized publication scan, and VSIX inspection green.
 
 ### Release commands
 
