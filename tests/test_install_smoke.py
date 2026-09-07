@@ -447,10 +447,10 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                     self.assertEqual(events_payload["control_run_id"], control_run_id)
                     self.assertTrue(events_payload["terminal"])
                     self.assertEqual(events_payload["status"], "succeeded")
-                    self.assertIn(
-                        "finished",
-                        [event["event"] for event in events_payload["events"]],
-                    )
+                    event_names = [event["event"] for event in events_payload["events"]]
+                    self.assertIn("process_started", event_names)
+                    self.assertIn("output_captured", event_names)
+                    self.assertIn("finished", event_names)
                     events_text = json.dumps(events_payload, sort_keys=True)
                     self.assertNotIn("fake response", events_text)
                     self.assertNotIn("stdout", events_text)

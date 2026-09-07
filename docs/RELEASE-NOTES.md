@@ -1,3 +1,37 @@
+## lai harness v0.4.7 — control-run event timeline
+
+`v0.4.7` improves progress observability for the Gateway and other polling clients by enriching control-run event timelines with metadata-only execution milestones. It does not enable shell authority, write-capable Gateway runs, MCP tool execution, browser automation, downloads, commits, pushes, tags, releases, or remote resource mutation.
+
+### What changed
+
+- `GET /v1/runs/{control_run_id}/events` now reports bounded milestones beyond `queued`, `started`, and `finished` when the run record has the relevant evidence.
+- New metadata-only milestones cover session context loading, isolated workspace preparation, child process start, bounded output capture, workspace result collection, and session persistence.
+- Control-run records now keep timestamp metadata for these milestones so UI clients can show more useful progress without reading stdout, stderr, task text, transcripts, file contents, workspace paths, or raw diffs.
+- The roadmap now treats `lai harness` v0.4.6 plus `lai-gateway` v0.1.33 as the stable integration baseline before further autonomy expansion.
+
+### Safety boundary
+
+- Event payloads remain metadata-only.
+- The timeline reports counts and booleans such as `changed_path_count`, `output_truncated`, `diff_truncated`, and `session_persisted`, not sensitive content.
+- No control-plane authority is expanded in this release.
+
+### Validation gate
+
+```bash
+make milestone-gate
+```
+
+Release validation must pass after the version bump and before publication.
+
+### Release commands
+
+```bash
+lai release-check --target 0.4.7 --json
+lai release-pack --target 0.4.7 --with-vsix --json
+lai release-governance --target 0.4.7 --remote --json
+lai project-handoff --target 0.4.7 --remote --json
+```
+
 ## lai harness v0.4.6 — stable recovery rollback
 
 `v0.4.6` hardens the runtime recovery path into an operator-usable rollback boundary. It adds checkpoint inspection, private pre-write snapshots, hash-checked rollback, atomic restore, snapshot schema coverage, installed dogfood, and cleanup of abandoned rollback content.

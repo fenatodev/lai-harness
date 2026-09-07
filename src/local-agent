@@ -80,7 +80,7 @@ from lai_web import (
     search_web_evidence as search_web_evidence,
 )
 
-VERSION = "0.4.6"
+VERSION = "0.4.7"
 PRODUCT_NAME = "lai harness"
 def render_config_status(config=None):
     return _render_config_status(CONFIG if config is None else config, VERSION)
@@ -5355,41 +5355,66 @@ def _control_run_event(name, timestamp, status, **details):
 
 def _control_run_events_locked(record):
     events = []
-    created_at = record.get("created_at")
-    if created_at:
-        events.append(_control_run_event("queued", created_at, "queued"))
-    started_at = record.get("started_at")
-    if started_at:
-        events.append(_control_run_event(
-            "started", started_at, "running",
-            mode=record.get("mode"),
-            tool_profile=record.get("tool_profile"),
-        ))
-    if record.get("workspace_path") and started_at:
-        events.append(_control_run_event(
-            "workspace_prepared", started_at, "running",
+
+    def add(name, timestamp, status, **details):
+        if timestamp:
+            events.append(_control_run_event(name, timestamp, status, **details))
+
+    output_truncated = (
+        bool(record.get("stdout_truncated"))
+        or bool(record.get("stderr_truncated"))
+    )
+    changed_paths = record.get("workspace_changed_paths") or []
+
+    add("queued", record.get("created_at"), "queued")
+    add(
+        "started", record.get("started_at"), "running",
+        mode=record.get("mode"),
+        tool_profile=record.get("tool_profile"),
+    )
+    add(
+        "session_context_loaded", record.get("session_context_loaded_at"), "running",
+        context_chars=int(record.get("session_context_chars") or 0),
+        turns_used=int(record.get("session_turns_used") or 0),
+    )
+    if record.get("workspace_path"):
+        add(
+            "workspace_prepared", record.get("workspace_prepared_at") or record.get("started_at"), "running",
             isolated=True,
             source_branch=record.get("workspace_source_branch"),
             source_clean=record.get("workspace_source_clean"),
-        ))
+        )
+    add("process_started", record.get("process_started_at"), "running")
+    add(
+        "output_captured", record.get("output_captured_at"), "running",
+        output_truncated=output_truncated,
+    )
+    add(
+        "workspace_result_collected", record.get("workspace_result_collected_at"), "running",
+        changed_path_count=len(changed_paths),
+        diff_truncated=bool(record.get("workspace_diff_truncated")),
+    )
+    add(
+        "session_persisted", record.get("session_persisted_at"), record.get("status") or "running",
+        persisted=True,
+    )
+    add(
+        "session_persist_failed", record.get("session_persist_failed_at"), "failed",
+        persisted=False,
+    )
     if record.get("cancel_requested"):
         events.append(_control_run_event(
             "cancel_requested",
             record.get("finished_at") or control_run_now(),
             record.get("status") or "running",
         ))
-    finished_at = record.get("finished_at")
-    if finished_at:
-        events.append(_control_run_event(
-            "finished", finished_at, record.get("status") or "unknown",
-            exit_code=record.get("exit_code"),
-            output_truncated=(
-                bool(record.get("stdout_truncated"))
-                or bool(record.get("stderr_truncated"))
-            ),
-            session_persisted=record.get("session_persisted"),
-        ))
-    return events[:16]
+    add(
+        "finished", record.get("finished_at"), record.get("status") or "unknown",
+        exit_code=record.get("exit_code"),
+        output_truncated=output_truncated,
+        session_persisted=record.get("session_persisted"),
+    )
+    return events[:24]
 
 
 def control_run_events_payload(server, control_run_id):
@@ -5517,8 +5542,13 @@ def control_submit_run(server, request):
             "session_id": session_id,
             "session_context_chars": 0,
             "session_turns_used": 0,
+            "session_context_loaded_at": None,
             "session_persisted": None if session_id is None else False,
+            "session_persisted_at": None,
+            "session_persist_failed_at": None,
             "workspace_path": None,
+            "workspace_prepared_at": None,
+            "workspace_result_collected_at": None,
             "workspace_git_status": "",
             "workspace_changed_paths": [],
             "workspace_diff": "",
@@ -5526,6 +5556,8 @@ def control_submit_run(server, request):
             "workspace_source_sha": None,
             "workspace_source_branch": None,
             "workspace_source_clean": None,
+            "process_started_at": None,
+            "output_captured_at": None,
             "promotion_status": "none",
             "promotion_patch_sha256": None,
             "promotion_branch": None,
@@ -6161,11 +6193,13 @@ def _control_run_worker(server):
                 with server.control_run_condition:
                     record["session_context_chars"] = max(0, len(effective_task) - len(task))
                     record["session_turns_used"] = len(session["turns"])
+                    record["session_context_loaded_at"] = control_run_now()
             if mode in CONTROL_RUN_WORK_MODES:
                 workspace = create_control_work_workspace(control_run_id)
                 workspace_path = Path(workspace["path"]).resolve()
                 with server.control_run_condition:
                     record["workspace_path"] = str(workspace_path)
+                    record["workspace_prepared_at"] = control_run_now()
                     record["workspace_source_sha"] = workspace.get("source_sha")
                     record["workspace_source_branch"] = workspace.get("source_branch")
                     record["workspace_source_clean"] = workspace.get("source_clean")
@@ -6181,6 +6215,7 @@ def _control_run_worker(server):
                 start_new_session=True,
             )
             with server.control_run_lock:
+                record["process_started_at"] = control_run_now()
                 if server.control_run_active_id == control_run_id:
                     server.control_run_process = process
 
@@ -6203,18 +6238,22 @@ def _control_run_worker(server):
             exit_code = process.wait()
             stdout_text, stdout_truncated = _read_bounded_control_output(stdout_handle)
             stderr_text, stderr_truncated = _read_bounded_control_output(stderr_handle)
+            output_captured_at = control_run_now()
             workspace_result = (
                 collect_control_workspace_result(workspace_path)
                 if mode in CONTROL_RUN_WORK_MODES and workspace_path != ROOT
                 else None
             )
+            workspace_result_collected_at = control_run_now() if workspace_result is not None else None
             with server.control_run_condition:
                 record["exit_code"] = exit_code
+                record["output_captured_at"] = output_captured_at
                 if workspace_result is not None:
                     record["workspace_git_status"] = workspace_result["git_status"]
                     record["workspace_changed_paths"] = workspace_result["changed_paths"]
                     record["workspace_diff"] = workspace_result["diff"]
                     record["workspace_diff_truncated"] = workspace_result["diff_truncated"]
+                    record["workspace_result_collected_at"] = workspace_result_collected_at
                 record["stdout"] = stdout_text
                 record["stderr"] = stderr_text
                 record["stdout_truncated"] = stdout_truncated
@@ -6244,10 +6283,12 @@ def _control_run_worker(server):
                         )
                     with server.control_run_condition:
                         record["session_persisted"] = True
+                        record["session_persisted_at"] = control_run_now()
                 except Exception as exc:
                     terminal_status = "failed"
                     with server.control_run_condition:
                         record["session_persisted"] = False
+                        record["session_persist_failed_at"] = control_run_now()
                         detail = "control session persistence failed: " + type(exc).__name__ + ": " + str(exc)
                         record["stderr"] = ((record.get("stderr") or "") + "\n" + detail).strip()[-2000:]
             with server.control_run_condition:
@@ -12548,7 +12589,7 @@ def main():
         print(render_readiness_status(json_mode="--json" in args[1:]))
         return
 
-    if args and args[0] == "--release-check":
+    if args and args[0] in {"--release-check", "release-check"}:
         print(render_release_check(args[1:]))
         return
 
