@@ -609,6 +609,7 @@ class LocalAgentTest(unittest.TestCase):
                 "release-check",
                 "workspace",
                 "operating-mode",
+                "context",
             ):
                 self.assertIn(command, proc.stdout)
             self.assertEqual(proc.stderr, "")

@@ -881,6 +881,7 @@ Core commands:
   update                 Run bounded update-intelligence checks.
   metrics | audit        Inspect local operational records.
   spec | semantic        Inspect active spec or semantic code contracts.
+  context                Show ranked candidates, repo map, changes, or symbols.
   release-check          Run deterministic release readiness checks.
   release-pack           Generate local release artifacts.
   project-handoff        Generate next-chat handoff context.
