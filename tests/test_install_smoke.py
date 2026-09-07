@@ -561,6 +561,38 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertGreaterEqual(blocked_payload["blocked_count"], 1)
             self.assertIn("current file hash differs", json.dumps(blocked_payload))
 
+            recovery_clear = subprocess.run(
+                [str(bin_dir / "lai"), "recovery", "clear"],
+                cwd=rollback_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("Recovery checkpoint cleared.", recovery_clear.stdout)
+            self.assertIn("Recovery snapshot cleared.", recovery_clear.stdout)
+            self.assertNotIn("value = 0", recovery_clear.stdout)
+
+            cleared_checkpoints = subprocess.run(
+                [str(bin_dir / "lai"), "checkpoint", "list", "--json"],
+                cwd=rollback_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertEqual(json.loads(cleared_checkpoints.stdout)["checkpoint_count"], 0)
+
+            missing_snapshot = subprocess.run(
+                [str(bin_dir / "lai"), "snapshot", "show", rollback_run_id, "--json"],
+                cwd=rollback_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(missing_snapshot.returncode, 0)
+            self.assertIn("snapshot not found", missing_snapshot.stderr)
+
             readiness = subprocess.run(
                 [str(bin_dir / "lai"), "readiness", "--json"],
                 cwd=sample_repo,
