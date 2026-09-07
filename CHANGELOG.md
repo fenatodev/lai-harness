@@ -1,4 +1,24 @@
-## [0.4.7] - Unreleased
+## [Unreleased]
+
+## [0.4.8] - 2026-09-07
+
+### Added
+- Add deterministic `lai context diff` for metadata-only per-file Git numstat and untracked path counts without raw hunks.
+- Inject a compact metadata-only Git changes summary into context-intelligence modes so agents see worktree shape without raw diffs.
+- Add deterministic `lai context runs` for metadata-only recent run/process state and recovery checkpoint status without outputs or failure reasons.
+- Add deterministic context intelligence views for repo maps, compact Git changes, validation/test checks, symbol summaries, and a shell-free structured `context` tool for local and remote modes.
+- Add deterministic `lai operating-mode` plus `docs/OPERATING-MODE.md` to codify local-first milestone batching, release batching, read-only external evidence, capability-based compatibility, and product-progress decision gates.
+- Add deterministic `lai context map` for metadata-only repository structure, manifests, changed paths, suffix/directory groups, and semantic subsystem path matches without file contents.
+- Inject a compact metadata-only context map into context-intelligence modes to reduce early repository-discovery tool calls without treating it as evidence.
+- Add deterministic `lai context changes` for compact metadata-only Git status, counts, paths, and shortstat without raw diffs.
+- Add deterministic `lai context symbols <path>` for bounded function/class/method navigation metadata without source bodies.
+- Add a structured shell-free `context` tool exposing map, changes, and symbols metadata to agent modes without raw file bodies or diffs.
+
+### Changed
+- Count the structured `context` tool as read-only exploration so repeated metadata probing cannot bypass pre-write progress guards.
+- Expand the semantic code contract so context-intelligence discovery covers the new context metadata views and structured tool.
+
+## [0.4.7] - 2026-09-07
 
 ### Added
 - Enrich `GET /v1/runs/{control_run_id}/events` with metadata-only execution milestones for session context loading, workspace preparation, child process start, bounded output capture, workspace result collection, and session persistence.

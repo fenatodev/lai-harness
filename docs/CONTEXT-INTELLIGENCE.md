@@ -21,6 +21,53 @@ lai context "repair parser timeout"
 ```
 
 The command prints candidate paths, scores, and reason labels only.
+
+Use the deterministic repository map when the next step needs a compact structural view before choosing files:
+
+```bash
+lai context map
+lai context map --json --max-files 400 --max-paths 80
+```
+
+Use the compact Git change view when the next step needs current worktree shape without reading raw diffs:
+
+```bash
+lai context changes
+lai context changes --json --limit 60
+```
+
+Use the compact diff summary when the next step needs per-file addition/deletion counts without reading hunks:
+
+```bash
+lai context diff
+lai context diff --json --limit 60
+```
+
+Use the validation/test inventory to choose a cheap feedback loop without reading Makefile recipes or test bodies:
+
+```bash
+lai context checks
+lai context checks --json --limit 40
+```
+
+Use the compact run/process view to inspect recent run state and recovery-checkpoint metadata without reading outputs:
+
+```bash
+lai context runs
+lai context runs --json --limit 10
+```
+
+Use symbol summaries to inspect a file's top-level navigation shape without reading implementation bodies:
+
+```bash
+lai context symbols src/local-agent
+lai context symbols src/local-agent --json --limit 80
+```
+
+The map reports repository-relative files, directory/suffix groups, manifests, changed paths, and semantic subsystem path matches. The changes view reports staged/unstaged/untracked counts, bounded repository-relative paths, and shortstat only. The diff view reports per-file staged/unstaged addition and deletion counts plus untracked path counts without raw hunks. The checks view reports Makefile target names, validation profile names, test file paths, test method counts, changed-path samples, and suggested feedback loops without executing commands. The runs view reports recent run ids, modes, statuses, tool/validation counts, phase names, modified path counts, and recovery checkpoint status without output text or failure reasons. Symbol summaries report function/class/method names and line numbers only. These views are metadata-only and never include file contents, Makefile recipes, test bodies, stdout, stderr, transcripts, tokens, or raw diffs.
+
+For model runs in context-intelligence modes, LAI injects a much smaller prompt map containing only aggregate directory/suffix groups, changed paths, and semantic subsystem ids, plus a compact Git changes summary containing only status counts, shortstat, and bounded paths. The same metadata views are also available through the structured `context` tool so shell-free remote modes can inspect map, changes, diff, checks/tests, runs, and symbols without calling `bash`. This is intended to reduce early repository-discovery calls without treating metadata as file evidence.
+
 ## Inventory bounds
 
 The inventory prefers `git ls-files --cached --others --exclude-standard` and falls back to a bounded filesystem walk when Git listing is unavailable or empty.
@@ -42,9 +89,19 @@ Current weights are additive:
 - `manifest`: +10
 
 Generic task words are filtered before matching. Identical scores are ordered by repository-relative path, so identical input/state produces stable ordering.
+## Validation inventory
+
+`lai context checks` summarizes Makefile target names, validation profiles, test file counts, test method counts, changed-path samples, and suggested feedback loops. It does not print Makefile recipes or test bodies, and it does not run validation commands.
+
+Use it to choose the cheapest trustworthy feedback loop during active development. `make milestone-gate` remains reserved for milestone/release freeze unless risk evidence justifies an earlier full gate.
+
+## Run/process state
+
+`lai context runs` summarizes recent run/process metadata and recovery-checkpoint state without printing stdout, stderr, task text, validation output, failure reasons, raw diffs, absolute state paths, or private runtime file paths. It is meant for orientation before inspecting a specific run through the existing explicit run-history commands.
+
 ## Prompt contract
 
-At most eight candidates are rendered, within a 1,800-character metadata budget. The block contains only:
+At most eight candidates are rendered, within a 1,800-character metadata budget. The ranked-candidate block contains only:
 
 - repository-relative path;
 - numeric score;
@@ -58,4 +115,4 @@ Workspace `recent` and `modified` paths are normalized and revalidated before th
 
 Ranking is advisory. Repository filenames and sampled text can influence candidate order, including malicious or misleading content. The model must still inspect a file before relying on its contents, and all existing repository rules, mode gates, policy decisions, validation requirements, and recovery checks remain authoritative.
 
-lai harness does not use embeddings, vector databases, external indexing services, MCP, delegates, or learning for this feature. Rankings are recomputed from current local evidence and are not persisted as a separate index.
+lai harness does not use embeddings, vector databases, external indexing services, MCP, delegates, or learning for this feature. Rankings and context maps are recomputed from current local evidence and are not persisted as a separate index.

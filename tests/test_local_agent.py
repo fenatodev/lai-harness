@@ -54,6 +54,16 @@ class LocalAgentTest(unittest.TestCase):
         self.root = self.base / "repo"
         self.root.mkdir()
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "lai-tests@example.invalid"],
+            cwd=self.root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "lai tests"],
+            cwd=self.root,
+            check=True,
+        )
         agent.ROOT = self.root.resolve()
         agent.STATE_BASE = self.base / "data" / "state"
         agent.RUN_CHECKPOINT_CONTEXT = None
@@ -553,6 +563,38 @@ class LocalAgentTest(unittest.TestCase):
         self.assertEqual(payload["version"], agent.VERSION)
         self.assertIn(payload["overall"], {"ready", "blocked"})
 
+    def test_operating_mode_command_is_deterministic_and_policy_aligned(self):
+        result = subprocess.run(
+            [str(SOURCE), "operating-mode", "--json"],
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            timeout=5,
+            check=True,
+        )
+        self.assertEqual(result.stderr, "")
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["mode"], "local_first_milestone_batches")
+        self.assertEqual(payload["external_evidence"]["mode"], "read_only_untrusted_evidence")
+        self.assertIn("product progress", payload["decision_gate"]["before_action"])
+        self.assertIn("bounded directly related deliverable", payload["decision_gate"]["before_exit_or_sync"])
+        self.assertIn("scope creep", payload["decision_gate"]["stop_when"])
+        self.assertIn("focused tests", payload["development"]["feedback"])
+        self.assertIn("required capabilities", payload["compatibility"]["preference"])
+
+        text_result = subprocess.run(
+            [str(SOURCE), "operating-mode"],
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            timeout=5,
+            check=True,
+        )
+        self.assertIn("# lai operating mode", text_result.stdout)
+        self.assertIn("Decision gate", text_result.stdout)
+        self.assertIn("External evidence", text_result.stdout)
+        self.assertNotIn("sk-", text_result.stdout)
+
     def test_top_level_help_is_successful_and_non_executing(self):
         for args in (["--help"], ["-h"], ["help"]):
             proc = subprocess.run(
@@ -576,6 +618,8 @@ class LocalAgentTest(unittest.TestCase):
                 "spec | semantic",
                 "release-check",
                 "workspace",
+                "operating-mode",
+                "context",
             ):
                 self.assertIn(command, proc.stdout)
             self.assertEqual(proc.stderr, "")
@@ -2102,7 +2146,7 @@ class LocalAgentTest(unittest.TestCase):
     def test_pre_write_guard_allows_distinct_calls_and_resets_after_write(self):
         guard = agent.PreWriteExplorationGuard(enabled=True, budget=3)
         self.assertIsNone(guard.check("read", {"path": "one.py"}))
-        self.assertIsNone(guard.check("read", {"path": "two.py"}))
+        self.assertIsNone(guard.check("context", {"operation": "map"}))
         guard.note_successful_write()
         self.assertIsNone(guard.check("bash", {"command": "pytest -q"}))
         self.assertFalse(guard.exhausted)
@@ -2113,6 +2157,12 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIsNone(guard.check("search", args))
         result = guard.check("search", {"path": ".", "query": "needle"})
         self.assertTrue(result.startswith("BLOCKED:"))
+
+        context_guard = agent.PreWriteExplorationGuard(enabled=True)
+        context_args = {"operation": "diff", "limit": 5}
+        self.assertIsNone(context_guard.check("context", context_args))
+        context_result = context_guard.check("context", {"limit": 5, "operation": "diff"})
+        self.assertTrue(context_result.startswith("BLOCKED:"))
         self.assertEqual(guard.reason, "exploration_budget_exhausted")
         self.assertEqual(guard.trigger, "repeated_read_only_call")
         self.assertEqual(
@@ -3033,6 +3083,9 @@ class LocalAgentTest(unittest.TestCase):
                     agent.main()
 
             system = captured["messages"][0]["content"]
+            self.assertIn("CONTEXT MAP", system)
+            self.assertIn("metadata_only_not_evidence", system)
+            self.assertIn("CONTEXT CHANGES", system)
             self.assertIn("CONTEXT CANDIDATES", system)
             self.assertIn("src/worker.py", system)
 
@@ -3052,6 +3105,8 @@ class LocalAgentTest(unittest.TestCase):
                 agent.main()
 
         system = captured["messages"][0]["content"]
+        self.assertNotIn("CONTEXT MAP", system)
+        self.assertNotIn("CONTEXT CHANGES", system)
         self.assertNotIn("CONTEXT CANDIDATES", system)
 
     def test_deterministic_spec_status_needs_no_server(self):
@@ -3602,6 +3657,321 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("git_changed", shown)
         self.assertNotIn("timeout = 30", shown)
         self.assertLessEqual(len(shown), 180)
+    def test_context_tool_exposes_metadata_views_without_shell_or_bodies(self):
+        (self.root / "module.py").write_text("def worker():\n    return 'secret-body'\n")
+        (self.root / "Makefile").write_text("test:\n\t@echo secret-body\n")
+        (self.root / "tests").mkdir()
+        (self.root / "tests" / "test_context_tool.py").write_text(
+            "def test_tool():\n    assert 'secret-body'\n"
+        )
+        changes = agent.tool_context({"operation": "changes", "limit": 5})
+        diff = agent.tool_context({"operation": "diff", "limit": 5})
+        checks = agent.tool_context({"operation": "checks", "limit": 5})
+        tests_alias = agent.tool_context({"operation": "tests", "limit": 5})
+        runs = agent.tool_context({"operation": "runs", "limit": 5})
+        symbols = agent.tool_context({"operation": "symbols", "path": "module.py", "limit": 5})
+        repo_map = agent.tool_context({"operation": "map", "max_files": 20, "max_paths": 4})
+        self.assertIn("# lai context changes", changes)
+        self.assertIn("# lai context diff", diff)
+        self.assertIn("# lai context checks", checks)
+        self.assertIn("# lai context checks", tests_alias)
+        self.assertIn("# lai context runs", runs)
+        self.assertIn("# lai context symbols", symbols)
+        self.assertIn("# lai context map", repo_map)
+        self.assertIn("worker", symbols)
+        combined = changes + diff + checks + tests_alias + runs + symbols + repo_map
+        self.assertNotIn("secret-body", combined)
+        self.assertNotIn("```", combined)
+        self.assertIn("metadata", combined.lower())
+        self.assertEqual(
+            agent.evaluate_tool_policy("context", {"operation": "map"}, mode="plan")["decision"],
+            "ALLOW",
+        )
+
+    def test_context_runs_are_metadata_only_and_secret_free(self):
+        run = agent.empty_run_history_record("run-123")
+        run.update({
+            "last_ts": "2026-09-07T00:00:00Z",
+            "mode": "implement",
+            "status": "completed",
+            "tool_calls": 2,
+            "tools": {"read": 1, "context": 1},
+            "policy": {"ALLOW": 2},
+            "validation_count": 1,
+            "validation_events": [{
+                "ts": "2026-09-07T00:00:01Z",
+                "type": "validation",
+                "command": "echo sk-secret-command",
+                "result": "Traceback sk-secret-result",
+            }],
+            "events": [{
+                "ts": "2026-09-07T00:00:01Z",
+                "type": "validation",
+                "command": "echo sk-secret-command",
+                "result": "Traceback sk-secret-result",
+            }],
+            "modified_paths": ["src/local-agent"],
+            "phases": ["started", "completed"],
+        })
+        recovery = {"status": "none", "resumable": False, "checkpoint": None, "reasons": []}
+        with mock.patch.object(agent, "collect_run_history", return_value=[run]), \
+             mock.patch.object(agent, "inspect_recovery_checkpoint", return_value=recovery):
+            payload = agent.context_runs_payload(limit=5)
+        dumped = json.dumps(payload)
+        self.assertEqual(payload["runs_version"], 1)
+        self.assertTrue(payload["metadata_only"])
+        self.assertEqual(payload["repository"], ".")
+        self.assertEqual(payload["runs"][0]["run_id"], "run-123")
+        self.assertEqual(payload["runs"][0]["last_failure"]["status"], "fail")
+        self.assertNotIn("command", payload["runs"][0]["last_failure"])
+        self.assertNotIn("command", payload["runs"][0]["last_validation"])
+        self.assertNotIn("sk-secret", dumped)
+        rendered = agent.render_context_runs(payload)
+        self.assertIn("# lai context runs", rendered)
+        self.assertIn("run-123", rendered)
+        self.assertNotIn("sk-secret", rendered)
+
+    def test_deterministic_context_runs_cli_needs_no_server(self):
+        env = {**os.environ, "LAI_DATA_DIR": str(self.base / "data")}
+        result = subprocess.run(
+            [str(SOURCE.parent / "lai"), "context", "runs", "--json", "--limit", "2"],
+            cwd=self.root, env=env, text=True, capture_output=True,
+            timeout=5, check=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["runs_version"], 1)
+        self.assertTrue(payload["metadata_only"])
+        self.assertEqual(payload["repository"], ".")
+        self.assertIn("checkpoint_status", payload)
+        self.assertEqual(result.stderr, "")
+
+    def test_context_diff_is_metadata_only_with_numstat(self):
+        (self.root / "tracked.py").write_text("old line\nkeep\n", encoding="utf-8")
+        subprocess.run(["git", "add", "tracked.py"], cwd=self.root, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=self.root, check=True)
+        (self.root / "tracked.py").write_text("new secret line\nkeep\nextra\n", encoding="utf-8")
+        (self.root / "untracked.py").write_text("untracked secret body\n", encoding="utf-8")
+
+        payload = agent.context_git_diff_payload(limit=10)
+        dumped = json.dumps(payload)
+        self.assertEqual(payload["diff_version"], 1)
+        self.assertTrue(payload["metadata_only"])
+        self.assertFalse(payload["inspected_content"])
+        self.assertEqual(payload["repository"], ".")
+        self.assertGreaterEqual(payload["totals"]["unstaged_additions"], 1)
+        self.assertGreaterEqual(payload["totals"]["unstaged_deletions"], 1)
+        self.assertEqual(payload["totals"]["untracked_paths"], 1)
+        self.assertIn("tracked.py", dumped)
+        self.assertIn("untracked.py", dumped)
+        self.assertNotIn("new secret line", dumped)
+        self.assertNotIn("untracked secret body", dumped)
+        rendered = agent.render_context_diff(payload)
+        self.assertIn("# lai context diff", rendered)
+        self.assertIn("unstaged_additions", rendered)
+        self.assertNotIn("secret", rendered)
+
+    def test_deterministic_context_diff_cli_needs_no_server(self):
+        (self.root / "tracked.py").write_text("old\n", encoding="utf-8")
+        subprocess.run(["git", "add", "tracked.py"], cwd=self.root, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=self.root, check=True)
+        (self.root / "tracked.py").write_text("new hidden value\n", encoding="utf-8")
+        env = {**os.environ, "LAI_DATA_DIR": str(self.base / "data")}
+        result = subprocess.run(
+            [str(SOURCE.parent / "lai"), "context", "diff", "--json", "--limit", "3"],
+            cwd=self.root, env=env, text=True, capture_output=True,
+            timeout=5, check=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["diff_version"], 1)
+        self.assertTrue(payload["metadata_only"])
+        self.assertIn("tracked.py", result.stdout)
+        self.assertNotIn("new hidden value", result.stdout)
+        self.assertEqual(result.stderr, "")
+
+    def test_context_checks_are_metadata_only_and_suggests_feedback(self):
+        (self.root / "Makefile").write_text(
+            "test:\n\t@echo sk-secret-test-body\ncheck:\n\t@echo ok\n",
+            encoding="utf-8",
+        )
+        tests_dir = self.root / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_sample.py").write_text(
+            "import unittest\n\n"
+            "class SampleTest(unittest.TestCase):\n"
+            "    def test_secret_body(self):\n"
+            "        token = 'sk-secret-body'\n"
+            "        self.assertTrue(token)\n",
+            encoding="utf-8",
+        )
+
+        payload = agent.context_checks_payload(limit=5)
+        dumped = json.dumps(payload)
+        self.assertTrue(payload["metadata_only"])
+        self.assertFalse(payload["inspected_content"])
+        self.assertIn("test", payload["make_targets"])
+        self.assertIn("check", payload["make_targets"])
+        self.assertEqual(payload["test_files"][0]["path"], "tests/test_sample.py")
+        self.assertEqual(payload["test_files"][0]["tests"], 1)
+        self.assertIn("make test", [item["check"] for item in payload["suggested_feedback"]])
+        self.assertNotIn("sk-secret", dumped)
+        rendered = agent.render_context_checks(payload)
+        self.assertIn("# lai context checks", rendered)
+        self.assertIn("tests/test_sample.py", rendered)
+        self.assertNotIn("sk-secret", rendered)
+
+    def test_deterministic_context_checks_cli_needs_no_server(self):
+        (self.root / "Makefile").write_text("test:\n\t@echo ok\n", encoding="utf-8")
+        tests_dir = self.root / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_cli.py").write_text(
+            "def test_cli_path():\n    assert True\n", encoding="utf-8"
+        )
+        env = {**os.environ, "LAI_DATA_DIR": str(self.base / "data")}
+        result = subprocess.run(
+            [str(SOURCE.parent / "lai"), "context", "checks", "--json", "--limit", "2"],
+            cwd=self.root, env=env, text=True, capture_output=True,
+            timeout=5, check=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["checks_version"], 1)
+        self.assertTrue(payload["metadata_only"])
+        self.assertIn("test", payload["make_targets"])
+        self.assertEqual(payload["test_files"][0]["path"], "tests/test_cli.py")
+
+    def test_context_symbols_are_metadata_only_for_python_and_javascript(self):
+        (self.root / "module.py").write_text(
+            "SECRET = 'sk-not-real-secret'\n"
+            "class Worker:\n"
+            "    def run(self):\n"
+            "        return SECRET\n"
+            "def helper():\n"
+            "    return SECRET\n",
+            encoding="utf-8",
+        )
+        py_payload = agent.context_symbols_payload("module.py", limit=10)
+        self.assertEqual(py_payload["parser"], "ok")
+        self.assertTrue(py_payload["metadata_only"])
+        names = {item["name"] for item in py_payload["symbols"]}
+        self.assertIn("Worker", names)
+        self.assertIn("Worker.run", names)
+        self.assertIn("helper", names)
+        self.assertNotIn("sk-not-real-secret", json.dumps(py_payload))
+
+        (self.root / "app.js").write_text(
+            "const token = 'sk-not-real-secret';\n"
+            "class Ui {}\n"
+            "function render() { return token; }\n"
+            "const boot = () => token;\n",
+            encoding="utf-8",
+        )
+        js_payload = agent.context_symbols_payload("app.js", limit=10)
+        js_names = {item["name"] for item in js_payload["symbols"]}
+        self.assertIn("Ui", js_names)
+        self.assertIn("render", js_names)
+        self.assertIn("boot", js_names)
+        self.assertNotIn("sk-not-real-secret", json.dumps(js_payload))
+        rendered = agent.render_context_symbols(py_payload)
+        self.assertIn("# lai context symbols", rendered)
+        self.assertNotIn("SECRET", rendered)
+
+    def test_deterministic_context_symbols_cli_needs_no_server(self):
+        (self.root / "module.py").write_text("def worker():\n    return 'secret-body'\n")
+        env = {**__import__("os").environ, "LAI_DATA_DIR": str(self.base / "data")}
+        result = subprocess.run(
+            [str(SOURCE.parent / "lai"), "context", "symbols", "module.py", "--json", "--limit", "5"],
+            cwd=self.root, env=env, text=True, capture_output=True,
+            timeout=5, check=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["symbols_version"], 1)
+        self.assertTrue(payload["metadata_only"])
+        self.assertEqual(payload["path"], "module.py")
+        self.assertEqual(payload["symbols"][0]["name"], "worker")
+        self.assertNotIn("secret-body", result.stdout)
+        self.assertEqual(result.stderr, "")
+
+    def test_context_changes_are_metadata_only_bounded_and_secret_free(self):
+        (self.root / "tracked.py").write_text("old value\n")
+        subprocess.run(["git", "add", "tracked.py"], cwd=self.root, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=self.root, check=True)
+        (self.root / "tracked.py").write_text("new secret value\n")
+        (self.root / "new.py").write_text("untracked secret value\n")
+        payload = agent.context_git_changes_payload(limit=1)
+        full_payload = agent.context_git_changes_payload(limit=10)
+        self.assertEqual(payload["overall"], "dirty")
+        self.assertTrue(payload["metadata_only"])
+        self.assertEqual(payload["repository"], ".")
+        self.assertEqual(payload["entry_limit"], 1)
+        self.assertEqual(payload["entry_count"], 2)
+        self.assertTrue(payload["entry_list_truncated"])
+        self.assertEqual(payload["counts"]["unstaged"], 1)
+        self.assertEqual(payload["counts"]["untracked"], 1)
+        full_dumped = json.dumps(full_payload)
+        self.assertIn("tracked.py", full_dumped)
+        self.assertIn("new.py", full_dumped)
+        dumped = json.dumps(payload) + full_dumped
+        self.assertNotIn("new secret value", dumped)
+        self.assertNotIn("untracked secret value", dumped)
+        rendered = agent.render_context_changes(payload)
+        self.assertIn("# lai context changes", rendered)
+        self.assertIn("Metadata-only: true", rendered)
+        self.assertNotIn("secret value", rendered)
+
+    def test_deterministic_context_changes_cli_needs_no_server(self):
+        (self.root / "worker.py").write_text("timeout = 30\n")
+        env = {**__import__("os").environ, "LAI_DATA_DIR": str(self.base / "data")}
+        result = subprocess.run(
+            [str(SOURCE.parent / "lai"), "context", "changes", "--json", "--limit", "5"],
+            cwd=self.root, env=env, text=True, capture_output=True,
+            timeout=5, check=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["changes_version"], 1)
+        self.assertEqual(payload["overall"], "dirty")
+        self.assertTrue(payload["metadata_only"])
+        self.assertIn("worker.py", result.stdout)
+        self.assertNotIn("timeout = 30", result.stdout)
+        self.assertEqual(result.stderr, "")
+
+    def test_context_map_is_metadata_only_bounded_and_semantic(self):
+        (self.root / "src").mkdir()
+        (self.root / "docs").mkdir()
+        (self.root / "src" / "local-agent").write_text("super secret implementation\n")
+        (self.root / "docs" / "CONTEXT-INTELLIGENCE.md").write_text("context docs\n")
+        (self.root / "README.md").write_text("readme\n")
+        with mock.patch.object(agent, "context_git_changed_paths", return_value={"src/local-agent"}):
+            payload = agent.repository_context_map(max_files=20, max_paths=2)
+        self.assertTrue(payload["metadata_only"])
+        self.assertFalse(payload["inspected_content"])
+        self.assertEqual(payload["repository"], ".")
+        self.assertEqual(payload["file_list_limit"], 2)
+        self.assertLessEqual(len(payload["files"]), 2)
+        self.assertIn("src/local-agent", payload["changed_paths"])
+        self.assertNotIn("super secret implementation", json.dumps(payload))
+        subsystems = {item["id"] for item in payload["semantic_subsystems"]}
+        self.assertIn("context-intelligence", subsystems)
+        rendered = agent.render_context_map(payload)
+        self.assertIn("# lai context map", rendered)
+        self.assertIn("Metadata-only: true", rendered)
+        self.assertNotIn("super secret implementation", rendered)
+
+    def test_deterministic_context_map_cli_needs_no_server(self):
+        (self.root / "src").mkdir()
+        (self.root / "src" / "worker.py").write_text("timeout = 30\n")
+        env = {**__import__("os").environ, "LAI_DATA_DIR": str(self.base / "data")}
+        result = subprocess.run(
+            [str(SOURCE.parent / "lai"), "context", "map", "--json", "--max-files", "20", "--max-paths", "3"],
+            cwd=self.root, env=env, text=True, capture_output=True,
+            timeout=5, check=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["map_version"], 1)
+        self.assertTrue(payload["metadata_only"])
+        self.assertFalse(payload["inspected_content"])
+        self.assertLessEqual(len(payload["files"]), 3)
+        self.assertNotIn("timeout = 30", result.stdout)
+        self.assertEqual(result.stderr, "")
+
     def test_deterministic_context_cli_needs_no_server(self):
         (self.root / "worker.py").write_text("timeout = 30\n")
         env = {**__import__("os").environ, "LAI_DATA_DIR": str(self.base / "data")}

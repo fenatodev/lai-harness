@@ -63,10 +63,17 @@ SEMANTIC_CODE_CONTRACT: SemanticCodeContract = {
         },
         {
             "id": "context-intelligence",
-            "intent": "rank likely files for a task without treating candidates as evidence",
+            "intent": "rank and summarize repository context metadata without treating candidates, maps, changes, checks, runs, or symbols as inspected evidence",
             "paths": ["src/local-agent", "docs/CONTEXT-INTELLIGENCE.md"],
-            "entrypoints": ["rank_context_candidates", "render_context_candidates", "print_context_candidates"],
-            "terms": ["context", "ranking", "candidate", "inventory", "semantic", "terms", "workspace", "recent", "modified"],
+            "entrypoints": [
+                "rank_context_candidates", "render_context_candidates", "print_context_candidates",
+                "repository_context_map", "context_git_changes_payload", "context_checks_payload",
+                "context_runs_payload", "context_symbols_payload", "tool_context",
+            ],
+            "terms": [
+                "context", "ranking", "candidate", "inventory", "semantic", "terms", "workspace", "recent", "modified",
+                "map", "changes", "checks", "tests", "runs", "symbols", "metadata", "tool",
+            ],
         },
         {
             "id": "spec-workflow",
