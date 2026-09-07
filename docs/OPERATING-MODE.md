@@ -8,6 +8,14 @@ Optimize for durable progress, not publication ritual.
 
 The project should prefer local-first milestone development, focused feedback loops, explicit evidence, and release batching over repeated version bumps, PRs, tags, and GitHub Releases for every small change.
 
+## Decision gate
+
+Before any action, ask: does this generate real product progress, or does it merely move work around? Prefer actions that close product gaps, reduce future churn, improve safety, or preserve validated context.
+
+Before ending a session, synchronizing, opening a PR, or publishing, ask: what else can be concluded now from the current context so this part of the project does not need to be revisited soon? Continue only when the extra work is coherent, bounded, and directly connected to the active milestone.
+
+Do not use this rule as permission for scope creep. If the next action only adds ritual, cosmetic cleanup, speculative architecture, or unvalidated complexity, stop and record the state instead.
+
 ## Development cadence
 
 Use a dedicated milestone branch for related work. A milestone may contain multiple small local commits as long as each commit is coherent and tested with the cheapest trustworthy feedback loop.

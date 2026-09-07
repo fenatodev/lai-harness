@@ -192,6 +192,8 @@ lai project-handoff --target 0.4.7 --remote --json
 lai operating-mode --json
 ```
 
+The operating-mode policy also requires a product-progress decision gate before actions and before ending/synchronizing work, so milestone context is used to close bounded related deliverables instead of merely moving work around.
+
 See [Stable readiness](docs/STABLE-READINESS.md), [Release governance](docs/RELEASE-GOVERNANCE.md), [Release checklist](docs/RELEASE-CHECKLIST.md), and [Release notes](docs/RELEASE-NOTES.md).
 
 ## Security boundary

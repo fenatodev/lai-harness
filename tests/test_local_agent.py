@@ -566,6 +566,9 @@ class LocalAgentTest(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertEqual(payload["mode"], "local_first_milestone_batches")
         self.assertEqual(payload["external_evidence"]["mode"], "read_only_untrusted_evidence")
+        self.assertIn("product progress", payload["decision_gate"]["before_action"])
+        self.assertIn("bounded directly related deliverable", payload["decision_gate"]["before_exit_or_sync"])
+        self.assertIn("scope creep", payload["decision_gate"]["stop_when"])
         self.assertIn("focused tests", payload["development"]["feedback"])
         self.assertIn("required capabilities", payload["compatibility"]["preference"])
 
@@ -578,6 +581,7 @@ class LocalAgentTest(unittest.TestCase):
             check=True,
         )
         self.assertIn("# lai operating mode", text_result.stdout)
+        self.assertIn("Decision gate", text_result.stdout)
         self.assertIn("External evidence", text_result.stdout)
         self.assertNotIn("sk-", text_result.stdout)
 

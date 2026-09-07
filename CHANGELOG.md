@@ -1,9 +1,9 @@
 ## [Unreleased]
 
 ### Added
-- Add deterministic `lai operating-mode` plus `docs/OPERATING-MODE.md` to codify local-first milestone batching, release batching, read-only external evidence, and capability-based compatibility policy.
+- Add deterministic `lai operating-mode` plus `docs/OPERATING-MODE.md` to codify local-first milestone batching, release batching, read-only external evidence, capability-based compatibility, and product-progress decision gates.
 
-## [0.4.7] - Unreleased
+## [0.4.7] - 2026-09-07
 
 ### Added
 - Enrich `GET /v1/runs/{control_run_id}/events` with metadata-only execution milestones for session context loading, workspace preparation, child process start, bounded output capture, workspace result collection, and session persistence.

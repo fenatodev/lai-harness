@@ -12503,6 +12503,17 @@ def operating_mode_payload():
         "version": VERSION,
         "policy_version": 1,
         "mode": "local_first_milestone_batches",
+        "decision_gate": {
+            "before_action": "prefer product progress over work movement",
+            "progress_examples": [
+                "close a product gap",
+                "reduce future release or integration churn",
+                "improve safety, recovery, observability, or validated context",
+                "preserve current context in a deterministic artifact",
+            ],
+            "before_exit_or_sync": "ask what bounded directly related deliverable can be concluded now to avoid revisiting this project area soon",
+            "stop_when": "stop when the next action is only scope creep, ritual, cosmetic cleanup, speculative architecture, or unvalidated complexity",
+        },
         "development": {
             "branching": "work on a dedicated milestone branch",
             "commits": "make small local commits for tested coherent slices",
@@ -12560,8 +12571,16 @@ def render_operating_mode(args=None):
         f"Product: {payload['product']} {payload['version']}",
         f"Policy: {payload['mode']} v{payload['policy_version']}",
         "",
-        "## Development",
+        "## Decision gate",
     ]
+    for key, value in payload["decision_gate"].items():
+        if isinstance(value, list):
+            lines.append(f"- {key}:")
+            for item in value:
+                lines.append(f"  - {item}")
+        else:
+            lines.append(f"- {key}: {value}")
+    lines.extend(["", "## Development"])
     for key, value in payload["development"].items():
         lines.append(f"- {key}: {value}")
     lines.extend(["", "## Publication"])
@@ -13062,7 +13081,7 @@ If AGENTS.md exists, read it before the first edit.
 Make minimal, correct changes.
 Use search for targeted code/text lookup. Use bash for Git status/diff, tests, checks, and project commands. Use create only for genuinely new files.
 Prefer existing project commands and installed runtimes.
-Follow `lai operating-mode`/AGENTS.md: use focused local feedback during development, batch PR/release work at milestone boundaries, and use read-only web evidence for current, uncertain, strategic, dependency, release, or security-relevant decisions.
+Follow `lai operating-mode`/AGENTS.md: prefer product progress over work movement, use focused local feedback during development, batch PR/release work at milestone boundaries, check for bounded directly related deliverables before ending or syncing, and use read-only web evidence for current, uncertain, strategic, dependency, release, or security-relevant decisions.
 Never install packages, dependencies, runtimes, or system software.
 Never perform destructive Git, Docker, database, filesystem, or system operations.
 Never claim a command, edit, or test happened unless a tool actually performed it.

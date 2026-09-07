@@ -130,6 +130,8 @@ lai project-handoff --target 0.4.7 --remote --json
 lai operating-mode --json
 ```
 
+A política de operating-mode também exige um filtro de progresso real no produto antes de ações e antes de encerrar/sincronizar trabalho, para usar o contexto do milestone em entregas relacionadas e limitadas em vez de apenas movimentar trabalho.
+
 ## Segurança
 
 O lai harness **não é uma sandbox**. As ferramentas de arquivo ficam confinadas à raiz do repositório e a inspeção Git dedicada é somente leitura, mas `bash` local permitido ainda executa com as permissões do usuário. A policy governa ações; ela não substitui isolamento do sistema operacional.
