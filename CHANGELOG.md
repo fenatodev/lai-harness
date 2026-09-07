@@ -6,6 +6,7 @@
 - Inject a compact metadata-only context map into context-intelligence modes to reduce early repository-discovery tool calls without treating it as evidence.
 - Add deterministic `lai context changes` for compact metadata-only Git status, counts, paths, and shortstat without raw diffs.
 - Add deterministic `lai context symbols <path>` for bounded function/class/method navigation metadata without source bodies.
+- Add a structured shell-free `context` tool exposing map, changes, and symbols metadata to agent modes without raw file bodies or diffs.
 
 ## [0.4.7] - 2026-09-07
 

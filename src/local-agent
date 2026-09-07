@@ -479,6 +479,24 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "context",
+            "description": "Return bounded repository context metadata: map, changes, or symbols. Metadata only; no file bodies or raw diffs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "operation": {"type": "string", "enum": ["map", "changes", "symbols"]},
+                    "path": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 80},
+                    "max_files": {"type": "integer", "minimum": 1, "maximum": 400},
+                    "max_paths": {"type": "integer", "minimum": 0, "maximum": 80}
+                },
+                "required": ["operation"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "web_search",
             "description": "Search the public web through a fixed read-only provider and return bounded untrusted evidence. Does not fetch result pages.",
             "parameters": {
@@ -523,18 +541,18 @@ TOOLS = [
 ]
 
 LOCAL_TOOL_NAMES_BY_MODE = {
-    "general": frozenset({"project", "read", "search", "list", "git", "edit", "create", "bash", "web_search", "web_fetch"}),
-    "fix": frozenset({"project", "read", "search", "list", "git", "edit", "validate", "bash", "web_search", "web_fetch"}),
-    "test": frozenset({"project", "read", "search", "list", "git", "bash", "web_search", "web_fetch"}),
-    "review": frozenset({"read", "search", "list", "git", "web_search", "web_fetch"}),
-    "debug": frozenset({"inspect", "search", "git", "bash", "web_search", "web_fetch"}),
-    "diagnose": frozenset({"project", "read", "inspect", "search", "list", "git", "bash", "web_search", "web_fetch"}),
-    "refactor": frozenset({"project", "read", "search", "list", "git", "edit", "create", "validate", "bash", "web_search", "web_fetch"}),
-    "security": frozenset({"read", "search", "list", "git", "web_search", "web_fetch"}),
-    "plan": frozenset({"inspect", "search", "web_search", "web_fetch"}),
-    "release": frozenset({"project", "read", "inspect", "search", "list", "git", "bash"}),
-    "ci-fix": frozenset({"inspect", "search", "git", "patch", "rewrite", "create", "validate", "bash", "web_search", "web_fetch"}),
-    "implement": frozenset({"inspect", "search", "git", "patch", "rewrite", "create", "validate", "bash", "web_search", "web_fetch"}),
+    "general": frozenset({"project", "read", "search", "list", "git", "context", "edit", "create", "bash", "web_search", "web_fetch"}),
+    "fix": frozenset({"project", "read", "search", "list", "git", "context", "edit", "validate", "bash", "web_search", "web_fetch"}),
+    "test": frozenset({"project", "read", "search", "list", "git", "context", "bash", "web_search", "web_fetch"}),
+    "review": frozenset({"read", "search", "list", "git", "context", "web_search", "web_fetch"}),
+    "debug": frozenset({"inspect", "search", "git", "context", "bash", "web_search", "web_fetch"}),
+    "diagnose": frozenset({"project", "read", "inspect", "search", "list", "git", "context", "bash", "web_search", "web_fetch"}),
+    "refactor": frozenset({"project", "read", "search", "list", "git", "context", "edit", "create", "validate", "bash", "web_search", "web_fetch"}),
+    "security": frozenset({"read", "search", "list", "git", "context", "web_search", "web_fetch"}),
+    "plan": frozenset({"inspect", "search", "context", "web_search", "web_fetch"}),
+    "release": frozenset({"project", "read", "inspect", "search", "list", "git", "context", "bash"}),
+    "ci-fix": frozenset({"inspect", "search", "git", "context", "patch", "rewrite", "create", "validate", "bash", "web_search", "web_fetch"}),
+    "implement": frozenset({"inspect", "search", "git", "context", "patch", "rewrite", "create", "validate", "bash", "web_search", "web_fetch"}),
 }
 
 
@@ -3788,6 +3806,45 @@ def render_web_evidence(kind, payload):
     )
 
 
+
+def _tool_context_int(args, key, default, maximum, minimum=1):
+    value = args.get(key, default)
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(parsed, maximum))
+
+
+def tool_context(args):
+    if not isinstance(args, dict):
+        return "ERROR: context arguments must be an object"
+    operation = str(args.get("operation") or "").strip().lower()
+    try:
+        if operation == "map":
+            payload = repository_context_map(
+                max_files=_tool_context_int(args, "max_files", 160, 400),
+                max_paths=_tool_context_int(args, "max_paths", 20, 80, minimum=0),
+            )
+            return render_context_map(payload)
+        if operation == "changes":
+            payload = context_git_changes_payload(
+                limit=_tool_context_int(args, "limit", 60, 80)
+            )
+            return render_context_changes(payload)
+        if operation == "symbols":
+            path = str(args.get("path") or "").strip()
+            if not path:
+                return "ERROR: context symbols requires path"
+            payload = context_symbols_payload(
+                path, limit=_tool_context_int(args, "limit", 80, 80)
+            )
+            return render_context_symbols(payload)
+    except SystemExit as exc:
+        return "ERROR: " + str(exc)
+    return "ERROR: context operation must be map, changes, or symbols"
+
+
 def tool_web_search(args):
     query = args.get("query")
     max_results = args.get("max_results", WEB_SEARCH_DEFAULT_RESULTS)
@@ -4641,15 +4698,15 @@ CONTROL_RUN_WORK_PROFILE = "repository-work-no-shell"
 CONTROL_RUN_READ_ONLY_MODES = frozenset({"plan", "review", "security", "diagnose", "release"})
 CONTROL_RUN_WORK_MODES = frozenset({"implement", "fix", "refactor", "ci-fix"})
 CONTROL_RUN_TOOL_NAMES_BY_MODE = {
-    "plan": frozenset({"inspect", "search", "web_search", "web_fetch"}),
-    "review": frozenset({"read", "search", "list", "git", "web_search", "web_fetch"}),
-    "security": frozenset({"read", "search", "list", "git", "web_search", "web_fetch"}),
-    "diagnose": frozenset({"project", "read", "inspect", "search", "list", "git", "web_search", "web_fetch"}),
-    "release": frozenset({"project", "read", "inspect", "search", "list", "git"}),
-    "implement": frozenset({"inspect", "search", "git", "patch", "rewrite", "create", "validate", "web_search", "web_fetch"}),
-    "fix": frozenset({"project", "read", "search", "list", "git", "edit", "validate", "web_search", "web_fetch"}),
-    "refactor": frozenset({"project", "read", "search", "list", "git", "edit", "create", "validate", "web_search", "web_fetch"}),
-    "ci-fix": frozenset({"inspect", "search", "git", "patch", "rewrite", "create", "validate", "web_search", "web_fetch"}),
+    "plan": frozenset({"inspect", "search", "context", "web_search", "web_fetch"}),
+    "review": frozenset({"read", "search", "list", "git", "context", "web_search", "web_fetch"}),
+    "security": frozenset({"read", "search", "list", "git", "context", "web_search", "web_fetch"}),
+    "diagnose": frozenset({"project", "read", "inspect", "search", "list", "git", "context", "web_search", "web_fetch"}),
+    "release": frozenset({"project", "read", "inspect", "search", "list", "git", "context"}),
+    "implement": frozenset({"inspect", "search", "git", "context", "patch", "rewrite", "create", "validate", "web_search", "web_fetch"}),
+    "fix": frozenset({"project", "read", "search", "list", "git", "context", "edit", "validate", "web_search", "web_fetch"}),
+    "refactor": frozenset({"project", "read", "search", "list", "git", "context", "edit", "create", "validate", "web_search", "web_fetch"}),
+    "ci-fix": frozenset({"inspect", "search", "git", "context", "patch", "rewrite", "create", "validate", "web_search", "web_fetch"}),
 }
 CONTROL_RUN_ALLOWED_MODES = tuple(CONTROL_RUN_TOOL_NAMES_BY_MODE)
 CONTROL_RUN_FORBIDDEN_TOOL_NAMES = frozenset({"bash"})
@@ -9860,6 +9917,8 @@ def run_tool(name, args):
             result = tool_project(args)
         elif name == "inspect":
             result = tool_inspect(args)
+        elif name == "context":
+            result = tool_context(args)
         elif name == "web_search":
             result = tool_web_search(args)
         elif name == "web_fetch":

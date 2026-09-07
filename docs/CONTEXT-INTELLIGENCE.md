@@ -45,7 +45,7 @@ lai context symbols src/local-agent --json --limit 80
 
 The map reports repository-relative files, directory/suffix groups, manifests, changed paths, and semantic subsystem path matches. The changes view reports staged/unstaged/untracked counts, bounded repository-relative paths, and shortstat only. Symbol summaries report function/class/method names and line numbers only. These views are metadata-only and never include file contents, stdout, stderr, transcripts, tokens, or raw diffs.
 
-For model runs in context-intelligence modes, LAI injects a much smaller prompt map containing only aggregate directory/suffix groups, changed paths, and semantic subsystem ids. This is intended to reduce early repository-discovery calls without treating metadata as file evidence.
+For model runs in context-intelligence modes, LAI injects a much smaller prompt map containing only aggregate directory/suffix groups, changed paths, and semantic subsystem ids. The same metadata views are also available through the structured `context` tool so shell-free remote modes can inspect map, changes, and symbols without calling `bash`. This is intended to reduce early repository-discovery calls without treating metadata as file evidence.
 
 ## Inventory bounds
 

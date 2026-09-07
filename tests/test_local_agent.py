@@ -3638,6 +3638,24 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("git_changed", shown)
         self.assertNotIn("timeout = 30", shown)
         self.assertLessEqual(len(shown), 180)
+    def test_context_tool_exposes_metadata_views_without_shell_or_bodies(self):
+        (self.root / "module.py").write_text("def worker():\n    return 'secret-body'\n")
+        changes = agent.tool_context({"operation": "changes", "limit": 5})
+        symbols = agent.tool_context({"operation": "symbols", "path": "module.py", "limit": 5})
+        repo_map = agent.tool_context({"operation": "map", "max_files": 20, "max_paths": 4})
+        self.assertIn("# lai context changes", changes)
+        self.assertIn("# lai context symbols", symbols)
+        self.assertIn("# lai context map", repo_map)
+        self.assertIn("worker", symbols)
+        combined = changes + symbols + repo_map
+        self.assertNotIn("secret-body", combined)
+        self.assertNotIn("```", combined)
+        self.assertIn("metadata", combined.lower())
+        self.assertEqual(
+            agent.evaluate_tool_policy("context", {"operation": "map"}, mode="plan")["decision"],
+            "ALLOW",
+        )
+
     def test_context_symbols_are_metadata_only_for_python_and_javascript(self):
         (self.root / "module.py").write_text(
             "SECRET = 'sk-not-real-secret'\n"
