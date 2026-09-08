@@ -1,6 +1,9 @@
 ## [Unreleased]
 
 ### Fixed
+- Normalize prior tool-call exchanges into alternating text messages before model API calls so strict llama.cpp/Mistral chat templates do not reject remote diagnose runs after tool results.
+
+### Fixed
 - Keep remote control `diagnose` runs isolated from implicit workspace handoff context unless an explicit control session is used.
 - Preload deterministic branch, Git status, readiness, and model-auth metadata for remote `diagnose` runs so simple operational checks do not depend on stale context.
 - Report local model HTTP failures as bounded `MODEL_API_ERROR` messages with sanitized server details instead of leaking raw Python tracebacks from `urllib`.

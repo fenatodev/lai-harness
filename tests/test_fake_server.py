@@ -72,6 +72,59 @@ class FakeServerTest(unittest.TestCase):
             self.assertEqual(chat[3]["model"], agent.MODEL)
 
 
+    def test_api_call_normalizes_tool_history_for_strict_chat_templates(self):
+        def assert_strict(payload, requests):
+            roles = [message.get("role") for message in payload["messages"]]
+            if "tool" in roles:
+                return 500, {"error": {"message": "tool role leaked"}}
+            if roles != ["system", "user", "assistant", "user"]:
+                return 500, {"error": {"message": "bad roles: " + ",".join(roles)}}
+            tool_result = payload["messages"][-1]["content"]
+            if "TOOL RESULTS" not in tool_result or "git status" not in tool_result or "FOLLOW-UP" not in tool_result:
+                return 500, {"error": {"message": "missing compact coalesced tool evidence"}}
+            return {
+                "choices": [{"message": {"role": "assistant", "content": "ok"}}],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 1, "total_tokens": 12},
+            }
+
+        messages = [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "task"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call-1",
+                        "type": "function",
+                        "function": {"name": "git", "arguments": "{\"operation\":\"changes\"}"},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call-1", "name": "git", "content": "git status: clean"},
+            {"role": "user", "content": "FOLLOW-UP: answer from tool evidence."},
+        ]
+
+        with FakeLlamaServer(responder=assert_strict) as server:
+            old_port = agent.LLAMA_PORT
+            old_metrics_dir = agent.METRICS_DIR
+            old_metrics_file = agent.METRICS_FILE
+            agent.LLAMA_PORT = server.port
+            agent.METRICS_DIR = self.root / "metrics"
+            agent.METRICS_FILE = agent.METRICS_DIR / "events.jsonl"
+            try:
+                result = agent.api_call(server.host, messages, tools=[{"type": "function", "function": {"name": "git", "parameters": {"type": "object"}}}])
+            finally:
+                agent.LLAMA_PORT = old_port
+                agent.METRICS_DIR = old_metrics_dir
+                agent.METRICS_FILE = old_metrics_file
+
+        self.assertEqual(result["choices"][0]["message"]["content"], "ok")
+        posted = next(item for item in server.requests if item[0] == "POST")[3]
+        self.assertNotIn('"role": "tool"', json.dumps(posted))
+        self.assertIn("TOOL REQUESTS", posted["messages"][2]["content"])
+        self.assertIn("TOOL RESULTS", posted["messages"][3]["content"])
+
     def test_api_call_reports_http_errors_without_traceback_or_secrets(self):
         def bad_request(payload, requests):
             return 400, {

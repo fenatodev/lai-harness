@@ -8709,6 +8709,66 @@ def render_diagnose_preflight_context(status=None):
     ])
 
 
+def remote_diagnose_preflight_fast_path_response(task, status=None):
+    """Answer simple remote diagnose health checks without a model round trip."""
+    task_lower = str(task or "").lower()
+    simple_terms = (
+        "status", "readiness", "ready", "health", "branch", "git",
+        "clean state", "mcp", "model endpoint", "model server", "operational",
+    )
+    deeper_terms = (
+        "root cause", "debug", "trace", "stack trace", "inspect file",
+        "read file", "search", "investigate failure", "why did",
+        "corrigir", "corrija", "falha", "erro",
+    )
+    if not any(term in task_lower for term in simple_terms):
+        return None
+    if any(term in task_lower for term in deeper_terms) and "status check" not in task_lower:
+        return None
+
+    status = collect_readiness_status() if status is None else status
+    git = status.get("git") or {}
+    server = status.get("server") or {}
+    git_status = str(git.get("status") or "[unknown]")
+    clean = bool(git.get("clean"))
+    if clean:
+        git_summary = "clean"
+    elif git_status and git_status != "[unknown]":
+        git_summary = f"dirty ({len(git_status.splitlines())} status line(s))"
+    else:
+        git_summary = "unknown"
+
+    model_auth = server.get("authentication_ok")
+    if model_auth is True:
+        model_summary = "ready"
+    elif model_auth is False:
+        model_summary = "blocked"
+    else:
+        model_summary = "unknown"
+
+    mcp = mcp_status_payload()
+    mcp_security = mcp.get("security") or {}
+    executes_tools = bool(mcp_security.get("executes_tools"))
+    execution_policy = "enabled" if executes_tools else "disabled; call-tool DENY"
+
+    lines = [
+        "DIAGNOSE PREFLIGHT RESULT",
+        f"product: {PRODUCT_NAME} {VERSION}",
+        "branch: " + str(git.get("branch") or "[unknown]"),
+        "git_status: " + git_summary,
+        "readiness: " + str(status.get("overall") or "unknown"),
+        "model_endpoint: " + model_summary,
+        "mcp_broker: " + str(mcp.get("overall") or "unknown"),
+        "mcp_servers: " + str(mcp.get("server_count") or 0),
+        "mcp_execution_policy: " + execution_policy,
+        "files_modified: false",
+    ]
+    issues = mcp.get("issues") or []
+    if issues:
+        lines.append("mcp_issues: " + str(len(issues)))
+    return "\n".join(lines)
+
+
 def render_readiness_status(json_mode=False):
     status = collect_readiness_status()
 
@@ -10081,6 +10141,88 @@ def run_tool(name, args):
 
 
 
+def _compact_tool_call_for_model(call):
+    function = call.get("function") if isinstance(call, dict) else None
+    if not isinstance(function, dict):
+        function = {}
+    name = function.get("name") or call.get("name") if isinstance(call, dict) else "tool"
+    arguments = function.get("arguments") or "{}"
+    try:
+        if not isinstance(arguments, str):
+            arguments = json.dumps(arguments, sort_keys=True)
+    except TypeError:
+        arguments = str(arguments)
+    return f"- {str(name or 'tool')}: {arguments}"
+
+
+def _compact_tool_result_for_model(message):
+    name = str(message.get("name") or "tool")
+    content = str(message.get("content") or "")
+    return f"[{name}]\n{content}"
+
+
+def normalize_messages_for_strict_chat_template(messages):
+    """Render prior tool-call exchanges as alternating text messages.
+
+    Some llama.cpp chat templates reject OpenAI-style `role=tool` history after
+    tool calls. Keep the internal audit history intact, but send the model a
+    strict system/user/assistant/user sequence with tool requests and results
+    represented as text evidence. New tool calls are still enabled by the
+    current `tools` payload.
+    """
+    normalized = []
+    i = 0
+    while i < len(messages):
+        message = messages[i]
+        role = message.get("role")
+        if role == "assistant" and message.get("tool_calls"):
+            content = str(message.get("content") or "").strip()
+            calls = [
+                _compact_tool_call_for_model(call)
+                for call in (message.get("tool_calls") or [])
+                if isinstance(call, dict)
+            ]
+            body_parts = []
+            if content:
+                body_parts.append(content)
+            if calls:
+                body_parts.append("TOOL REQUESTS:\n" + "\n".join(calls))
+            normalized.append({"role": "assistant", "content": "\n\n".join(body_parts) or "TOOL REQUESTS:"})
+            i += 1
+            results = []
+            while i < len(messages) and messages[i].get("role") == "tool":
+                results.append(_compact_tool_result_for_model(messages[i]))
+                i += 1
+            if results:
+                normalized.append({"role": "user", "content": "TOOL RESULTS:\n" + "\n\n".join(results)})
+            continue
+        if role == "tool":
+            results = []
+            while i < len(messages) and messages[i].get("role") == "tool":
+                results.append(_compact_tool_result_for_model(messages[i]))
+                i += 1
+            normalized.append({"role": "user", "content": "TOOL RESULTS:\n" + "\n\n".join(results)})
+            continue
+        if role not in {"system", "user", "assistant"}:
+            role = "user"
+        normalized.append({"role": role, "content": str(message.get("content") or "")})
+        i += 1
+    return coalesce_consecutive_chat_roles(normalized)
+
+
+def coalesce_consecutive_chat_roles(messages):
+    coalesced = []
+    for message in messages:
+        role = message.get("role")
+        content = str(message.get("content") or "")
+        if coalesced and coalesced[-1].get("role") == role:
+            previous = str(coalesced[-1].get("content") or "")
+            coalesced[-1]["content"] = (previous + "\n\n" + content).strip()
+            continue
+        coalesced.append({"role": role, "content": content})
+    return coalesced
+
+
 def api_call(
     host,
     messages,
@@ -10090,7 +10232,7 @@ def api_call(
 ):
     payload = {
         "model": MODEL,
-        "messages": messages,
+        "messages": normalize_messages_for_strict_chat_template(messages),
         "temperature": 0,
         "max_tokens": max_tokens,
     }
@@ -14361,7 +14503,15 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
         system += '\n\n' + ranked_context_text
 
     if remote_control_child and mode == "diagnose":
-        system += "\n\n" + render_diagnose_preflight_context()
+        diagnose_preflight_status = collect_readiness_status()
+        system += "\n\n" + render_diagnose_preflight_context(diagnose_preflight_status)
+        fast_path_response = remote_diagnose_preflight_fast_path_response(
+            task,
+            status=diagnose_preflight_status,
+        )
+        if fast_path_response:
+            print(fast_path_response)
+            return
 
     if mode == "release":
         system += "\n\n" + render_release_preflight_context()
