@@ -21,6 +21,8 @@ lai model run --repeat 2
 lai model run --repeat 2 --json
 lai model score latest
 lai model score first.jsonl second.jsonl
+lai model profile latest
+lai model profile first.jsonl second.jsonl --json
 ```
 
 `lai models` is accepted as the same command group.
@@ -65,7 +67,9 @@ $LAI_DATA_DIR/model-eval/<run>-<model>.jsonl
 $LAI_DATA_DIR/model-eval/<run>-<model>.summary.json
 ```
 
-`lai model score` accepts result files inside the current repository or the configured model-evaluation data directory. `latest` resolves the newest local JSONL result.
+`lai model score` and `lai model profile` accept result files inside the current repository or the configured model-evaluation data directory. `latest` resolves the newest local JSONL result.
+
+`lai model profile` converts JSONL evidence into a versioned capability profile. It reports planning, coding, debug, tools, context, patch, latency, refusal, truncation, hallucination and validation dimensions. Missing quantization, runtime, template, hardware, suite or repetition data stays `unknown` instead of being guessed. The profile is evidence-only: it never downloads a model, starts cloud fallback, changes the configured default, or enables an automatic router. Manual selection remains ahead of any future router.
 
 Manual `sample` output remains available when human-scored scenarios are useful.
 

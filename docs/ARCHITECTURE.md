@@ -1,77 +1,116 @@
-# Architecture
+# lai harness architecture
 
-lai harness has four runtime layers: the VS Code chat participant, the Python harness, an authenticated OpenAI-compatible server, and a user-supplied model.
+`lai harness` is a local-first coding harness. The implementation is intentionally small in process topology: one primary runtime, one CLI wrapper, local state outside the repository, and optional companion surfaces that must negotiate explicit contracts.
 
-![lai harness core architecture](assets/core-architecture.png)
+## Design principles
 
-The diagram is a documentation overview; runtime code, policy, and the security model are authoritative.
+1. Repository evidence outranks model output.
+2. Deterministic guards outrank prompt instructions.
+3. Capabilities are explicit and bounded.
+4. Public views are metadata-only unless a user explicitly asks for file content through a safe path.
+5. Roadmap documents are not implementation proof.
 
-## Request flow
+## Implemented system overview
 
-1. `@lai` receives a command and prompt.
-2. The extension adds bounded context: active filename, at most eight diagnostics for write/debug modes, and up to 800 characters of selected text.
-3. It starts `local-agent` in the selected workspace.
-4. The harness resolves the Git root, loads workspace state, the active repository spec, and the mode skill, and builds bounded ranked context metadata for selected modes before inference.
-5. Every tool action crosses the central policy boundary before dispatch; `ASK` stops the run for user action and `DENY` blocks execution.
-6. Allowed tool results return to the model until it answers or reaches the mode's round limit.
-7. Runtime checkpoint, workspace state, metrics, and applicable audit events are persisted outside the repository.
-8. Normal completion marks the checkpoint terminal; an abrupt interruption leaves a non-terminal checkpoint that can be inspected later.
+```mermaid
+flowchart LR
+    user[Developer / editor / Gateway]
+    cli[lai CLI wrapper]
+    core[src/local-agent harness core]
+    model[OpenAI-compatible local model server]
+    data[(XDG data/config outside repo)]
+    ws[Safe workspaces]
+    sandbox[Verified Docker sandbox]
+    api[Authenticated loopback control plane]
 
-## Components
-
-### VS Code extension
-
-`vscode-extension/extension.js` implements the chat participant and streams stdout as Markdown. Recognized tool activity from stderr becomes progress UI. `lai.agentPath` overrides the default `~/.local/bin/local-agent` executable.
-
-### Python harness
-
-`src/local-agent` uses only Python's standard library. It owns prompting, centralized policy evaluation, tool dispatch, mode gates, output limits, endpoint authentication, persistence, and audit correlation. Beta.24 begins incremental modularization: typed semantic code-contract data/rendering/matching live in `src/lai_semantics.py` and are imported by the runtime. This is the template for future low-risk subsystem extraction rather than a big-bang package rewrite.
-
-### Local control plane
-
-`lai serve` is an optional loopback-only HTTP/JSON adapter implemented inside the Python harness with the standard library. It uses a bearer token separate from the llama.cpp key. Beta.15 keeps serialized read-only runs (`plan`, `review`, `security`, `diagnose`, `release`) and isolated work runs (`implement`, `fix`, `refactor`, `ci-fix`). Capability reduction still happens before inference: no control child receives generic `bash` or Git mutation tools. Work children run from a unique safe workspace copied from tracked source contents, receive repository-confined file tools plus structured `validate`, and return bounded Git/diff evidence. Remote validation runs through a fixed Docker sandbox with no network, no host home, no Docker socket, dropped capabilities, and a read-only container root. Successful work results may expose a deterministic promotion proposal whose approval is bound to the complete patch SHA-256. Promotion repeats sandbox validation, rechecks source and patch drift, then applies the exact patch to a dedicated `lai/promotion-*` Git worktree/feature branch. The active source checkout remains untouched. `lai-gateway` may proxy this surface to private mobile clients without making the harness bind to LAN, tailnet, or public interfaces.
-
-### Skills and tool schemas
-
-Skills are compact mode contracts stored in `skills/`. Tools are selected by mode, so a review model does not receive write-tool schemas and a plan model receives only `inspect` and `search`. `inspect` batches up to eight files. `patch` validates up to six exact replacements in memory before writing any target.
-
-### Repository specs
-
-Numbered specs under `.specs/` define the requested change. At most one may be `active`; multiple active specs, invalid requirement IDs, missing validation references, and symlinked spec paths fail closed. Draft and complete specs do not affect runtime. The active spec is injected as normative context beneath repository safety rules.
-
-### Configuration boundary
-
-Before model runtime, the harness normalizes configuration from leading CLI flags, `LAI_*` environment variables, `[lai]` TOML values, and defaults. Unknown TOML keys and invalid types fail closed. `lai config` reports effective values and path diagnostics without starting or probing the model server and never prints API key contents.
-
-### Context intelligence
-
-For `plan`, `debug`, `fix`, `implement`, and `refactor`, the harness ranks a bounded repository inventory before inference. Signals include task/path terms, live Git changes, verified recent/modified workspace paths, active-spec path references, known manifests, and bounded text sampling. Only candidate path, score, and reason metadata are injected; file contents still require normal inspection. `lai context <task>` exposes the same ranking without calling the model.
-
-### Policy and lifecycle
-
-Every builtin tool action is evaluated as `ALLOW`, `ASK`, or `DENY` before dispatcher execution. `ASK` never auto-executes and terminates the current run with `user_action_required`; `DENY` fails closed while allowing the model to choose a different safe action. Mode allowlists and validation guards remain independent defense-in-depth layers.
-
-### llama.cpp and model
-
-The reference setup uses `llama-server` with an OpenAI-compatible chat-completions endpoint. The default model string records the experimental baseline but can be replaced with `LAI_MODEL`. lai harness does not download or redistribute models.
-
-### Runtime recovery
-
-A versioned checkpoint under `$LAI_DATA_DIR/checkpoints` records run ID, mode, bounded task text, lifecycle phase, branch, Git status, tracked-file hashes, and the last tool name. Writes use same-directory atomic replacement. `lai recovery` inspects compatibility without the model; `lai resume` starts a fresh run only when live branch/status/hashes still match. Tool arguments are not stored for replay.
-
-### Workspace state
-
-State is keyed by a SHA-256-derived workspace identity under `$LAI_DATA_DIR/state`. A compact Markdown and JSON handoff is also updated at the data-root level. Stored content can include task text, repository path, recent filenames, validation output, branch, and Git status.
-
-### Metrics and audit
-
-Metrics use one `run_id` per process invocation and record API/tool duration, token usage, and schema count. Audit events record policy decisions, checkpoint/recovery transitions, lifecycle outcomes, patch paths, before/after hashes, post-patch sanity, validation, and final status. These stores are operational records, not telemetry uploads.
-
-## Guard sequence for implementation
-
-```text
-inspect context → batch patch → deterministic syntax/added-line checks
-    → compact model sanity → project validation → acceptance check → final answer
+    user --> cli --> core
+    user --> api --> core
+    core --> model
+    core --> data
+    core --> ws
+    core --> sandbox
 ```
 
-A clean sanity result never replaces project tests. See the security and observability documents for trust boundaries and retained data.
+SVG asset: [system overview](assets/diagrams/system-overview.svg).
+
+## Runtime components
+
+| Component | Path | Responsibility |
+| --- | --- | --- |
+| CLI wrapper | `src/lai` | Stable user-facing command and subcommand dispatch. |
+| Harness core | `src/local-agent` | Agent loop, policy, tools, control plane, runtime state, records and most current features. |
+| Configuration module | `src/lai_config.py` | XDG-aware configuration parsing and secret-safe status. |
+| Semantic contracts | `src/lai_semantics.py` | Advisory subsystem map for navigation and ranking. |
+| Spec workflow | `src/lai_specs.py` | Deterministic active-spec parsing and validation. |
+| Sessions module | `src/lai_sessions.py` | Persistent session records and safe IDs. |
+| Web evidence module | `src/lai_web.py` | Governed egress, public search/fetch receipts, local-service URL checks. |
+| VS Code extension | `vscode-extension/` | Editor participant integration; it calls the installed harness. |
+
+The monolithic core remains intentional for now. Extracted modules are strict-mypy ratchets around stable deterministic subsystems, not a separate runtime.
+
+## Control plane and Gateway
+
+`lai serve` starts an authenticated loopback HTTP API. It exposes status, readiness, sessions, runs, local-chat, review/promotion, authority, credentials, egress, browser fixture, MCP fixture, external-action fixture and delegate fixture routes. All protected routes require bearer authentication; local-chat POST routes also require CSRF.
+
+The Gateway is a companion. It may render local-chat, activity, review and diagnostics, but it does not become the source of authority for filesystem, shell, Git, credentials or external effects.
+
+See [Control plane](CONTROL-PLANE.md), [Gateway contract](GATEWAY-CONTRACT.md), and the [Gateway/local-chat diagram](assets/diagrams/gateway-local-chat.svg).
+
+## Execution paths
+
+```mermaid
+flowchart TD
+    request[Mode or control-plane request]
+    classify[Policy classification]
+    budget[Budget reservation]
+    model[Model call]
+    tool[Tool dispatch]
+    record[Trajectory + audit + metrics]
+    validate[Validation]
+    review[Review / promotion proposal]
+
+    request --> classify --> budget --> model --> tool --> record
+    tool --> validate --> review
+    classify -->|DENY/ASK| record
+```
+
+Safe/read-only commands remain deterministic where possible. Model-backed modes receive bounded context and tool schemas. Work-runs execute inside safe workspaces and, for remote work, the verified sandbox executor.
+
+See [Runtime execution](RUNTIME-EXECUTION.md) and [Observability](OBSERVABILITY.md).
+
+## Authority model
+
+Sensitive work flows through deterministic gates:
+
+- policy classification returns ALLOW, ASK or DENY;
+- approval intents are hash-bound, TTL-bound and use-once;
+- credentials are represented by opaque refs and fake receipts in the current package;
+- source checkout writes are not available through the control plane;
+- promotion requires patch hash, source cleanliness and validation checks.
+
+Approval records do not authorize arbitrary tool replay. See [Authority and approvals](AUTHORITY-APPROVALS.md).
+
+## Sandbox boundary
+
+The verified sandbox executor is used for work-runs and fixture execution. It requires a digest-pinned Docker image already present locally, uses `--pull=never`, no network, no Docker socket, non-root user, dropped capabilities, read-only root filesystem and bounded resources.
+
+`sandbox_exec` is a work-run tool only. The generic remote profile does not expose host `bash` or arbitrary host shell execution.
+
+See [Sandbox](SANDBOX.md) and [Safe workspaces](SAFE-WORKSPACES.md).
+
+## External integrations
+
+Current external-facing surfaces are deliberately constrained:
+
+- Web evidence is GET-only, bounded, untrusted and receipt-producing.
+- Browser is `fixture_browser` only; no login, personal profile, JS engine or public browser automation.
+- MCP execution is `fixture_stdio` `write_artifact` only; generic MCP `call-tool` remains denied.
+- External Git actions use `fake_git_remote` only; no real GitHub push, PR, merge, tag or release.
+
+See [Web evidence](WEB-EVIDENCE.md), [MCP broker](MCP-BROKER.md), and [External boundaries](assets/diagrams/external-boundaries.svg).
+
+## Data and records
+
+Runtime state is stored outside the repository under XDG data/config locations unless overridden. Public status views are bounded and secret-free. Audit, metric, trajectory, budget, run-history, checkpoint and workspace records are versioned or migrated fail-closed where applicable.
+
+See [Runtime records](RUNTIME-RECORDS.md), [Recovery](RECOVERY.md), and [Distribution](DISTRIBUTION.md).

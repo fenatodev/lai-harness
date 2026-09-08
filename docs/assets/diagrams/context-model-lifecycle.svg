@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+<defs><marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M2,2 L10,6 L2,10 z" fill="#334155"/></marker></defs>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="60" y="70" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="700" fill="#0f172a">Context and model lifecycle</text>
+<rect x="70" y="170" width="270" height="116" rx="18" fill="#e8f1ff" stroke="#334155" stroke-width="2"/>
+<text x="88" y="206" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#0f172a">Task</text>
+<text x="88" y="236" font-family="Inter, Arial, sans-serif" font-size="15" fill="#334155">mode and active spec</text>
+<rect x="400" y="170" width="270" height="116" rx="18" fill="#edf7ed" stroke="#334155" stroke-width="2"/>
+<text x="418" y="206" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#0f172a">Context map</text>
+<text x="418" y="236" font-family="Inter, Arial, sans-serif" font-size="15" fill="#334155">metadata-only repo signals</text>
+<rect x="730" y="170" width="270" height="116" rx="18" fill="#fff4de" stroke="#334155" stroke-width="2"/>
+<text x="748" y="206" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#0f172a">Code graph</text>
+<text x="748" y="236" font-family="Inter, Arial, sans-serif" font-size="15" fill="#334155">Python AST advisory edges</text>
+<rect x="1060" y="170" width="270" height="116" rx="18" fill="#f4eaff" stroke="#334155" stroke-width="2"/>
+<text x="1078" y="206" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#0f172a">Model call</text>
+<text x="1078" y="236" font-family="Inter, Arial, sans-serif" font-size="15" fill="#334155">bounded prompts and tools</text>
+<rect x="400" y="420" width="270" height="116" rx="18" fill="#fdecec" stroke="#334155" stroke-width="2"/>
+<text x="418" y="456" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#0f172a">Tool policy</text>
+<text x="418" y="486" font-family="Inter, Arial, sans-serif" font-size="15" fill="#334155">deterministic dispatcher</text>
+<rect x="730" y="420" width="270" height="116" rx="18" fill="#e9fbfb" stroke="#334155" stroke-width="2"/>
+<text x="748" y="456" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#0f172a">Trajectory</text>
+<text x="748" y="486" font-family="Inter, Arial, sans-serif" font-size="15" fill="#334155">versioned causal audit</text>
+<rect x="1060" y="420" width="270" height="116" rx="18" fill="#e8f1ff" stroke="#334155" stroke-width="2"/>
+<text x="1078" y="456" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#0f172a">Budget ledger</text>
+<text x="1078" y="486" font-family="Inter, Arial, sans-serif" font-size="15" fill="#334155">reserved and consumed counters</text>
+<line x1="340" y1="228.0" x2="400" y2="228.0" stroke="#334155" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="370.0" y="218.0" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14" fill="#475569">rank</text>
+<line x1="670" y1="228.0" x2="730" y2="228.0" stroke="#334155" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="700.0" y="218.0" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14" fill="#475569">weak signal</text>
+<line x1="1000" y1="228.0" x2="1060" y2="228.0" stroke="#334155" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="1030.0" y="218.0" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14" fill="#475569">advisory</text>
+<line x1="1060" y1="228.0" x2="670" y2="478.0" stroke="#334155" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="865.0" y="343.0" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14" fill="#475569">tool call</text>
+<line x1="670" y1="478.0" x2="730" y2="478.0" stroke="#334155" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="700.0" y="468.0" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14" fill="#475569">record</text>
+<line x1="670" y1="478.0" x2="1060" y2="478.0" stroke="#334155" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="865.0" y="468.0" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14" fill="#475569">reconcile</text>
+<text x="60" y="850" font-family="Inter, Arial, sans-serif" font-size="16" fill="#64748b">Post-A12 documentation asset. Describes implemented boundaries only; experimental A10/A11 are excluded.</text>
+</svg>

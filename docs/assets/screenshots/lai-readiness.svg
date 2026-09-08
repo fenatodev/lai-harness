@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="772" viewBox="0 0 1280 772">
+<rect width="100%" height="100%" rx="18" fill="#0b1020"/>
+<rect x="18" y="18" width="1244" height="34" rx="10" fill="#151b2d"/>
+<text x="32" y="41" fill="#d7e1ff" font-family="ui-sans-serif, system-ui, sans-serif" font-size="15" font-weight="600">readiness diagnostic</text>
+<text x="28" y="82" fill="#8ef0a3" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">$ ./src/lai readiness --json</text>
+<text x="28" y="106" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">{</text>
+<text x="28" y="130" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  &quot;active_spec&quot;: {</text>
+<text x="28" y="154" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    &quot;status&quot;: &quot;none&quot;</text>
+<text x="28" y="178" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  },</text>
+<text x="28" y="202" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  &quot;checks&quot;: [</text>
+<text x="28" y="226" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    {</text>
+<text x="28" y="250" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;detail&quot;: &quot;main&quot;,</text>
+<text x="28" y="274" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;name&quot;: &quot;git_branch&quot;,</text>
+<text x="28" y="298" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;status&quot;: &quot;ok&quot;</text>
+<text x="28" y="322" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    },</text>
+<text x="28" y="346" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    {</text>
+<text x="28" y="370" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;detail&quot;: &quot; M .agents/rules/skills.md\n M AGENTS.md\n M README.md\n M README.pt-BR.md\n M ROADMAP.md\n M SECURITY.md\n M docs/ARCHITECTURE.</text>
+<text x="28" y="394" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;name&quot;: &quot;git_status&quot;,</text>
+<text x="28" y="418" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;status&quot;: &quot;warn&quot;</text>
+<text x="28" y="442" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    },</text>
+<text x="28" y="466" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    {</text>
+<text x="28" y="490" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;detail&quot;: &quot;https://github.com/fenatodev/lai-harness.git&quot;,</text>
+<text x="28" y="514" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;name&quot;: &quot;git_origin&quot;,</text>
+<text x="28" y="538" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;status&quot;: &quot;ok&quot;</text>
+<text x="28" y="562" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    },</text>
+<text x="28" y="586" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    {</text>
+<text x="28" y="610" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;detail&quot;: &quot;OK&quot;,</text>
+<text x="28" y="634" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;name&quot;: &quot;config_dir&quot;,</text>
+<text x="28" y="658" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;status&quot;: &quot;ok&quot;</text>
+<text x="28" y="682" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    },</text>
+<text x="28" y="706" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    {</text>
+<text x="28" y="730" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;detail&quot;: &quot;OK&quot;,</text>
+<text x="28" y="754" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">...</text>
+</svg>

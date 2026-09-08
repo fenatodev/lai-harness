@@ -1,5 +1,7 @@
 # M3 MCP allowlist design
 
+Historical milestone document, retained for traceability. Its candidate scope and stop rules describe the completed M1–M3 planning cycle, not the next implementation or the permanent product ceiling. The [current plan](PROJECT-PLAN-2026-09.md), [backlog](EXECUTION-BACKLOG-2026-09.md) and [decision log](DECISION-LOG-2026-09.md) supersede its prospective sequencing; current runtime restrictions remain in force.
+
 ## Purpose
 
 M3 defines the first governed path from the current non-executing MCP foundation toward one future, narrow, read-only MCP operation class.
@@ -23,14 +25,14 @@ Observed baseline:
 
 ## External protocol evidence reviewed
 
-The design was checked against the MCP 2026-07-28 public specification and release notes.
+The original M3 notes recorded a MCP 2026-07-28 revision reference. This replan does not use that historical assertion as proof of a supported protocol version; the execution spec must select and verify its protocol revision from primary sources. See the reviewed references in the [target architecture](TARGET-ARCHITECTURE.md).
 
 Relevant protocol constraints:
 
 - MCP tools are designed so models can discover and invoke external capabilities, so human-visible control and denial must remain part of the host design.
 - Tool lists may vary based on authorization and should have deterministic ordering for cacheability and stable model context.
 - HTTP authorization requires bearer tokens in headers rather than query strings, with tokens scoped to the intended MCP server.
-- The 2026-07-28 revision adds routing/caching changes and continues hardening authorization and security behavior.
+- Protocol-version details must be verified for the execution implementation rather than inferred from this historical design.
 
 ## REQ-001: candidate operation class
 

@@ -30,7 +30,7 @@ When remote verification is requested, the effective `release_governance_overall
 - product, version, target version and expected tag;
 - local checkout, public repository, current branch, HEAD and tag state;
 - `lai release-check` status and release phase;
-- `lai mcp status` can be used to inspect non-executing MCP broker readiness;
+- `lai mcp status` can be used to inspect MCP broker readiness; generic repository `call-tool` remains denied while fixture execution is documented separately;
 - local and optional remote release-governance state;
 - default release-pack location and optional VSIX status;
 - safe workspace base and active workspace count;

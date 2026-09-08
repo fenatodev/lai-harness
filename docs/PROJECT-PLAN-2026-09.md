@@ -1,229 +1,89 @@
-# LAI Project Plan — 2026-09
+# lai harness plano de transformação, setembro de 2026
 
-This planning document captures the next execution plan for `lai harness`, `lai-gateway`, and the adjacent automation companion after the stable `v0.4.8` Harness baseline and the `v0.1.34` Gateway baseline.
+Estado pós-A12: plano histórico aprovado e executado para todos os marcos não-experimentais. A0–A9 e A12 estão completos; A10/A11 permanecem drafts experimentais. Este arquivo preserva o racional original; use [docs/README.md](README.md), [Architecture](ARCHITECTURE.md) e [Roadmap](../ROADMAP.md) para claims públicos atuais.
+Cada capability continua dependendo de código, testes e contrato verificável; planejamento sozinho não ativa comportamento.
 
-It is intentionally narrower than the roadmap. The roadmap says what may exist later; this plan says what should absorb project time next.
+## Objetivo e escopo
 
-See [Execution Backlog — 2026-09](EXECUTION-BACKLOG-2026-09.md) for milestone IDs, dependencies, done criteria, and stop rules.
+Evoluir o LAI para um agente local com máxima autonomia útil dentro de fronteiras autorizadas, preservando modelos locais pequenos, contexto eficiente, policy determinística, evidência e simplicidade operacional. O produto continua **lai harness**, com comando `lai` e código neste checkout `lai-local-agent`; `lai-gateway` continua um repositório separado. Não há rename de executável, pacote ou diretório nesta revisão.
 
-See [Decision Log — 2026-09](DECISION-LOG-2026-09.md) for the current project choices that should prevent scope churn.
+A transformação é incremental. Reutiliza o loop, control plane, sessões, records, avaliação, promoção e Gateway. Não inicia uma reescrita, implementação, instalação, benchmark com modelo, mudança de modelo padrão ou publicação.
 
-See [Risk Register — 2026-09](RISK-REGISTER-2026-09.md) for risks that should shape milestone sequencing.
+## Documentos canônicos
 
-See [Planning Manifest — 2026-09](PLANNING-MANIFEST-2026-09.json) for a machine-readable summary of milestones, stop rules, and the next action.
+| Documento | Responsabilidade |
+| --- | --- |
+| [Roadmap](../ROADMAP.md) | Estado de produto: implementado, próximo, planejado, experimental, deferred e fora de escopo |
+| [Arquitetura atual](ARCHITECTURE.md) | O que o código executa hoje |
+| [Arquitetura-alvo](TARGET-ARCHITECTURE.md) | Componentes, contratos, níveis de autonomia e migração |
+| [Threat model da autonomia](AUTONOMY-THREAT-MODEL.md) | Ativos, fronteiras, ataques, controles, testes e limites propostos |
+| [Security model](SECURITY-MODEL.md) | Controles e limitações efetivamente implementados |
+| [Backlog](EXECUTION-BACKLOG-2026-09.md) | Milestones, dependências, critérios, fixtures e stop rules |
+| [Decisões](DECISION-LOG-2026-09.md) | Substituições deliberadas e alternativas rejeitadas |
+| [Riscos](RISK-REGISTER-2026-09.md) | Risco residual e condição para avançar |
+| [Conferência dos 23 itens](REPLAN-COVERAGE-2026-09.md) | Evidência item a item e consistência entre documentos |
+| [Manifest](PLANNING-MANIFEST-2026-09.json) | Índice estruturado do mesmo plano; não é configuração de runtime |
+| [Plano do Gateway](../../lai-gateway/docs/PROJECT-PLAN-2026-09.md) | Entregas e contratos da interface companheira |
 
-See [M1 Structured Context Workplan](M1-STRUCTURED-CONTEXT-WORKPLAN.md) for the implementation-facing plan for the recommended next milestone.
+Os links entre repositórios presumem os checkouts irmãos `lai-local-agent` e `lai-gateway`. Em uma instalação/repositório isolado, consultar o documento de mesmo nome no repositório companheiro. Não duplicar o motor de execução para eliminar essa separação.
 
-## Current state
+## Diagnóstico do baseline
 
-- Harness `main` is stable at `0.4.8` with post-release fixes merged for bounded model API errors and strict chat-template remote diagnose runs.
-- Gateway `main` is stable at `0.1.34` with compact health reporting, mobile/private status, Telegram delivery, MCP foundation visibility, and single-runtime model hygiene.
-- Local dogfood validated a single `llama-server` runtime on the Harness model endpoint; duplicate Gateway model runtimes were eliminated.
-- MCP is configured and visible locally as a non-executing broker foundation. `call-tool` remains denied.
-- Mobile and Telegram paths are usable for health reporting and read-only control-plane visibility, but they are still operator tools, not a complete product loop.
+Inspeção local: Harness `src/local-agent` declara `0.4.9`, HEAD `4b9b973`; Gateway declara `0.1.34`. A spec [058](../.specs/058-v049-release-freeze.md) registra freeze e validação local completos. Isso não comprova publicação, tag remoto, CI atual ou prontidão da máquina instalada. O baseline integrado anteriormente documentado era `0.4.8` + `0.1.34`; a compatibilidade continua por contrato/capabilities e versão mínima, não por igualdade de patches. Não é necessário bloquear o planejamento na publicação do freeze anterior.
 
-## Planning principle
+M1–M4 estão completos segundo specs/evidências locais. M5 está completo como freeze local, com publicação não verificada nesta revisão. O manifest anterior ainda dizia M4 draft/M5 não iniciado: essa divergência foi reconciliada. As evidências históricas e specs 001–058 são preservadas, sem transformar uma medição antiga em prova atual.
 
-The project should now prioritize core LAI capability over Gateway polish.
+| Área | Evidência atual | Lacuna para a nova visão |
+| --- | --- | --- |
+| Loop e ferramentas | `src/local-agent`: policy central, schemas por modo, ferramentas de arquivo, Bash local, validação e rounds limitados | Shell local não é isolado; não há supervisor completo de execução autônoma |
+| Isolated work | Cópia disposable de arquivos tracked; validação estruturada em Docker; promoção por hash para worktree | Cópia/worktree não é sandbox; processo do agente e todo shell ainda não vivem em uma fronteira isolada |
+| Control plane | `lai serve`, bearer separado, runs assíncronos serializados, cancelamento, sessões persistentes em `src/lai_sessions.py` | Contrato v1 não autoriza shell/MCP; ASK termina run, sem aprovação durável e continuação interativa |
+| Gateway | UI estática local/mobile, pareamento, Telegram, sessões e runs read-only; `lai_gateway/` no repositório companheiro | Chat de trabalho completo, diff, approvals, progresso fino e seleção segura de workspace/modelo |
+| Observabilidade | JSONL de métricas/audit, checkpoints, snapshots, rollback limitado, export sanitizado | Eventos de controle sintetizados não são trajectory completa; nenhum ledger global de budgets |
+| Contexto | Ranking, mapas, symbols, diff/checks/runs metadata; preflights determinísticos | Relações de código, invalidação incremental e qualidade mensurada de graph |
+| Rede/MCP | `src/lai_web.py`: busca/fetch HTTPS restritos; `src/lai_mcp.py`: configuração/classificação não executável | Execução MCP, browser e canais de egress governados |
+| Segredos | Arquivos de chave privados, bearer server-side, sanitização | Sem credential broker; ambiente de subprocesso herdado não equivale a isolamento |
+| Modelos/skills | Eval repetida com seis cenários requeridos; skills portáveis e fallback legado | Perfis por capacidade, roteamento justificado, manifests de skills sem autoridade implícita |
+| Distribuição/CI | Instalador stdlib, doctor, wrapper CLI/VS Code; CI Python 3.11/3.12 | Jornada chat-first e eliminação medida de redundância, preservando contratos de release |
 
-Gateway work remains valuable only when it reduces friction for Harness dogfood, exposes existing safe Harness capability, or makes operational safety clearer. Visual polish without a core capability behind it is deferred.
+O preflight determinístico atual ainda contém uma mensagem de próximo passo específica de M1 em `plan_active_spec_fast_path_response`/saída de contexto no `src/local-agent`. Ela não consulta o manifest de planejamento e não é a prioridade canônica; reconciliar essa mensagem somente em futura spec de runtime, sem alterar comportamento nesta revisão.
 
-## Priority stack
+## Mudanças de decisão
 
-### P0 — Preserve the stable base
+1. **Autonomia dentro da fronteira passa a ser objetivo de produto.** Safe permanece padrão de migração; Autonomous Sandbox é a experiência principal de trabalho após autorização inicial.
+2. **Shell amplo depende de isolamento de todo o executor.** Não basta flexibilizar a lista de comandos nem chamar uma worktree de sandbox.
+3. **Credential broker e grants vêm antes das integrações autenticadas.** A ordem preliminar colocava credentials tarde demais.
+4. **Web chat começa cedo no Gateway.** O inspector read-only pode ser construído após o contrato de eventos; edição e approvals esperam grants e sandbox. Não há terceiro backend nem nova UI desktop nativa.
+5. **MCP deve executar trabalho útil.** O antigo `repo_public_text_read` vira fixture histórica, não teto permanente de produto; apenas replicar `inspect` não justifica a integração.
+6. **Instalação começa no primeiro chat beta.** Não se deixa a jornada básica para depois de computer use; a graduação multiplataforma vem mais tarde.
+7. **Full/Trusted é opt-in e experimental, não ausência de fronteira.** É possível que o OS não consiga aplicar uma combinação de escopos; nesse caso a combinação fica indisponível.
+8. **Validação proporcional preserva sinais.** Python 3.11 tem motivo técnico (`tomllib`); reduzir matriz ou checks obrigatórios exige spec sincronizada com CI, release governance e testes.
 
-Goal: keep Harness and Gateway ready for real use while new work happens.
+As substituições e seus limites estão no Decision Log. Nenhum documento de planejamento afrouxa os guards atuais do repositório, autoriza mutação Git deste trabalho ou instala dependências agora.
 
-Required behavior:
+## Ordem de dependência e entrega
 
-- Keep Harness `main` and Gateway `main` clean, synced, and CI-green before starting any release path.
-- Keep one local model runtime as the default operational posture; do not reintroduce a second persistent Gateway model server.
-- Keep remote control profiles shell-free unless a dedicated threat model, spec, and validation plan exists.
-- Keep MCP `call-tool` denied until allowlisted execution has policy, audit, UI, tests, and dogfood evidence.
-- Keep Telegram/mobile paths secret-free: no bearer token, pair token, chat id, model API key, local private path, or raw transcript in UI, CLI, logs, or notifications.
+`A0 diagnóstico/plano → A1 trajectory + budgets → A2 grants + broker → A3 sandbox + primitivas → A4 chat de trabalho` é o caminho crítico. A4 pode iniciar UI de inspeção após A1 e auth após A2, mas só entrega escrita após A3. O usuário confirmou **Linux/WSL2 primeiro; Windows nativo depois**.
 
-Exit condition:
+A5 graph pode evoluir após A1 em paralelo. A6 rede/browser e A7 MCP dependem da fronteira A3 e dos controles A2; ambos precisam produzir evidência visível em A4 para dogfood. A8 perfis/skills depende de métricas e grants. A9 fork/delegates depende de supervisor, grants, sandbox e chat (A1–A4); graph/perfis/skills são melhorias possíveis, não gates de segurança obrigatórios. A10 Trusted host depende da fronteira e do controle de efeitos comprovados em A1–A4/A6, sem exigir delegates ou MCP; A11 GUI depende de A10. A12 gradua distribuição e economia de validação após A4, sem depender de Full/GUI, com bootstrap entregue já em A4. Não há datas prometidas nem necessidade de chegar a A11 para tornar o LAI útil.
 
-- `health-report` is `ready`, stack compatibility is `ready_for_local_commit`, and RAM/model runtime checks show no duplicate model server.
+A primeira fatia de implementação, **somente após aprovação do plano**, é a spec 060 (trajectory estruturada). Budget 061 admite desenho/preparação paralelos, mas implementação sequencial no mesmo repositório; ambos fecham A1. Executar uma spec ativa por repositório; paralelismo de desenho não autoriza múltiplas specs ativas no mesmo checkout.
 
-### P1 — Core context intelligence
+## Critérios de sucesso do produto
 
-Goal: make LAI better at choosing what to inspect before inference, especially on constrained local models.
+- Uma tarefa sintética de corrigir código consegue inspecionar, editar, instalar dependência local autorizada, testar, falhar, corrigir e retestar sem ASK em cada microação da sandbox.
+- Todo efeito fora do grant é bloqueado ou vai a aprovação explícita vinculada à operação; a interface explica o motivo e o escopo.
+- Cancelamento contém processos descendentes e chamadas novas; operações externas já enviadas podem permanecer com resultado desconhecido, nunca sucesso presumido.
+- O operador entende atividade, diff, testes, consumo e resultado pela interface de chat sem reconstruir stderr.
+- Comparações usam a mesma fixture, baseline, modelo/configuração e recursos; medem correctness, chamadas, latência, truncation e overhead. Sem limiar inventado com evidência ausente: registrar baseline e limite aceito antes da spec ficar ativa.
+- O core permanece utilizável sem browser/MCP/Docker quando esses recursos não são necessários; indisponibilidade de isolamento desabilita Autonomous Sandbox sem fallback silencioso para host.
 
-Next work items:
+## Stop rules e non-goals globais
 
-1. Improve structured repository maps so the model sees subsystem boundaries before it asks for files.
-2. Add richer symbol summaries for Python and JavaScript without source bodies.
-3. Add compact process/test/runtime views that summarize evidence without stdout/stderr dumps.
-4. Expand context-ranking fixtures from real dogfood failures instead of speculative examples.
-5. Measure whether context changes reduce tool calls, truncation, and runtime latency in fixed model-eval tasks.
+Parar a fatia ao cumprir seus critérios; abrir follow-up para novas ideias. Parar a expansão de autoridade se houver escape, segredo em fixture, aprovação reutilizada, budget contornado, efeito externo não registrado ou regressão no contrato legado. Não corrigir uma falha reduzindo o teste ou escondendo o evento.
 
-Not in scope yet:
+Ficam deferred: Windows nativo/macOS como backends certificados, scheduler/notificações proativas, marketplace, ACP genérico e provedores remotos por default. Ficam fora do escopo desta transformação: SaaS multi-tenant, automação comercial incorporada ao Harness, redistribuição/download automático de modelos, aprendizagem que altera policy silenciosamente, garantias universais de rollback ou de imunidade a prompt injection. Computer use é um experimento posterior, não requisito do chat beta.
 
-- Embeddings, vector databases, external indexing services, or persistent semantic indexes.
-- “Learning” that silently changes behavior without versioned evidence and review.
-- Broad background scanning of user files.
+## Conclusão desta revisão documental
 
-Definition of done:
-
-- A dedicated spec exists.
-- Focused fixtures prove better ranking on observed failures.
-- `make check` passes.
-- Model-eval records show equal or fewer tool calls or lower latency on at least one decision-eligible fixture without worse correctness.
-
-### P2 — Real mobile dogfood loop
-
-Goal: make the phone/Gateway path useful for actual project work, not only health checks.
-
-Next work items:
-
-1. Define two or three safe recurring dogfood scenarios, such as status review, release-readiness review, and read-only planning from current repository state.
-2. Improve session lifecycle quality: clear session naming, stale-session cleanup guidance, and compact session summaries.
-3. Add bounded UI affordances only when they expose existing safe Harness capabilities.
-4. Ensure every phone path keeps credentials server-side or page-memory-only and never stores secrets in browser storage.
-5. Capture dogfood failures as Harness/Gateway fixtures before adding new capabilities.
-
-Not in scope yet:
-
-- Mobile write approval, commit, push, PR, release, MCP tool execution, or browser actions.
-- Automatic notification loops that run without explicit operator scheduling or opt-in.
-
-Definition of done:
-
-- A phone user can pair, inspect health, create/read a session, run a read-only control task, inspect sanitized events, and recover from expired pairing without reading raw docs.
-
-### P3 — Governed MCP evolution
-
-Goal: move from MCP visibility to safe, allowlisted usefulness without granting broad desktop authority.
-
-Next work items:
-
-1. Keep the current non-executing MCP broker as the default.
-2. Design an allowlist model for one narrow read-only tool class first.
-3. Add policy decisions, audit events, bounded output, timeout handling, and explicit denial evidence.
-4. Add Gateway UI only for classification and later explicit approval, never silent execution.
-5. Dogfood with synthetic fixtures before touching a real desktop command path.
-
-Not in scope yet:
-
-- Arbitrary MCP `call-tool` execution.
-- Shell execution through MCP.
-- File mutation or process control from mobile.
-- Any MCP server that requires exposing credential values to the model or UI.
-
-Definition of done for the first execution milestone:
-
-- One allowlisted read-only operation works through policy and audit.
-- All non-allowlisted operations fail closed.
-- Output is bounded and secret-free.
-- Gateway cannot broaden the request beyond what Harness policy allows.
-
-### P4 — Model evaluation and baseline discipline
-
-Goal: keep local model choices empirical.
-
-Next work items:
-
-1. Convert every real model failure into a small, repeatable fixture when possible.
-2. Track latency, truncation, refusal, tool-call count, and correctness separately.
-3. Keep Ministral as the baseline until another model under the local hardware budget repeatedly beats it on decision-eligible tasks.
-4. Retest alternatives only when a candidate is likely to improve the current bottleneck.
-
-Not in scope yet:
-
-- Default model changes from one good-looking manual run.
-- Download automation or model redistribution.
-- Benchmark theater that does not affect Harness/Gateway decisions.
-
-Definition of done:
-
-- Model recommendations cite local eval records, not preference or hype.
-
-## Explicit de-prioritization
-
-Do not spend the next project block on these unless they unblock a higher-priority item:
-
-- Additional Gateway visual polish after the health card work.
-- New Telegram convenience buttons that do not expose a new safe Harness workflow.
-- Version bumps, tags, or releases without a coherent user-installable milestone.
-- Harness Score chasing for subagents or MCP env interpolation when it does not match the product boundary.
-- Broad “self-improvement” features without versioned records, deterministic evaluation, rollback, and operator review.
-- Commercial automation features inside the Harness repository.
-
-## Suggested next milestone
-
-The next milestone should be a Harness milestone, not a Gateway milestone.
-
-Name: `structured-context-dogfood`
-
-Primary outcome:
-
-- LAI should use better deterministic context views before model inference so small local models spend fewer rounds discovering obvious repository structure.
-
-First spec candidate:
-
-- `054-structured-context-dogfood.md`
-
-First acceptance target:
-
-- For at least two observed planning/diagnose tasks, the harness should provide enough structured context that the model needs fewer file-inspection or Git-discovery tool calls while preserving correctness.
-
-## Recommended execution order
-
-1. Create the `054-structured-context-dogfood` spec.
-2. Reproduce two current local tasks where context discovery is still wasteful.
-3. Add or improve deterministic context summaries.
-4. Add fixtures that prove the ranking/summary improvement.
-5. Run model-eval before and after the change.
-6. Only then decide whether Gateway needs any UI change to expose the result.
-
-## Planning guardrail
-
-When tempted to add a feature, ask which class it belongs to:
-
-- Core capability: improves the harness reasoning/execution loop.
-- Control surface: exposes existing safe capability to a human operator.
-- Safety/observability: reduces hidden failure or authority risk.
-- Cosmetic polish: improves appearance but not the work loop.
-
-For the next block, accept core capability and safety/observability. Reject cosmetic polish. Control-surface work must prove it helps dogfood a core capability.
-
-## Baseline context evidence for the next milestone
-
-Current deterministic context commands already expose useful metadata:
-
-- `lai context map --json` reports 149 tracked files and grouped repository structure.
-- `lai context checks --json` reports 15 test files plus Makefile targets such as `test`, `check`, `validate`, and `milestone-gate`.
-- `lai context runs --json` reports 121 recent run records/checkpoints as metadata-only orientation.
-
-This means the next milestone should not simply add more raw context. It should improve selection, summarization, and measurement.
-
-Candidate dogfood tasks:
-
-1. Planning task: from a clean repo, identify the next high-value Harness milestone without reading broad docs repeatedly.
-2. Diagnose task: explain current readiness/model/MCP state without triggering unnecessary model rounds or verbose discovery.
-3. Implementation task: locate the right context-ranking files/tests for a narrow context-intelligence change with fewer inspect/search cycles.
-
-Success metric:
-
-- Fewer early discovery calls for the same answer quality.
-- Lower latency or fewer truncation retries on the same local model.
-- No expansion of authority or secret exposure.
-
-## M2 completion note
-
-M2 complete: `lai-gateway` PR #42 added mobile-safe sanitization and a repeatable read-only dogfood script. The next milestone is M3 MCP allowlist design, still non-executing.
-
-
-## M4 completion note
-
-M4 complete: model evaluation now includes `plan-validation-command-grounding`, derived from observed Qwen dogfood where a candidate recommended unavailable `pytest` validation in a stdlib-only fixture. The runner records `refusal_flags` separately from hallucination flags and rejects forbidden validation/tool recommendations in fixtures. The required model-backed scenario set expanded from five to six, so earlier Ministral evidence remains historical baseline support but is not fresh decision-eligible evidence under the expanded suite.
-
-The default model remains Ministral. The next milestone is M5 release freeze: package a coherent installable milestone from M1-M4 evidence without claiming MCP execution, browser/action authority, learning, or model superiority.
-
-
-## M5 completion note
-
-M5 complete locally: `v0.4.9` is frozen as a stable release candidate for model-evaluation evidence expansion and bounded diagnose/planning reliability. Runtime, VS Code extension, README/PT-BR, visual asset metadata, changelog, and release notes are aligned to `0.4.9`.
-
-The release remains unpublished. Git commit, PR merge, push, tag creation, GitHub Release publication, and remote governance verification remain manual/protected actions. The release does not claim MCP execution, browser automation, mobile writes, autonomous learning, model switching, or model superiority.
+A0 documental está completo; a aprovação do plano continua pendente. A spec [059](../.specs/059-autonomy-architecture-replan.md) registra esta entrega e sua validação. Specs candidatas 060–081 permanecem draft; não habilitam comportamento. O plano, manifesto, backlog e documentos operacionais devem manter a distinção entre baseline e destino. Os comandos de validação desta revisão são estáticos/documentais; não repetem o milestone gate já registrado no freeze 058 nem comprovam uma release nova.

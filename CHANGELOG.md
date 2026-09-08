@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Documentation
+- Graduate the post-A12 repository documentation for public GitHub presentation with current README files, documentation portal, architecture diagrams, CLI screenshots, contributor guidance and explicit known limitations.
+- Reconcile public capability language so implemented, fixture-only, experimental, deferred and out-of-scope areas are distinct.
+- Add repository graduation notes, GitHub metadata suggestions and risk-proportional documentation links without creating a release, tag, push or publication.
+
+
 ## [0.4.9] - 2026-09-08
 
 ### Added

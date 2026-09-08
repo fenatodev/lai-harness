@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="772" viewBox="0 0 1280 772">
+<rect width="100%" height="100%" rx="18" fill="#0b1020"/>
+<rect x="18" y="18" width="1244" height="34" rx="10" fill="#151b2d"/>
+<text x="32" y="41" fill="#d7e1ff" font-family="ui-sans-serif, system-ui, sans-serif" font-size="15" font-weight="600">lai CLI help</text>
+<text x="28" y="82" fill="#8ef0a3" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">$ ./src/lai --help</text>
+<text x="28" y="106" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">Usage: lai &lt;command&gt; [options]</text>
+<text x="28" y="130" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16"></text>
+<text x="28" y="154" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">Core commands:</text>
+<text x="28" y="178" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  status                 Show workspace status without contacting the model.</text>
+<text x="28" y="202" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  readiness | ready      Run deterministic readiness checks.</text>
+<text x="28" y="226" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  doctor                 Check the configured local model endpoint.</text>
+<text x="28" y="250" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  config                 Show safe effective configuration.</text>
+<text x="28" y="274" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  serve                  Start the authenticated loopback control API.</text>
+<text x="28" y="298" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  control-token          Initialize or inspect the control API token.</text>
+<text x="28" y="322" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  gateway-contract       Print the Gateway compatibility contract.</text>
+<text x="28" y="346" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  chat-bootstrap         Check local-chat bootstrap readiness without installing optional components.</text>
+<text x="28" y="370" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  distribution           Inspect install/upgrade/rollback readiness without publishing.</text>
+<text x="28" y="394" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  validation             Inspect risk-proportional validation matrix without executing checks.</text>
+<text x="28" y="418" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  sessions               List, show, or delete repository-scoped sessions.</text>
+<text x="28" y="442" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  runs | run             Inspect local run history.</text>
+<text x="28" y="466" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  recovery               Inspect or clear recovery checkpoints.</text>
+<text x="28" y="490" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  checkpoint             List or show active recovery checkpoints.</text>
+<text x="28" y="514" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  snapshot               Show pre-write snapshot metadata for rollback preparation.</text>
+<text x="28" y="538" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  rollback               Restore captured pre-write snapshots with hash checks.</text>
+<text x="28" y="562" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  mcp                    Inspect non-executing MCP broker status and policy.</text>
+<text x="28" y="586" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  web                    Search/fetch bounded public web evidence.</text>
+<text x="28" y="610" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  model                  Run deterministic model-evaluation helpers.</text>
+<text x="28" y="634" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  update                 Run bounded update-intelligence checks.</text>
+<text x="28" y="658" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  metrics | audit        Inspect local operational records.</text>
+<text x="28" y="682" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  spec | semantic        Inspect active spec or semantic code contracts.</text>
+<text x="28" y="706" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  context                Show ranked candidates, repo map, changes, or symbols.</text>
+<text x="28" y="730" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  release-check          Run deterministic release readiness checks.</text>
+<text x="28" y="754" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">...</text>
+</svg>

@@ -98,6 +98,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertTrue((bin_dir / "lai-server-start").is_file())
             self.assertTrue((bin_dir / "lai-server-stop").is_file())
             self.assertTrue((bin_dir / "lai-server-restart").is_file())
+            self.assertTrue((bin_dir / "lai-uninstall").is_file())
             self.assertTrue((data_dir / "skills" / "implement.txt").is_file())
             self.assertTrue((data_dir / "skills" / "implement" / "SKILL.md").is_file())
             self.assertTrue((data_dir / "skills" / "diagnose" / "SKILL.md").is_file())
@@ -112,6 +113,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 "doctor": "Usage: lai doctor",
                 "config": "Usage: lai config",
                 "status": "Usage: lai status",
+                "validation": "Usage: lai validation matrix",
             }.items():
                 with self.subTest(command=command):
                     help_result = subprocess.run(
@@ -455,6 +457,39 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                     self.assertNotIn("fake response", events_text)
                     self.assertNotIn("stdout", events_text)
                     self.assertNotIn("stderr", events_text)
+
+                    bootstrap = subprocess.run(
+                        [
+                            str(bin_dir / "lai"),
+                            "chat-bootstrap",
+                            "--control-url",
+                            f"http://127.0.0.1:{control_port}",
+                            "--json",
+                            "--task",
+                            "Return a concise installed local-chat bootstrap acknowledgement.",
+                        ],
+                        cwd=sample_repo,
+                        env=control_env,
+                        text=True,
+                        capture_output=True,
+                        timeout=12,
+                        check=True,
+                    )
+                    bootstrap_payload = json.loads(bootstrap.stdout)
+                    self.assertTrue(bootstrap_payload["control_endpoint"]["authenticated"])
+                    self.assertTrue(bootstrap_payload["local_chat"]["contract_negotiated"])
+                    self.assertTrue(bootstrap_payload["local_chat"]["workspace_registered"])
+                    self.assertTrue(bootstrap_payload["local_chat"]["workspace_selected"])
+                    self.assertTrue(bootstrap_payload["local_chat"]["model_registered"])
+                    self.assertTrue(bootstrap_payload["model_backend"]["ready"])
+                    self.assertEqual(bootstrap_payload["first_chat"]["terminal_status"], "succeeded")
+                    self.assertFalse(bootstrap_payload["first_chat"]["output_included"])
+                    self.assertTrue(bootstrap_payload["no_model_download"])
+                    self.assertTrue(bootstrap_payload["no_optional_install"])
+                    self.assertTrue(bootstrap_payload["no_persistent_runtime_started"])
+                    self.assertFalse(bootstrap_payload["gateway"]["installed_by_bootstrap"])
+                    self.assertTrue(bootstrap_payload["uninstall"]["preserve_data_by_default"])
+                    self.assertNotIn(control_secret, bootstrap.stdout)
                 finally:
                     control_server.terminate()
                     try:
@@ -462,6 +497,67 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                     except subprocess.TimeoutExpired:
                         control_server.kill()
                         control_server.wait(timeout=3)
+
+            with socket.socket() as probe:
+                probe.bind(("127.0.0.1", 0))
+                missing_backend_control_port = probe.getsockname()[1]
+            with socket.socket() as probe:
+                probe.bind(("127.0.0.1", 0))
+                missing_model_port = probe.getsockname()[1]
+            missing_env = {
+                **install_env,
+                "LAI_HOST": "127.0.0.1",
+                "LAI_PORT": str(missing_model_port),
+                "LAI_API_KEY_FILE": str(key_file),
+            }
+            missing_server = subprocess.Popen(
+                [str(bin_dir / "lai"), "serve", "--port", str(missing_backend_control_port)],
+                cwd=sample_repo,
+                env=missing_env,
+                text=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    request = urllib.request.Request(
+                        f"http://127.0.0.1:{missing_backend_control_port}/v1/status",
+                        headers={"Authorization": f"Bearer {control_secret}"},
+                    )
+                    try:
+                        with urllib.request.urlopen(request, timeout=1):
+                            break
+                    except (urllib.error.URLError, TimeoutError):
+                        time.sleep(0.05)
+                missing_bootstrap = subprocess.run(
+                    [
+                        str(bin_dir / "lai"), "chat-bootstrap",
+                        "--control-url", f"http://127.0.0.1:{missing_backend_control_port}",
+                        "--json",
+                    ],
+                    cwd=sample_repo,
+                    env=missing_env,
+                    text=True,
+                    capture_output=True,
+                    timeout=12,
+                    check=True,
+                )
+            finally:
+                missing_server.terminate()
+                try:
+                    missing_server.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    missing_server.kill()
+                    missing_server.wait(timeout=3)
+            missing_payload = json.loads(missing_bootstrap.stdout)
+            self.assertTrue(missing_payload["local_chat"]["contract_negotiated"])
+            self.assertFalse(missing_payload["model_backend"]["ready"])
+            self.assertEqual(missing_payload["first_chat"]["skip_reason"], "model_backend_unavailable")
+            self.assertFalse(missing_payload["sandbox"]["core_blocked_when_missing"])
+            self.assertTrue(missing_payload["no_model_download"])
+            self.assertTrue(missing_payload["no_optional_install"])
+            self.assertTrue(missing_payload["no_persistent_runtime_started"])
 
             runs = subprocess.run(
                 [str(bin_dir / "lai"), "runs"],
@@ -472,7 +568,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                 check=True,
             )
             self.assertIn("# lai run history", runs.stdout)
-            self.assertIn("Recorded runs: 1", runs.stdout)
+            self.assertIn("Recorded runs: 2", runs.stdout)
             self.assertIn("mode=plan", runs.stdout)
             rollback_repo = root / "rollback-repo"
             rollback_repo.mkdir()
@@ -624,6 +720,20 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertEqual(readiness_payload["version"], EXPECTED_VERSION)
             modes = {item["mode"] for item in readiness_payload["skills"]}
             self.assertTrue({"diagnose", "ci-fix", "release"}.issubset(modes))
+
+            validation_matrix = subprocess.run(
+                [str(bin_dir / "lai"), "validation", "matrix", "--json"],
+                cwd=sample_repo,
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            validation_payload = json.loads(validation_matrix.stdout)
+            self.assertFalse(validation_payload["executed_checks"])
+            self.assertFalse(validation_payload["weakens_existing_gates"])
+            self.assertTrue(validation_payload["duplication_comparison"]["less_duplicate_work"])
+            self.assertIn("install.smoke", validation_payload["required_check_ids"])
 
             release_check = subprocess.run(
                 [str(bin_dir / "lai"), "release-check", "--json"],
@@ -780,6 +890,126 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
                     check=True,
                 )
             self.assertIn("Authentication: OK", doctor.stdout)
+
+            config_dir.mkdir(parents=True, exist_ok=True)
+            uninstall = subprocess.run(
+                [str(bin_dir / "lai-uninstall")],
+                env=install_env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("Removed lai harness binaries", uninstall.stdout)
+            self.assertIn("Preserved lai harness data", uninstall.stdout)
+            self.assertIn("Preserved lai harness config", uninstall.stdout)
+            self.assertFalse((bin_dir / "lai").exists())
+            self.assertTrue(data_dir.is_dir())
+            self.assertTrue(config_dir.is_dir())
+
+
+    def test_distribution_state_upgrade_and_future_schema_preserve_data(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            bin_dir = root / "bin"
+            data_dir = root / "data"
+            config_dir = root / "config"
+            env = {
+                **os.environ,
+                "LAI_BIN_DIR": str(bin_dir),
+                "LAI_DATA_DIR": str(data_dir),
+                "LAI_CONFIG_DIR": str(config_dir),
+            }
+            subprocess.run(
+                [str(REPO / "scripts" / "install-local.sh")],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            state_file = data_dir / "distribution" / "installed-state.json"
+            self.assertTrue(state_file.is_file())
+            self.assertEqual(state_file.stat().st_mode & 0o777, 0o600)
+            first_state = json.loads(state_file.read_text(encoding="utf-8"))
+            self.assertEqual(first_state["schema_version"], 1)
+            self.assertEqual(first_state["product"], "lai harness")
+            self.assertTrue(first_state["core_stdlib_only"])
+            self.assertFalse(first_state["publication"]["release_created"])
+            self.assertFalse(first_state["rollback"]["automatic"])
+
+            status = subprocess.run(
+                [str(bin_dir / "lai"), "distribution", "status", "--json"],
+                cwd=root,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            payload = json.loads(status.stdout)
+            self.assertTrue(payload["state"]["detected"])
+            self.assertTrue(payload["core"]["stdlib_only"])
+            self.assertFalse(payload["core"]["optional_install_performed"])
+            self.assertEqual(payload["runtime"]["model_runtime_count_policy"], "one")
+            self.assertFalse(payload["publication"]["push_performed"])
+            self.assertFalse(payload["publication"]["vsix_published"])
+            self.assertTrue(payload["uninstall"]["preserve_data_by_default"])
+
+            first_state["version"] = "0.4.8"
+            state_file.write_text(json.dumps(first_state) + "\n", encoding="utf-8")
+            subprocess.run(
+                [str(REPO / "scripts" / "install-local.sh")],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            second_state = json.loads(state_file.read_text(encoding="utf-8"))
+            self.assertEqual(second_state["previous_version"], "0.4.8")
+            self.assertTrue(second_state["rollback"]["backup_available"])
+            self.assertGreaterEqual(second_state["rollback"]["file_count"], 1)
+            self.assertTrue((data_dir / "distribution" / "rollback" / "previous" / "lai").is_file())
+
+            second_status = subprocess.run(
+                [str(bin_dir / "lai"), "distribution", "--json"],
+                cwd=root,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            second_payload = json.loads(second_status.stdout)
+            self.assertEqual(second_payload["upgrade"]["previous_version"], "0.4.8")
+            self.assertTrue(second_payload["rollback"]["artifact_backup_available"])
+            self.assertFalse(second_payload["upgrade"]["automatic_upgrade"])
+
+            sentinel = data_dir / "distribution" / "keep-sentinel.txt"
+            sentinel.write_text("preserve me\n", encoding="utf-8")
+            state_file.write_text(
+                json.dumps({"schema_version": 999, "version": "future"}) + "\n",
+                encoding="utf-8",
+            )
+            future = subprocess.run(
+                [str(bin_dir / "lai"), "distribution", "status", "--json"],
+                cwd=root,
+                env=env,
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(future.returncode, 0)
+            self.assertIn("unsupported distribution state schema", future.stderr)
+            self.assertTrue(state_file.is_file())
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve me\n")
+            config_dir.mkdir(parents=True, exist_ok=True)
+
+            uninstall = subprocess.run(
+                [str(bin_dir / "lai-uninstall")],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("Preserved lai harness distribution state", uninstall.stdout)
+            self.assertTrue(data_dir.is_dir())
+            self.assertTrue(config_dir.is_dir())
 
 
     def test_server_start_allows_already_running_secure_server_without_windows_launcher(self):

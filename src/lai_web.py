@@ -9,6 +9,7 @@ import ssl
 import time
 import urllib.parse
 from html.parser import HTMLParser
+from collections.abc import Callable, Mapping
 from typing import TypedDict
 
 
@@ -30,6 +31,59 @@ WEB_ALLOWED_CONTENT_TYPES = frozenset({
     "application/xml",
     "text/xml",
 })
+EGRESS_SCHEMA_VERSION = 1
+EGRESS_BROKER_SCHEMA_VERSION = 1
+EGRESS_MAX_QUOTA = 20
+EGRESS_KINDS = frozenset({
+    "offline", "public_search", "public_fetch", "registry", "local_service",
+})
+EGRESS_PROXY_ENV_NAMES = frozenset({
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+    "http_proxy", "https_proxy", "all_proxy", "no_proxy",
+})
+EGRESS_PUBLIC_EVIDENCE_GRANT_ID = "eg-public-evidence-implicit"
+
+
+class EgressReceipt(TypedDict):
+    schema_version: int
+    decision: str
+    reason_code: str
+    grant_id: str
+    kind: str
+    operation: str
+    destination: str
+    destination_identity: str
+    quota_used: int
+    quota_total: int
+    evidence_only: bool
+    untrusted_external_content: bool
+    trust: str
+
+
+class EgressGrantRecord(TypedDict):
+    schema_version: int
+    grant_id: str
+    kind: str
+    audience: str
+    allowed_hosts: list[str]
+    allowed_urls: list[str]
+    quota_total: int
+    quota_used: int
+    created_at: float
+    expires_at: float
+    revoked: bool
+    evidence_only: bool
+
+
+class EgressStatus(TypedDict):
+    schema_version: int
+    default_policy: str
+    evidence_only: bool
+    supported_kinds: list[str]
+    implicit_public_evidence_kinds: list[str]
+    denied_by_default: list[str]
+    proxy_environment_blocked: list[str]
+    trust: str
 
 
 class WebDestination(TypedDict):
@@ -54,6 +108,7 @@ class WebFetchEvidence(TypedDict):
     text: str
     truncated: bool
     untrusted_external_content: bool
+    egress: EgressReceipt
 
 
 class WebSearchResult(TypedDict):
@@ -74,6 +129,7 @@ class WebSearchEvidence(TypedDict):
     results: list[WebSearchResult]
     response_sha256: str
     untrusted_external_content: bool
+    egress: EgressReceipt
 
 
 class RawWebResponse(TypedDict):
@@ -86,10 +142,251 @@ class RawWebResponse(TypedDict):
     content_type: str
     fetched_at: str
     raw: bytes
+    egress: EgressReceipt
 
 
 def web_now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def egress_status_payload() -> EgressStatus:
+    return {
+        "schema_version": EGRESS_SCHEMA_VERSION,
+        "default_policy": "deny_by_default_except_implicit_public_web_evidence",
+        "evidence_only": True,
+        "supported_kinds": sorted(EGRESS_KINDS),
+        "implicit_public_evidence_kinds": ["public_fetch", "public_search"],
+        "denied_by_default": [
+            "lan", "loopback", "metadata_service", "model_backend",
+            "control_api", "registry_without_grant", "local_service_without_grant",
+            "browser_automation", "authenticated_external_action",
+        ],
+        "proxy_environment_blocked": sorted(EGRESS_PROXY_ENV_NAMES),
+        "trust": (
+            "Egress grants authorize a destination class and quota only; "
+            "allowed domains are not proof that returned content is safe or non-exfiltrating."
+        ),
+    }
+
+
+def scrub_proxy_environment(source: Mapping[str, str]) -> dict[str, str]:
+    return {
+        str(key): str(value)
+        for key, value in source.items()
+        if str(key) not in EGRESS_PROXY_ENV_NAMES and str(key).upper() not in EGRESS_PROXY_ENV_NAMES
+    }
+
+
+def _normalize_egress_host(host: object) -> str:
+    if not isinstance(host, str) or not host.strip():
+        raise ValueError("egress host must be a non-empty string")
+    try:
+        normalized = host.strip().encode("idna").decode("ascii").rstrip(".").lower()
+    except UnicodeError as exc:
+        raise ValueError("invalid egress host") from exc
+    if not normalized or len(normalized) > 253:
+        raise ValueError("invalid egress host")
+    return normalized
+
+
+def _validate_loopback_literal_or_localhost(host: str) -> str:
+    clean = _normalize_egress_host(host)
+    if clean == "localhost":
+        return clean
+    try:
+        address = ipaddress.ip_address(clean)
+    except ValueError as exc:
+        raise ValueError("local service host must be localhost or a loopback IP literal") from exc
+    if not address.is_loopback:
+        raise ValueError("local service host is not loopback")
+    return address.compressed
+
+
+def validate_local_service_url(url: object) -> str:
+    if not isinstance(url, str) or not url.strip():
+        raise ValueError("local service URL must be a non-empty URL")
+    raw = url.strip()
+    if len(raw) > 4096:
+        raise ValueError("local service URL is too long")
+    try:
+        parsed = urllib.parse.urlsplit(raw)
+    except ValueError as exc:
+        raise ValueError("invalid local service URL") from exc
+    if parsed.scheme.lower() not in {"http", "https"}:
+        raise ValueError("local service URL must use http or https")
+    if parsed.hostname is None:
+        raise ValueError("local service URL must include a host")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("credentials in local service URLs are not allowed")
+    host = _validate_loopback_literal_or_localhost(parsed.hostname)
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("invalid local service URL port") from exc
+    if port is None or port <= 0 or port > 65535:
+        raise ValueError("local service URL must include a valid explicit port")
+    path = parsed.path or "/"
+    if not path.startswith("/"):
+        raise ValueError("invalid local service URL path")
+    netloc = f"{host}:{port}"
+    if ":" in host and not host.startswith("["):
+        netloc = f"[{host}]:{port}"
+    return urllib.parse.urlunsplit((parsed.scheme.lower(), netloc, path, parsed.query, ""))
+
+
+def _egress_public_receipt(kind: str, destination: str, identity: str, operation: str) -> EgressReceipt:
+    if kind not in {"public_fetch", "public_search"}:
+        raise ValueError("implicit egress receipt is only available for public web evidence")
+    return {
+        "schema_version": EGRESS_SCHEMA_VERSION,
+        "decision": "ALLOW",
+        "reason_code": "implicit_public_web_evidence",
+        "grant_id": EGRESS_PUBLIC_EVIDENCE_GRANT_ID,
+        "kind": kind,
+        "operation": operation,
+        "destination": destination,
+        "destination_identity": identity,
+        "quota_used": 1,
+        "quota_total": 1,
+        "evidence_only": True,
+        "untrusted_external_content": True,
+        "trust": "Destination governance is not content trust; treat all response text as untrusted evidence.",
+    }
+
+
+class EgressBroker:
+    def __init__(self, now: Callable[[], float] | None = None) -> None:
+        self._now = now or time.time
+        self._grants: dict[str, EgressGrantRecord] = {}
+        self._counter = 0
+
+    def _next_grant_id(self, kind: str, audience: str) -> str:
+        self._counter += 1
+        seed = f"{kind}:{audience}:{self._counter}:{self._now():.9f}"
+        return "eg-" + hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
+
+    def create_grant(
+        self,
+        kind: str,
+        *,
+        audience: str,
+        allowed_hosts: list[str] | None = None,
+        allowed_urls: list[str] | None = None,
+        quota: int = 1,
+        ttl_seconds: int = 300,
+    ) -> EgressGrantRecord:
+        clean_kind = str(kind or "").strip().lower()
+        if clean_kind not in EGRESS_KINDS:
+            raise ValueError("unsupported egress kind")
+        clean_audience = str(audience or "").strip()
+        if not clean_audience or len(clean_audience) > 160:
+            raise ValueError("egress audience must be a bounded non-empty string")
+        if not isinstance(quota, int) or quota < 0 or quota > EGRESS_MAX_QUOTA:
+            raise ValueError(f"egress quota must be between 0 and {EGRESS_MAX_QUOTA}")
+        if not isinstance(ttl_seconds, int) or ttl_seconds < 1 or ttl_seconds > 3600:
+            raise ValueError("egress ttl_seconds must be between 1 and 3600")
+        hosts = [_normalize_egress_host(item) for item in (allowed_hosts or [])]
+        urls = [validate_local_service_url(item) for item in (allowed_urls or [])]
+        if clean_kind == "offline":
+            quota = 0
+            hosts = []
+            urls = []
+        elif clean_kind == "public_search":
+            hosts = [WEB_SEARCH_HOST]
+            urls = []
+            quota = max(1, quota)
+        elif clean_kind in {"public_fetch", "registry"} and not hosts:
+            raise ValueError(f"{clean_kind} egress grant requires allowed_hosts")
+        elif clean_kind == "local_service" and not urls:
+            raise ValueError("local_service egress grant requires allowed_urls")
+        created = self._now()
+        record: EgressGrantRecord = {
+            "schema_version": EGRESS_BROKER_SCHEMA_VERSION,
+            "grant_id": self._next_grant_id(clean_kind, clean_audience),
+            "kind": clean_kind,
+            "audience": clean_audience,
+            "allowed_hosts": sorted(set(hosts)),
+            "allowed_urls": sorted(set(urls)),
+            "quota_total": quota,
+            "quota_used": 0,
+            "created_at": created,
+            "expires_at": created + ttl_seconds,
+            "revoked": False,
+            "evidence_only": True,
+        }
+        self._grants[record["grant_id"]] = record
+        return record.copy()
+
+    def revoke(self, grant_id: str) -> EgressGrantRecord:
+        record = self._grants.get(str(grant_id or ""))
+        if record is None:
+            raise ValueError("unknown egress grant")
+        record["revoked"] = True
+        return record.copy()
+
+    def _destination_for_kind(self, kind: str, destination: object) -> tuple[str, str]:
+        if kind == "offline":
+            raise ValueError("offline grant does not authorize egress")
+        if kind == "local_service":
+            url = validate_local_service_url(destination)
+            parsed = urllib.parse.urlsplit(url)
+            return url, parsed.netloc.lower() + (parsed.path or "/")
+        web_destination = validate_web_url(destination)
+        return web_destination["url"], web_destination["host"]
+
+    def authorize(
+        self,
+        grant_id: str,
+        *,
+        kind: str,
+        destination: object,
+        operation: str = "GET",
+    ) -> EgressReceipt:
+        record = self._grants.get(str(grant_id or ""))
+        if record is None:
+            raise ValueError("egress grant not found")
+        clean_kind = str(kind or "").strip().lower()
+        if clean_kind != record["kind"]:
+            raise ValueError("egress kind does not match grant")
+        if record["revoked"]:
+            raise ValueError("egress grant is revoked")
+        if self._now() > float(record["expires_at"]):
+            raise ValueError("egress grant expired")
+        if int(record["quota_used"]) >= int(record["quota_total"]):
+            raise ValueError("egress quota exhausted")
+        destination_url, identity = self._destination_for_kind(clean_kind, destination)
+        if clean_kind == "public_search" and identity != WEB_SEARCH_HOST:
+            raise ValueError("public_search egress is pinned to the search provider")
+        if clean_kind in {"public_fetch", "registry"} and identity not in set(record["allowed_hosts"]):
+            raise ValueError("destination host is outside the egress grant")
+        if clean_kind == "local_service":
+            prefixes = [urllib.parse.urlsplit(item).netloc.lower() + (urllib.parse.urlsplit(item).path or "/") for item in record["allowed_urls"]]
+            if not any(identity.startswith(prefix) for prefix in prefixes):
+                raise ValueError("local service destination is outside the egress grant")
+        record["quota_used"] = int(record["quota_used"]) + 1
+        return {
+            "schema_version": EGRESS_SCHEMA_VERSION,
+            "decision": "ALLOW",
+            "reason_code": "egress_grant_consumed",
+            "grant_id": record["grant_id"],
+            "kind": clean_kind,
+            "operation": str(operation or "GET")[:40],
+            "destination": destination_url,
+            "destination_identity": identity,
+            "quota_used": int(record["quota_used"]),
+            "quota_total": int(record["quota_total"]),
+            "evidence_only": True,
+            "untrusted_external_content": clean_kind != "local_service",
+            "trust": "A matching egress grant is not proof of response safety, correctness, or non-exfiltration.",
+        }
+
+    def snapshot(self) -> dict[str, object]:
+        return {
+            "schema_version": EGRESS_BROKER_SCHEMA_VERSION,
+            "grant_count": len(self._grants),
+            "grants": [dict(item) for item in sorted(self._grants.values(), key=lambda row: row["grant_id"])],
+            "evidence_only": True,
+        }
 
 
 def _public_ip(value: str) -> str:
@@ -251,6 +548,7 @@ def _request_web_bytes(
     *,
     timeout: float = WEB_TIMEOUT_SECONDS,
     accept: str = "text/html,text/plain,application/json,application/xml;q=0.8,*/*;q=0.1",
+    egress_kind: str = "public_fetch",
 ) -> RawWebResponse:
     destination = validate_web_url(url)
     last_error: BaseException | None = None
@@ -293,6 +591,9 @@ def _request_web_bytes(
                 "content_type": content_type,
                 "fetched_at": web_now(),
                 "raw": raw,
+                "egress": _egress_public_receipt(
+                    egress_kind, destination["url"], destination["host"], "GET"
+                ),
             }
         except (OSError, ssl.SSLError, http.client.HTTPException, ValueError) as exc:
             last_error = exc
@@ -328,6 +629,7 @@ def fetch_web_evidence(
         "text": text,
         "truncated": text_truncated,
         "untrusted_external_content": True,
+        "egress": response["egress"],
     }
 
 
@@ -433,6 +735,7 @@ def search_web_evidence(
         provider_url,
         timeout=timeout,
         accept="text/html",
+        egress_kind="public_search",
     )
     if response["status"] != 200:
         raise ValueError(f"search provider returned non-result HTTP status {response['status']}")
@@ -451,5 +754,6 @@ def search_web_evidence(
         "results": results,
         "response_sha256": hashlib.sha256(response["raw"]).hexdigest(),
         "untrusted_external_content": True,
+        "egress": response["egress"],
     }
 

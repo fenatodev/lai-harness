@@ -1,69 +1,43 @@
 # Development harness
 
-This repository uses a separate development harness around the `lai harness` product runtime. Its job is to catch risky or low-quality agent actions before they become repository changes, while keeping final CI as the authority.
+The repository development harness protects changes to LAI itself. It is distinct from the product autonomy presets proposed in the [project plan](PROJECT-PLAN-2026-09.md). Safe/Autonomous Sandbox/Full do not grant this development session permission to install dependencies, mutate Git or publish.
 
-## Maturity target
+## Current commands and proportional feedback
 
-The repository pins `harness-score` 1.6.4 for reproducible measurements.
+Use the cheapest trustworthy check for the affected boundary, then stop when required evidence is complete. This documentation revision does not change Makefile, CI, runtime guards or required status checks.
 
-```bash
-make harness-score
-make harness-score-gate
-```
+| Change class | Local evidence | Broader evidence |
+| --- | --- | --- |
+| Documentation/config | Relevant parser, links/static checks and `git diff --check`; `make check` for Harness syntax/static | Normal CI; no repeated full runtime suite merely for prose |
+| Small behavior correction | Focused regression for actual failure and relevant static/type/lint | Normal CI; broaden only for new risk/failure |
+| Significant feature | Focused behavior/integration tests plus relevant main suite at coherent integration | CI verifies supported environments |
+| Critical authority/credentials/sandbox/schema | Focused adversarial/integration and all boundary-relevant gates | Full gate before freezing the capability |
+| Milestone/release freeze | `make milestone-gate` once for the final coherent state | Protected CI/tag/publication evidence as currently required |
 
-`make harness-score-gate` requires L4. Beta.9 reached L4 Self-correcting at 93/108 (86%), up from the beta.8 L3 baseline of 76/108 (70%). Beta.16 raises the measured maturity to 100/108 (93%) by adding real reproducible-sensor and type-checking capabilities.
+Do not chain targets whose evidence is already included. `make milestone-gate` currently includes Ruff, pytest, Harness Score and `validate.sh`; validate includes unittest, strict mypy, syntax/static, publication scan and VSIX inspection. `lai validation matrix --json` exposes the implemented risk-proportional inventory: retained check IDs, cost tiers, failure fixtures, Python-floor rationale and the planned reduction from repeated broad gates during iteration to one full gate at milestone freeze. The matrix is metadata-only and does not execute checks, mutate remote settings or weaken required gates.
 
-The project does not add subagents, MCP configuration, type checking, or dependency metadata solely to gain score points. Beta.16 adds the latter two because they now enforce reproducible CI sensors and a strict typed guardrail boundary. Subagents remain deferred until real delegation boundaries exist. MCP now has a non-executing governed broker foundation; allowlisted execution remains deferred until policy and audit boundaries are proven.
+## Sensors and supported Python
 
-## Reproducible static sensors
+`requirements-dev.in` is the human-maintained development-sensor manifest; `requirements.txt` is its generated pinned lock. Runtime installation does not consume these files and remains third-party-dependency-free. Future optional browser/MCP adapters require explicit specs and isolated provisioning, not implicit additions to the core.
 
-`requirements-dev.in` is the small human-maintained sensor manifest. `requirements.txt` is generated from it with exact direct/transitive versions and is the canonical CI install input. The product runtime installer does not consume either file.
+The current `mypy.ini` strict ratchet covers seven files: both hooks and `src/lai_semantics.py`, `src/lai_config.py`, `src/lai_specs.py`, `src/lai_sessions.py`, `src/lai_web.py`. Expand it with tested subsystem extraction, not a monolith rewrite.
 
-`mypy.ini` starts with `strict = True` on the two Python guardrail hooks. `make typecheck` and `make validate` enforce that boundary, while CI runs the same check on Python 3.11 and 3.12. The scope should expand as runtime subsystems move out of the extensionless `src/local-agent` monolith into importable modules.
+Python >=3.11 has a technical basis: `src/lai_config.py` uses stdlib `tomllib`. CI currently tests 3.11 and 3.12 on Ubuntu, running pytest, unittest, Ruff, mypy and static checks; the publication job repeats part through validate. The validation matrix keeps 3.11 as the floor, treats the current CI/dev runtime as the additional supported version only when tests pass, and coordinates required-check IDs with fixtures and release checks. Linux/WSL2 is the first product target; native Windows is later and is not proven by the existing model launcher.
 
-## Policy-backed shell gate
+## Policy-backed shell and feedback hooks
 
-`.cursor/hooks/guard_shell.py` is a `beforeShellExecution` gate. It does not maintain an independent destructive-command list. Instead it sends the proposed shell command to:
+`.cursor/hooks/guard_shell.py` sends commands to `lai policy-check`, which reuses `evaluate_tool_policy` and reports `executed: false`. Mapping remains ALLOW→allow, ASK→explicit user action, DENY→block; unavailable/malformed policy evidence fails closed. Ordinary agent Git mutation remains ASK and selected destructive operations remain denied under current repository rules.
 
-```bash
-lai policy-check --tool bash --command 'git status --short' --json
-```
+`.cursor/hooks/feedback_check.py` applies narrow syntax/lint/JSON/shell feedback after edits, never installs dependencies and remains best-effort. A successful hook is early feedback, not proof of behavioral correctness. `.agents/workflows/verify-change.md` remains the explicit development workflow.
 
-`lai policy-check` reuses the runtime `evaluate_tool_policy` boundary and always reports `executed: false`.
+## Maturity, CI and release boundaries
 
-Hook mapping is deterministic:
+`harness-score` 1.6.4 is pinned and requires L4. It measures repository maturity, not sandbox security or operational autonomy. Do not add MCP/delegates/metadata merely to improve a score; their product contracts are A7/A9 of the new plan.
 
-- `ALLOW` -> allow;
-- `ASK` -> require explicit user review/action;
-- `DENY` -> block;
-- malformed input, unavailable policy evidence, or invalid output -> ask/fail closed.
+The current required-check set is `Python 3.11`, `Python 3.12`, `Publication gates`, `Harness Score L4`. `.github/workflows/ci.yml`, `harness-score.yml`, runtime release-governance expectations and tests must remain aligned. Remote protection changes are a separate authorized action, never a side effect of revising docs or shortening CI.
 
-The beta.9 policy explicitly denies force push, hard reset, npm publication, recursive forced deletion, privilege escalation, selected destructive Docker operations, and destructive database operations. Ordinary Git mutations remain `ASK` rather than executing automatically.
+GitHub Actions use reviewed full-SHA pins with version comments; Dependabot changes remain reviewable. Publication setup-node uses Node 24 with package-manager caching disabled where unnecessary. No pin/dependency/runtime installation changes occur in this planning delivery.
 
-## Feedback hook
+## Validation evidence and stop rules
 
-`.cursor/hooks/feedback_check.py` runs after file edits. It is repository-confined, never installs dependencies, and is intentionally best-effort/non-blocking.
-
-Depending on the edited file it can run narrow checks such as Python compilation/Ruff, `node --check`, JSON parsing, or `bash -n`. A hook diagnostic is early feedback, not proof of correctness; focused tests and CI remain required.
-
-## Explicit verification workflow
-
-`.agents/workflows/verify-change.md` records the intentional verification sequence: focused tests first, then lint/static checks, full suites for runtime/release-critical work, publication validation before release, and the L4 gate when harness files change.
-
-## CI ratchet
-
-`.github/workflows/harness-score.yml` is deliberately separate from the product CI workflow. It uses a pinned Harness Score action revision and requires `min-level: 4`.
-
-For beta.9 and later, protected `main` should require all four checks:
-
-- `Python 3.11`
-- `Python 3.12`
-- `Publication gates`
-- `Harness Score L4`
-
-`lai release-governance --remote` verifies the same required-check set so repository policy and release verification cannot silently diverge.
-## GitHub Actions supply-chain policy
-
-Official GitHub Actions used by CI are pinned to reviewed full commit SHAs with the upstream release version recorded in an inline comment. Do not replace them with floating `@vN` references. `.github/dependabot.yml` may propose GitHub Actions pin updates, but those updates still pass the normal PR and protected-main validation path.
-
-Publication setup-node uses Node.js 24 explicitly and disables package-manager caching when no npm dependency cache is required.
+A syntax check proves syntax; a focused regression proves its covered behavior; milestone success requires its own done criteria. Record commands/results against the exact changed state, keep historic freeze evidence dated, and never describe prior CI as current proof. If gates are unavailable, report missing evidence rather than install dependencies autonomously or weaken checks. Freeze once the bounded deliverable is complete; future capabilities stay draft.
