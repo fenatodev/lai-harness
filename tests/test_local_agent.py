@@ -3078,7 +3078,7 @@ class LocalAgentTest(unittest.TestCase):
         }
 
         with mock.patch.dict(os.environ, {agent.CONTROL_RUN_CHILD_ENV: "1"}, clear=False), \
-             mock.patch.object(agent, "CLI_ARGS", ["--diagnose", "current isolated status check"]), \
+             mock.patch.object(agent, "CLI_ARGS", ["--diagnose", "investigate isolated behavior with repository evidence"]), \
              mock.patch.object(agent, "server_ready", return_value=True), \
              mock.patch.object(agent, "collect_readiness_status", return_value=readiness), \
              mock.patch.object(agent, "load_mode_skill", return_value="synthetic diagnose skill"), \
@@ -3092,13 +3092,48 @@ class LocalAgentTest(unittest.TestCase):
             str(message.get("content") or "")
             for message in captured["messages"]
         )
-        self.assertIn("current isolated status check", combined)
+        self.assertIn("investigate isolated behavior with repository evidence", combined)
         self.assertIn("DIAGNOSE PREFLIGHT", combined)
         self.assertIn("Branch: current-branch", combined)
         self.assertIn("Readiness overall: ready", combined)
         self.assertNotIn("stale release-check investigation", combined)
         self.assertNotIn("stale release-check answer", combined)
         self.assertNotIn("docs/RELEASE-CHECKLIST.md", combined)
+
+    def test_remote_diagnose_status_fast_path_uses_preflight_without_model(self):
+        readiness = {
+            "overall": "ready",
+            "git": {"branch": "fast-branch", "clean": True, "status": "[clean]"},
+            "server": {"authentication_ok": True},
+        }
+        mcp = {
+            "overall": "ready",
+            "server_count": 1,
+            "issues": [],
+            "security": {"executes_tools": False},
+        }
+
+        with mock.patch.dict(os.environ, {agent.CONTROL_RUN_CHILD_ENV: "1"}, clear=False), \
+             mock.patch.object(agent, "CLI_ARGS", ["--diagnose", "Read-only status check: report branch, git clean state, MCP broker readiness, execution policy, and model endpoint."]), \
+             mock.patch.object(agent, "server_ready", return_value=True), \
+             mock.patch.object(agent, "collect_readiness_status", return_value=readiness), \
+             mock.patch.object(agent, "mcp_status_payload", return_value=mcp), \
+             mock.patch.object(agent, "api_call") as api_call, \
+             mock.patch.object(agent, "record_metric_event"), \
+             mock.patch.object(agent, "record_audit_event"), \
+             redirect_stdout(io.StringIO()) as output:
+            agent.main()
+
+        api_call.assert_not_called()
+        rendered = output.getvalue()
+        self.assertIn("DIAGNOSE PREFLIGHT RESULT", rendered)
+        self.assertIn("branch: fast-branch", rendered)
+        self.assertIn("git_status: clean", rendered)
+        self.assertIn("readiness: ready", rendered)
+        self.assertIn("model_endpoint: ready", rendered)
+        self.assertIn("mcp_broker: ready", rendered)
+        self.assertIn("mcp_execution_policy: disabled; call-tool DENY", rendered)
+        self.assertIn("files_modified: false", rendered)
 
     def test_main_injects_ranked_context_only_in_selected_modes(self):
         candidate = [{

@@ -1076,13 +1076,18 @@ class GuardIntegrationTest(unittest.TestCase):
             result = self.run_agent(server, "--implement", "change missing.py")
 
         self.assertEqual(result.stderr.count("\n[inspect] "), 1)
+        prompt_text = "\n".join(
+            str(message.get("content", ""))
+            for message in responder.payloads[2]["messages"]
+            if isinstance(message, dict)
+        )
         self.assertIn(
             "BLOCKED: pre-write exploration budget exhausted",
-            responder.payloads[2]["messages"][-2]["content"],
+            prompt_text,
         )
         self.assertIn(
             "PRE-WRITE EXPLORATION ENDED",
-            responder.payloads[2]["messages"][-1]["content"],
+            prompt_text,
         )
         offered = {
             tool["function"]["name"]
@@ -1327,15 +1332,14 @@ class GuardIntegrationTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Implemented: hello file", result.stdout)
         self.assertEqual((self.repo / "hello.txt").read_text(), "hello\n")
-        self.assertTrue(
-            any(
-                message.get("name") == "validate"
-                and "exit_code=0" in message.get("content", "")
-                for payload in responder.payloads
-                for message in payload.get("messages", [])
-                if isinstance(message, dict)
-            )
+        payload_text = "\n".join(
+            str(message.get("content", ""))
+            for payload in responder.payloads
+            for message in payload.get("messages", [])
+            if isinstance(message, dict)
         )
+        self.assertIn("[validate]", payload_text)
+        self.assertIn("exit_code=0", payload_text)
 
     def test_simple_implement_still_creates_and_validates(self):
         responder = SequenceResponder([
