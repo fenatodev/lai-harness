@@ -8,7 +8,7 @@ The user-facing product name is lai harness; the command remains `lai`, and comp
 
 The current runtime is primarily implemented in `src/local-agent`, while `src/lai` is the user-facing CLI wrapper. The VS Code extension connects `@lai` to the separately installed harness.
 
-The project deliberately favors deterministic guards, bounded exploration, compact context, low tool-schema overhead, explicit validation, and auditable execution over large autonomous workflows.
+The current runtime favors deterministic guards, bounded exploration, compact context, low tool-schema overhead, explicit validation, and auditable execution. The proposed product direction in `docs/PROJECT-PLAN-2026-09.md` expands useful autonomy inside verified boundaries; it does not enable new runtime capabilities or weaken the development safety rules below.
 
 ## Architecture
 

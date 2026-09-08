@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
 
 
@@ -36,6 +37,7 @@ class RuntimeRecordsTest(unittest.TestCase):
         self.old_audit_max = agent.AUDIT_MAX_BYTES
         self.old_audit_keep = agent.AUDIT_KEEP_LINES
         self.old_state_days = agent.STATE_RETENTION_DAYS
+        self.old_trajectory_sequence = agent.RUNTIME_TRAJECTORY_SEQUENCE
         agent.ROOT = self.repo.resolve()
         agent.STATE_BASE = self.base / "data" / "state"
         agent.METRICS_DIR = self.base / "data" / "metrics"
@@ -55,6 +57,7 @@ class RuntimeRecordsTest(unittest.TestCase):
         agent.AUDIT_MAX_BYTES = self.old_audit_max
         agent.AUDIT_KEEP_LINES = self.old_audit_keep
         agent.STATE_RETENTION_DAYS = self.old_state_days
+        agent.RUNTIME_TRAJECTORY_SEQUENCE = self.old_trajectory_sequence
         self.temp.cleanup()
 
     def test_runtime_json_schemas_are_version_one_draft_2020_12(self):
@@ -85,6 +88,97 @@ class RuntimeRecordsTest(unittest.TestCase):
         audit = json.loads(agent.AUDIT_FILE.read_text())
         self.assertEqual(metric["schema_version"], 1)
         self.assertEqual(audit["schema_version"], 1)
+
+    def test_runtime_trajectory_event_is_versioned_ordered_and_sanitized(self):
+        first = agent.record_trajectory_event(
+            "model_call",
+            "succeeded",
+            reason_code="model_response",
+            prompt_tokens=10,
+            completion_tokens=5,
+            token="secret-token",
+            stdout="secret-output",
+            path="/tmp/private-path",
+        )
+        second = agent.record_trajectory_event(
+            "tool_finished",
+            "blocked",
+            reason_code="deny",
+            name="bash",
+            decision="DENY",
+            reason="safe policy reason",
+        )
+
+        records = [
+            json.loads(line)
+            for line in agent.AUDIT_FILE.read_text().splitlines()
+        ]
+        self.assertEqual([item["type"] for item in records], ["trajectory", "trajectory"])
+        self.assertEqual(first["sequence"] + 1, second["sequence"])
+        event = records[0]["trajectory"]
+        self.assertEqual(event["schema_version"], 1)
+        self.assertEqual(event["event_type"], "model_call")
+        self.assertEqual(event["status"], "succeeded")
+        self.assertEqual(event["metadata"]["prompt_tokens"], 10)
+        shown = json.dumps(records, sort_keys=True)
+        self.assertNotIn("secret-token", shown)
+        self.assertNotIn("secret-output", shown)
+        self.assertNotIn("/tmp/private-path", shown)
+        self.assertNotIn('"token":', shown)
+        self.assertNotIn('"stdout":', shown)
+        self.assertNotIn('"path":', shown)
+
+    def test_run_budget_controller_reserves_reconciles_and_preserves_unknown(self):
+        events = []
+        budget = agent.RunBudgetController(
+            "implement",
+            limits={"model_calls": 1, "prompt_tokens": 10},
+            emit=events.append,
+            clock=lambda: "2026-09-08T00:00:00Z",
+        )
+        reservation = budget.reserve("model_calls", reason_code="model_dispatch")
+        self.assertIsNotNone(reservation)
+        budget.consume(reservation)
+        budget.observe("prompt_tokens", None, reason_code="model_usage")
+        self.assertIsNone(budget.reserve("model_calls", reason_code="model_dispatch"))
+
+        snapshot = budget.snapshot()
+        self.assertTrue(snapshot["exhausted"])
+        self.assertEqual(snapshot["exhausted_dimension"], "model_calls")
+        self.assertIsNone(snapshot["consumed"]["prompt_tokens"])
+        self.assertIn("prompt_tokens", snapshot["unknown_counters"])
+        self.assertEqual([item["type"] for item in events], ["budget"] * len(events))
+        self.assertEqual(events[-1]["budget"]["event_type"], "budget_exhausted")
+
+    def test_run_budget_controller_serializes_concurrent_reservations(self):
+        events = []
+        budget = agent.RunBudgetController(
+            "implement",
+            limits={"tool_calls": 1},
+            emit=events.append,
+            clock=lambda: "2026-09-08T00:00:00Z",
+        )
+        results = []
+        lock = threading.Lock()
+
+        def reserve_once():
+            reservation = budget.reserve("tool_calls", reason_code="tool_dispatch")
+            with lock:
+                results.append(reservation is not None)
+
+        workers = [threading.Thread(target=reserve_once) for _ in range(8)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join()
+
+        self.assertEqual(sum(results), 1)
+        self.assertTrue(budget.snapshot()["exhausted"])
+        exhausted_events = [
+            item for item in events
+            if item["budget"]["event_type"] == "budget_exhausted"
+        ]
+        self.assertTrue(exhausted_events)
 
     def test_jsonl_reader_accepts_legacy_and_skips_future_records(self):
         path = self.base / "events.jsonl"

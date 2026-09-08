@@ -1,0 +1,62 @@
+# Spec: Broker mínimo de segredos e receipts
+
+## Metadata
+
+- Mode: `full`
+- Status: `complete`
+- Milestone: `A2`
+- Planning revision: `2026-09-08`
+
+## Goal
+
+Introduzir referências opacas e adapter fake autenticado executado pelo supervisor, com audience/operação/TTL definidos e ambiente mínimo para executor.
+
+## Requirements
+
+### REQ-001
+
+Introduzir referências opacas e adapter fake autenticado executado pelo supervisor, com audience/operação/TTL definidos e ambiente mínimo para executor.
+
+### REQ-002
+
+Não transmitir segredo para modelo/env genérico/argv/log/UI; broker valida grant e redige respostas antes de persistência; revogação impede novas operações.
+
+### REQ-003
+
+Canário fixture só chega ao fake destinatário autorizado; impressão de env, erro, record e export não o revelam; timeout após envio resulta em outcome_unknown.
+
+## Acceptance Criteria
+
+- REQ-001: comportamento definido observável em fixture determinística; contrato legado aplicável preservado.
+- REQ-002: tentativa adversarial correspondente é negada/contida antes de ampliar autoridade, com reason code.
+- REQ-003: Canário fixture só chega ao fake destinatário autorizado; impressão de env, erro, record e export não o revelam; timeout após envio resulta em outcome_unknown.
+
+## Validation
+
+- `REQ-001`: Validar contrato/resultado nas fixtures específicas descritas abaixo.
+- `REQ-002`: Cobrir rejeição, drift/revogação, isolamento e ausência de autoridade/segredos conforme requisito.
+- `REQ-003`: Usar serviços fake e canários, sem contas reais; verificar audience, revoke, receipt, redaction e falha de storage.
+- Antes de ativar, fixar os comandos focados e limites numéricos a partir das fixtures e ferramentas realmente presentes; não instalar dependências autonomamente.
+- Comportamento: regressões focadas primeiro. Fronteira crítica: integration/security tests pertinentes. Freeze: `make milestone-gate` uma vez, sem targets sobrepostos; companion usa seus checks próprios.
+
+## Context and Constraints
+
+Proposta sem implementação. Depende dos gates de A2 no [backlog](../docs/EXECUTION-BACKLOG-2026-09.md). [Arquitetura-alvo](../docs/TARGET-ARCHITECTURE.md) e [threat model](../docs/AUTONOMY-THREAT-MODEL.md) orientam o desenho; policy/AGENTS vigentes continuam aplicáveis. Exatamente uma spec pode ser ativa durante uma implementação por repositório; esta permanece draft até aprovação do plano e ativação da fatia.
+
+## Non-Goals
+
+Vault próprio, OAuth universal, credenciais reais, cloud admin ou operações financeiras.
+
+## Implementation Notes
+
+Áreas existentes para inspeção, não promessa de novos módulos: src/local-agent; src/lai_config.py; tests/test_control_plane.py; tests/test_runtime_records.py.
+
+Fixtures e testes: Usar serviços fake e canários, sem contas reais; verificar audience, revoke, receipt, redaction e falha de storage.
+
+UX, observabilidade, rollback e stop rules específicos estão no contrato de A2 do backlog. Done requer todos os REQs, evidência registrada e nenhuma alegação de capability ainda não entregue. Se o escopo exceder esta fatia, separar follow-up draft antes de implementar.
+
+## Traceability
+
+- `REQ-001` → contrato/fixtures da área acima e entrega de A2.
+- `REQ-002` → testes adversariais da fronteira e threat model aplicável a A2.
+- `REQ-003` → caso de aceite determinístico descrito em Requirements e sua evidência de validação.

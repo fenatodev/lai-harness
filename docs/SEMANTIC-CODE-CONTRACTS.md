@@ -30,6 +30,7 @@ Examples of subsystem ids:
 - `tool-runtime`
 - `semantic-code-contracts`
 - `context-intelligence`
+- `deterministic-code-graph`
 - `spec-workflow`
 - `model-evaluation`
 - `observability-recovery`
@@ -45,7 +46,7 @@ When task terms match a subsystem, `lai context` can add a reason such as:
 semantic_contract:policy-gateway
 ```
 
-That means the file is likely relevant by declared domain meaning. It does not mean the file was read. The model must still inspect the file before relying on implementation details.
+That means the file is likely relevant by declared domain meaning. A separate `code_graph:*` reason can also come from bounded Python AST import/definition/test-relation metadata. Neither reason means the file was read. The model must still inspect the file before relying on implementation details.
 
 ## why this helps small models
 

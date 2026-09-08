@@ -47,6 +47,27 @@ class QualitySensorsTest(unittest.TestCase):
             },
         )
 
+    def test_validation_matrix_retains_required_gate_classes(self):
+        source = (ROOT / "src" / "local-agent").read_text()
+        docs = (ROOT / "docs" / "EXECUTION-BACKLOG-2026-09.md").read_text()
+        required = [
+            "static.syntax",
+            "lint.ruff",
+            "runtime.pytest",
+            "runtime.unittest",
+            "typing.mypy",
+            "harness.score",
+            "publication.scan",
+            "package.vsix",
+            "install.smoke",
+        ]
+        for check_id in required:
+            self.assertIn(check_id, source)
+        self.assertIn("080-risk-proportional-validation", docs)
+        self.assertIn("weakens_existing_gates", source)
+        self.assertIn("remote_settings_mutated", source)
+        self.assertIn("tomllib", source)
+
     def test_makefile_and_ci_enforce_typecheck(self):
         makefile = (ROOT / "Makefile").read_text()
         ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()

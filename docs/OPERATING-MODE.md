@@ -1,5 +1,7 @@
 # lai harness Operating Mode
 
+The [2026-09 product replan](PROJECT-PLAN-2026-09.md) proposes autonomous runtime capabilities; this operating policy still governs development of the repository. No planning preset grants this development session Git mutation, dependency installation or publication authority. Risk-proportional validation is exposed by `lai validation matrix`; `lai operating-mode` continues to report the implemented policy.
+
 This document is the canonical operating policy for day-to-day LAI development and for LAI's own repository-agent behavior.
 
 ## Intent

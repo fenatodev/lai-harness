@@ -1,5 +1,7 @@
 # Design decisions
 
+These decisions explain the existing implementation and its history. Product-direction changes and deliberate supersession are recorded in the [September decision log](DECISION-LOG-2026-09.md); broader autonomy remains proposed in the [target architecture](TARGET-ARCHITECTURE.md).
+
 ## Custom harness over a general-purpose default
 
 Early OpenCode experiments worked but introduced prompt and schema overhead that was disproportionate for the tested 8B model. LAI chose a small standard-library harness to control every prompt, tool, and round. This trades ecosystem breadth for inspectability and lower overhead.
@@ -26,7 +28,7 @@ Small models produced plausible but unsupported review findings. Review and secu
 
 ## Post-patch sanity
 
-A fixture introduced `throw newError(...)`; tests passed because that branch was not executed. lai harness added deterministic syntax and added-line analysis, including this regression class, followed by a very small diff-only model check. Sanity complements rather than replaces project validation.
+A fixture introduced `throw newError(...)`; tests passed because that branch was not executed. lai harness added deterministic syntax and added-line analysis, including this regression class. The current blocking post-patch sanity is deterministic; earlier experiments with a diff-only model check are historical. Sanity complements rather than replaces project validation.
 
 ## Metrics and audit
 

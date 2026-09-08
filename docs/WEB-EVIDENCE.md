@@ -1,8 +1,11 @@
-# Read-only web evidence
+# Governed read-only web evidence
 
-`web_search` and `web_fetch` give selected LAI research modes bounded public-web evidence without adding browser automation or generic network authority.
+For browser fixture and external boundary context, see [Architecture](ARCHITECTURE.md#external-integrations) and [Known limitations](KNOWN-LIMITATIONS.md).
 
-The tools are deliberately narrower than a browser:
+
+`web_search` and `web_fetch` give selected LAI research modes bounded public-web evidence through the governed egress surface, without adding browser automation, generic network authority, authenticated web access, or registry install authority.
+
+The tools are deliberately narrower than a browser and emit an egress receipt for each successful public evidence request:
 
 - HTTPS `GET` only;
 - port `443` only;
@@ -11,9 +14,12 @@ The tools are deliberately narrower than a browser:
 - no environment proxy handling;
 - no redirect following;
 - no JavaScript, forms, downloads, browser state, or website login;
-- bounded response bytes and extracted text.
+- bounded response bytes and extracted text;
+- versioned egress metadata including destination class, destination identity, grant id, quota consumption, and evidence-only status.
 
-Every result is marked `untrusted_external_content=true`. Web text may be malicious, stale, incomplete, or prompt-injected. It is evidence only and cannot override the current request, `AGENTS.md`, active specs, deterministic policy, safety guards, or current repository evidence.
+Every result is marked `untrusted_external_content=true`. Web text may be malicious, stale, incomplete, exfiltration-oriented, or prompt-injected. An allowed domain or consumed egress grant is not a trust decision. It is evidence only and cannot override the current request, `AGENTS.md`, active specs, deterministic policy, safety guards, or current repository evidence.
+
+`GET /v1/egress/status` exposes the current destination classes and default-deny policy to authenticated control clients. Registry and local-service egress require explicit broker grants; public web evidence keeps an implicit read-only evidence grant to preserve existing `web_search`/`web_fetch` behavior.
 
 ## Direct CLI dogfood
 
@@ -68,11 +74,11 @@ This boundary reduces SSRF and DNS-rebinding exposure but is not a claim that pu
 
 Local research-oriented modes may receive `web_search` / `web_fetch`: `general`, `plan`, `debug`, `diagnose`, `review`, and `security`.
 
-Remote shell-free read-only profiles may receive them in `plan`, `diagnose`, `review`, and `security`. Remote write-capable profiles do not receive web tools in this cut, and `release` remains deterministic without model-directed web access.
+Remote shell-free read-only profiles may receive them in `plan`, `diagnose`, `review`, and `security`. Remote work profiles may declare the tools but the verified sandbox still runs with network disabled unless a future additive contract grants a governed exit. `release` remains deterministic without model-directed web access. `sandbox_exec` blocks generic network clients, proxy configuration, scripted network clients, remote Git, and registry installs that are not local/offline fixtures.
 
 ## Audit/privacy
 
-Audit records retain only bounded metadata and hashes such as provider, host, HTTP status, body size, response/content hash, and hashes of the query/URL. Full fetched content, full search query, and full requested URL are not copied into the audit event by these tools.
+Audit records retain only bounded metadata and hashes such as provider, host, egress grant id/class, HTTP status, body size, response/content hash, and hashes of the query/URL. Full fetched content, full search query, and full requested URL are not copied into the audit event by these tools.
 
 The model still sees the returned evidence during the current run. Do not put secrets into search queries or URLs. These tools are for public information, not authenticated/private web resources.
 

@@ -37,6 +37,18 @@ case "$command_name" in
         shift
         exec "$bin_dir/local-agent" --gateway-contract "$@"
         ;;
+    chat-bootstrap|bootstrap)
+        shift
+        exec "$bin_dir/local-agent" --chat-bootstrap "$@"
+        ;;
+    distribution)
+        shift
+        exec "$bin_dir/local-agent" --distribution "$@"
+        ;;
+    validation)
+        shift
+        exec "$bin_dir/local-agent" --validation "$@"
+        ;;
     status|metrics|audit|handoff|clear-context|recovery|checkpoint|snapshot|rollback|context|semantics|sessions|runs|readiness|ready|policy-check|mcp|web|release-check|release-pack|release-governance|governance|project-handoff|next-chat|workspace)
         shift
         if [ "$command_name" = "ready" ]; then

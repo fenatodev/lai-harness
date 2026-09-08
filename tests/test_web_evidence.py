@@ -140,6 +140,9 @@ class WebEvidenceTest(unittest.TestCase):
         self.assertEqual(result["connected_ip"], PUBLIC_V4)
         self.assertEqual(result["resolved_ips"], [PUBLIC_V4])
         self.assertTrue(result["untrusted_external_content"])
+        self.assertEqual(result["egress"]["kind"], "public_fetch")
+        self.assertEqual(result["egress"]["decision"], "ALLOW")
+        self.assertTrue(result["egress"]["evidence_only"])
         self.assertIn("Hello", result["text"])
         self.assertIn("world", result["text"])
         self.assertNotIn("bad()", result["text"])
@@ -207,6 +210,8 @@ class WebEvidenceTest(unittest.TestCase):
         self.assertEqual(result["provider"], "duckduckgo-lite")
         self.assertEqual(result["result_count"], 1)
         self.assertTrue(result["untrusted_external_content"])
+        self.assertEqual(result["egress"]["kind"], "public_search")
+        self.assertEqual(result["egress"]["destination_identity"], web.WEB_SEARCH_HOST)
         self.assertEqual(len(FakeConnection.calls), 1)
         method, path, headers = FakeConnection.calls[0]
         self.assertEqual(method, "GET")
@@ -214,6 +219,87 @@ class WebEvidenceTest(unittest.TestCase):
         self.assertEqual(headers["Host"], web.WEB_SEARCH_HOST)
         self.assertNotIn("Cookie", headers)
         self.assertNotIn("Authorization", headers)
+
+    def test_egress_broker_grants_are_quota_bound_revocable_and_destination_scoped(self):
+        clock = {"now": 10.0}
+        broker = web.EgressBroker(now=lambda: clock["now"])
+        registry = broker.create_grant(
+            "registry",
+            audience="tests",
+            allowed_hosts=["registry.example"],
+            quota=1,
+            ttl_seconds=60,
+        )
+        with mock.patch.object(web, "resolve_public_host", return_value=[PUBLIC_V4]):
+            receipt = broker.authorize(
+                registry["grant_id"],
+                kind="registry",
+                destination="https://registry.example/packages/demo",
+            )
+        self.assertEqual(receipt["reason_code"], "egress_grant_consumed")
+        self.assertEqual(receipt["quota_used"], 1)
+        self.assertEqual(receipt["destination_identity"], "registry.example")
+        with self.assertRaisesRegex(ValueError, "quota exhausted"), \
+                mock.patch.object(web, "resolve_public_host", return_value=[PUBLIC_V4]):
+            broker.authorize(
+                registry["grant_id"],
+                kind="registry",
+                destination="https://registry.example/packages/demo",
+            )
+
+        service = broker.create_grant(
+            "local_service",
+            audience="tests",
+            allowed_urls=["http://127.0.0.1:18181/api/"],
+            quota=2,
+            ttl_seconds=60,
+        )
+        service_receipt = broker.authorize(
+            service["grant_id"],
+            kind="local_service",
+            destination="http://127.0.0.1:18181/api/status",
+        )
+        self.assertEqual(service_receipt["kind"], "local_service")
+        self.assertFalse(service_receipt["untrusted_external_content"])
+        with self.assertRaisesRegex(ValueError, "outside the egress grant"):
+            broker.authorize(
+                service["grant_id"],
+                kind="local_service",
+                destination="http://127.0.0.1:18181/other",
+            )
+        broker.revoke(service["grant_id"])
+        with self.assertRaisesRegex(ValueError, "revoked"):
+            broker.authorize(
+                service["grant_id"],
+                kind="local_service",
+                destination="http://127.0.0.1:18181/api/status",
+            )
+
+    def test_egress_status_and_proxy_scrubbing_are_secret_free(self):
+        payload = web.egress_status_payload()
+        self.assertEqual(payload["schema_version"], web.EGRESS_SCHEMA_VERSION)
+        self.assertIn("registry_without_grant", payload["denied_by_default"])
+        self.assertIn("control_api", payload["denied_by_default"])
+        self.assertTrue(payload["evidence_only"])
+        cleaned = web.scrub_proxy_environment({
+            "PATH": "/bin",
+            "HTTPS_PROXY": "http://proxy-secret.example",
+            "no_proxy": "127.0.0.1",
+        })
+        self.assertEqual(cleaned, {"PATH": "/bin"})
+
+    def test_local_service_url_validation_blocks_unregistered_lan_and_metadata(self):
+        valid = web.validate_local_service_url("http://localhost:8123/api?q=1")
+        self.assertEqual(valid, "http://localhost:8123/api?q=1")
+        for value in (
+            "http://10.0.0.5:8123/api",
+            "http://169.254.169.254:80/latest/meta-data/",
+            "http://example.com:8123/api",
+            "http://user:pass@127.0.0.1:8123/api",
+            "file:///tmp/service",
+        ):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                web.validate_local_service_url(value)
 
 
 if __name__ == "__main__":

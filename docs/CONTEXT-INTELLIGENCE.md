@@ -8,7 +8,10 @@ Context intelligence is enabled before inference for:
 
 - `plan`
 - `debug`
+- `diagnose`
 - `fix`
+- `ci-fix`
+- `release`
 - `implement`
 - `refactor`
 
@@ -64,9 +67,16 @@ lai context symbols src/local-agent
 lai context symbols src/local-agent --json --limit 80
 ```
 
-The map reports repository-relative files, directory/suffix groups, manifests, changed paths, and semantic subsystem path matches. The changes view reports staged/unstaged/untracked counts, bounded repository-relative paths, and shortstat only. The diff view reports per-file staged/unstaged addition and deletion counts plus untracked path counts without raw hunks. The checks view reports Makefile target names, validation profile names, test file paths, test method counts, changed-path samples, and suggested feedback loops without executing commands. The runs view reports recent run ids, modes, statuses, tool/validation counts, phase names, modified path counts, and recovery checkpoint status without output text or failure reasons. Symbol summaries report function/class/method names and line numbers only. These views are metadata-only and never include file contents, Makefile recipes, test bodies, stdout, stderr, transcripts, tokens, or raw diffs.
+Use the deterministic Python code graph to inspect bounded import, definition, dependency, dynamic-import and test-relation metadata:
 
-For model runs in context-intelligence modes, LAI injects a much smaller prompt map containing only aggregate directory/suffix groups, changed paths, and semantic subsystem ids, plus a compact Git changes summary containing only status counts, shortstat, and bounded paths. The same metadata views are also available through the structured `context` tool so shell-free remote modes can inspect map, changes, diff, checks/tests, runs, and symbols without calling `bash`. This is intended to reduce early repository-discovery calls without treating metadata as file evidence.
+```bash
+lai context graph
+lai context graph --json --max-files 400 --max-edges 500
+```
+
+The map reports repository-relative files, directory/suffix groups, manifests, changed paths, semantic subsystem path matches, and code-graph summary counts. The graph reports Python AST module/function/class/method nodes, import edges, dynamic-import hints, test imports, test-name heuristics, per-file SHA-256 provenance, and `resolved`/`heuristic`/`unknown` status. The changes view reports staged/unstaged/untracked counts, bounded repository-relative paths, and shortstat only. The diff view reports per-file staged/unstaged addition and deletion counts plus untracked path counts without raw hunks. The checks view reports Makefile target names, validation profile names, test file paths, test method counts, changed-path samples, and suggested feedback loops without executing commands. The runs view reports recent run ids, modes, statuses, tool/validation counts, phase names, modified path counts, and recovery checkpoint status without output text or failure reasons. Symbol summaries report function/class/method names and line numbers only. These views are metadata-only and never include file contents, Makefile recipes, test bodies, stdout, stderr, transcripts, tokens, raw diffs, or absolute repository paths.
+
+For model runs in context-intelligence modes, LAI injects a much smaller prompt map containing only aggregate directory/suffix groups, changed paths, semantic subsystem ids and code-graph counts, plus a compact Git changes summary containing only status counts, shortstat, and bounded paths. The ranked candidate list can also use the graph as a weak `code_graph:*` reason when task terms match Python AST symbols/imports or linked files. The same metadata views are available through the structured `context` tool so shell-free remote modes can inspect map, graph, changes, diff, checks/tests, runs, and symbols without calling `bash`. This is intended to reduce early repository-discovery calls without treating metadata as file evidence.
 
 ## Inventory bounds
 
@@ -83,12 +93,15 @@ Current weights are additive:
 - `git_changed`: +60
 - `task_path_match`: +50
 - `spec_reference`: +45
+- `semantic_contract`: +38
 - `modified`: +35
+- `code_graph`: +24
 - `recent`: +18
 - `content_match`: +8 per matched task term, capped at +32
 - `manifest`: +10
 
 Generic task words are filtered before matching. Identical scores are ordered by repository-relative path, so identical input/state produces stable ordering.
+
 ## Validation inventory
 
 `lai context checks` summarizes Makefile target names, validation profiles, test file counts, test method counts, changed-path samples, and suggested feedback loops. It does not print Makefile recipes or test bodies, and it does not run validation commands.
@@ -116,3 +129,5 @@ Workspace `recent` and `modified` paths are normalized and revalidated before th
 Ranking is advisory. Repository filenames and sampled text can influence candidate order, including malicious or misleading content. The model must still inspect a file before relying on its contents, and all existing repository rules, mode gates, policy decisions, validation requirements, and recovery checks remain authoritative.
 
 lai harness does not use embeddings, vector databases, external indexing services, MCP, delegates, or learning for this feature. Rankings and context maps are recomputed from current local evidence and are not persisted as a separate index.
+
+Current Python symbol summaries and the code graph use AST declarations. The graph resolves straightforward Python imports, test imports, file-name test relations, constant-string dynamic imports, aliases and cycles when they are visible in the bounded repository inventory. JavaScript summaries still use bounded pattern matching and do not participate in the graph. The graph does not claim completeness for dynamic Python behavior, runtime import path changes, plugin loading, inheritance, call sites, generated files, ignored directories, or files outside the repository. Its cache is process-local and discardable; it is invalidated by the root, parser version, limits and per-file hashes, so edit/rename/delete changes recompute the graph.

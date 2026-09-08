@@ -63,16 +63,30 @@ SEMANTIC_CODE_CONTRACT: SemanticCodeContract = {
         },
         {
             "id": "context-intelligence",
-            "intent": "rank and summarize repository context metadata without treating candidates, maps, changes, checks, runs, or symbols as inspected evidence",
+            "intent": "rank and summarize repository context metadata without treating candidates, maps, graph, changes, checks, runs, or symbols as inspected evidence",
             "paths": ["src/local-agent", "docs/CONTEXT-INTELLIGENCE.md"],
             "entrypoints": [
                 "rank_context_candidates", "render_context_candidates", "print_context_candidates",
                 "repository_context_map", "context_git_changes_payload", "context_checks_payload",
-                "context_runs_payload", "context_symbols_payload", "tool_context",
+                "context_runs_payload", "context_symbols_payload", "context_code_graph_payload", "tool_context",
             ],
             "terms": [
                 "context", "ranking", "candidate", "inventory", "semantic", "terms", "workspace", "recent", "modified",
-                "map", "changes", "checks", "tests", "runs", "symbols", "metadata", "tool",
+                "map", "graph", "changes", "checks", "tests", "runs", "symbols", "metadata", "tool",
+            ],
+        },
+        {
+            "id": "deterministic-code-graph",
+            "intent": "resolve bounded Python AST imports, definitions, dynamic-import hints, cycles, and test relations as advisory graph metadata",
+            "paths": ["src/local-agent", "docs/CONTEXT-INTELLIGENCE.md"],
+            "entrypoints": [
+                "context_code_graph_payload", "context_code_graph_references",
+                "render_context_code_graph", "rank_context_candidates",
+            ],
+            "terms": [
+                "graph", "code", "import", "imports", "definition", "definitions", "ast", "python",
+                "dependency", "dependencies", "relation", "test", "tests", "dynamic", "cycle", "alias",
+                "provenance", "hash", "resolved", "heuristic", "unknown",
             ],
         },
         {

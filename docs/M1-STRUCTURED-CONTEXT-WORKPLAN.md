@@ -1,5 +1,7 @@
 # M1 Workplan — structured-context-dogfood
 
+Historical milestone document, retained for traceability. Its candidate scope and stop rules describe the completed M1–M3 planning cycle, not the next implementation or the permanent product ceiling. The [current plan](PROJECT-PLAN-2026-09.md), [backlog](EXECUTION-BACKLOG-2026-09.md) and [decision log](DECISION-LOG-2026-09.md) supersede its prospective sequencing; current runtime restrictions remain in force.
+
 This workplan is the implementation-facing plan for `.specs/054-structured-context-dogfood.md`.
 
 ## Objective
