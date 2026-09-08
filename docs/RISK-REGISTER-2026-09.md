@@ -77,3 +77,7 @@ Risk: merged planning or small operational commits can trigger premature version
 Impact: releases become noisy and less meaningful.
 
 Mitigation: require a release-freeze spec and coherent user-visible theme before release work.
+
+## RISK-005 mitigation note
+
+M2 reduced the mobile dogfood risk by adding Gateway sanitization for session/run/event payloads and a repeatable read-only dogfood script. Remaining risk moves to real phone ergonomics and should be addressed only from observed friction, not speculative UI expansion.

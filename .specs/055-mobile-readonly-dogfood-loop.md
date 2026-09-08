@@ -3,7 +3,7 @@
 ## Metadata
 
 - Mode: `full`
-- Status: `draft`
+- Status: `complete`
 
 ## Goal
 
@@ -47,11 +47,13 @@ Update Gateway documentation only where a real operator action changes.
 
 ## Validation
 
-- Focused Gateway server/UI/mobile tests for touched routes.
-- Focused Harness control/session tests if the Harness behavior changes.
-- `make check` in every touched repository.
-- Gateway/Harness stack compatibility check.
-- Real mobile or local-private dogfood with secret-shape scan.
+- `REQ-001`: Focused documentation or fixture check proving the named dogfood scenarios are declared.
+- `REQ-002`: Focused lifecycle test or documented state transition check for pair, session, expiry, reuse, and cleanup.
+- `REQ-003`: Focused Gateway route/mode rejection tests proving phone-triggered runs remain read-only and shell-free.
+- `REQ-004`: Focused run-event display or payload tests proving progress is sanitized and metadata-only.
+- `REQ-005`: Dogfood evidence file or fixture records every observed failure before adding controls.
+- `REQ-006`: Documentation diff is limited to real operator action changes.
+- Repository gates: `make check` in every touched repository, Gateway/Harness stack compatibility check, and real mobile or local-private dogfood with secret-shape scan.
 
 ## Context and Constraints
 
@@ -77,3 +79,20 @@ Start with dogfood scripts and docs. Add UI only for repeated friction observed 
 - `REQ-004` -> sanitized event display tests.
 - `REQ-005` -> fixtures created from observed failures.
 - `REQ-006` -> focused documentation diff.
+
+## Completion Evidence
+
+Implemented in `lai-gateway` PR #42.
+
+Evidence:
+
+- Gateway session, run, and run-event payloads are sanitized for mobile read-only use.
+- `scripts/mobile-readonly-dogfood.sh` proves the loop with write-mode rejection, session create/get/delete, read-only run creation, terminal polling, metadata-only event inspection, and secret-shape scanning.
+- Gateway focused tests covered script, client, CLI, HTTP routes, private mode, and sanitization.
+- Gateway `make check` and `make milestone-gate` passed with 209 tests and stack compatibility.
+- Live local-private Gateway-to-Harness dogfood completed with sanitized output and no token-shaped content.
+
+Cross-repo details live in the Gateway docs:
+
+- `docs/MOBILE_READONLY_DOGFOOD.md`
+- `docs/MOBILE_READONLY_DOGFOOD_EVIDENCE.md`

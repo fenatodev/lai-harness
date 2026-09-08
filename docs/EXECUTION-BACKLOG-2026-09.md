@@ -21,7 +21,7 @@ It is not a wish list. Each item must either improve core Harness capability, su
 4. `M4 model-eval-evidence-expansion`.
 5. `M5 next-release-freeze`.
 
-Do not skip to MCP execution, mobile write approval, or release ritual before M1 and M2 have produced evidence.
+Do not skip to MCP execution, mobile write approval, or release ritual before M1 and M2 have produced evidence. M1 and M2 now have evidence; M3 may start only as non-executing allowlist design.
 
 ## M1 — structured-context-dogfood
 
@@ -55,6 +55,9 @@ Post-M1 follow-up:
 - Broaden model-backed planning context only from new measured failures that do not match the narrow active-spec preflight.
 
 ## M2 — mobile-readonly-dogfood-loop
+
+M2 status: complete. Implemented in `lai-gateway` PR #42 with sanitized session/run/event payloads and `scripts/mobile-readonly-dogfood.sh`.
+
 
 Goal: prove the phone/Gateway path can support real read-only project work.
 
