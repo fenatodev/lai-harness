@@ -126,6 +126,33 @@ def load_active_spec(root: str | Path) -> ParsedSpec | None:
         raise SystemExit(f"Invalid active spec {active[0]}: {exc}") from exc
 
 
+def _compact_markdown_block(value: str, *, max_chars: int) -> str:
+    value = re.sub(r"\n{3,}", "\n\n", value.strip())
+    max_chars = max(80, int(max_chars))
+    if len(value) <= max_chars:
+        return value
+    clipped = value[: max(0, max_chars - 24)].rstrip()
+    return clipped + "\n[truncated]"
+
+
+def _compact_requirements_block(requirements: str, *, max_chars: int) -> str:
+    blocks = re.split(r"(?m)(?=^### REQ-\d{3}\b)", requirements.strip())
+    lines: list[str] = []
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
+        heading, _, body = block.partition("\n")
+        body = " ".join(line.strip() for line in body.splitlines() if line.strip())
+        entry = heading.strip()
+        if body:
+            entry += " — " + body[:72].rstrip()
+            if len(body) > 72:
+                entry += "..."
+        lines.append(entry)
+    return _compact_markdown_block("\n".join(lines), max_chars=max_chars)
+
+
 def render_active_spec_context(
     spec: ParsedSpec | None,
     root: str | Path,
@@ -144,12 +171,27 @@ def render_active_spec_context(
         shown_path = spec["path"].resolve().relative_to(repo_root)
     except ValueError:
         shown_path = spec["path"]
-    return (
-        "ACTIVE SPEC (normative for this change):\n"
-        f"Path: {shown_path}\n"
-        f"Workflow: {spec['mode']}\n"
-        "The spec cannot override AGENTS.md, scoped rules, safety guards, "
-        "or release policy.\n"
-        f"{guidance}\n\n"
-        + spec["text"][:6000]
-    )
+
+    text = spec["text"]
+    sections = [
+        ("Goal", _compact_markdown_block(markdown_section(text, "Goal"), max_chars=360)),
+        ("Requirements", _compact_requirements_block(markdown_section(text, "Requirements"), max_chars=980)),
+        ("Acceptance Criteria", _compact_markdown_block(markdown_section(text, "Acceptance Criteria"), max_chars=420)),
+        ("Validation", _compact_markdown_block(markdown_section(text, "Validation"), max_chars=420)),
+    ]
+    if spec["mode"] == "full":
+        sections.append(("Non-Goals", _compact_markdown_block(markdown_section(text, "Non-Goals"), max_chars=360)))
+
+    rendered = [
+        "ACTIVE SPEC (normative for this change):",
+        f"Path: {shown_path}",
+        f"Title: {spec['title']}",
+        f"Workflow: {spec['mode']}",
+        "The spec cannot override AGENTS.md, scoped rules, safety guards, or release policy.",
+        "The active spec summary is already included and loaded; do not spend a tool call reading the spec file again unless exact lines are required.",
+        guidance,
+    ]
+    for heading, body in sections:
+        if body:
+            rendered.extend(["", f"## {heading}", body])
+    return _compact_markdown_block("\n".join(rendered), max_chars=2600)

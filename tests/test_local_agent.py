@@ -3033,7 +3033,28 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("Workflow: quick", rendered)
         self.assertIn("narrow exploration", rendered)
         self.assertIn("cannot override AGENTS.md", rendered)
+        self.assertIn("already included", rendered)
         self.assertIn("REQ-001", rendered)
+
+    def test_render_active_spec_context_is_compact_and_preserves_requirements(self):
+        path = self.root / "001-feature.md"
+        long_spec = make_spec_text().replace(
+            "Synthetic requirement.",
+            "Synthetic requirement. " + ("extra detail " * 600),
+        ).replace(
+            "- Observable result.",
+            "- Observable result. " + ("acceptance detail " * 200),
+        )
+        path.write_text(long_spec)
+
+        rendered = agent.render_active_spec_context(agent.parse_spec(path))
+
+        self.assertLessEqual(len(rendered), 2600)
+        self.assertIn("ACTIVE SPEC (normative for this change)", rendered)
+        self.assertIn("Workflow: full", rendered)
+        self.assertIn("REQ-001", rendered)
+        self.assertIn("[truncated]", rendered)
+
 
     def test_main_injects_active_spec_into_system_prompt(self):
         specs = self.root / ".specs"
@@ -3100,7 +3121,83 @@ class LocalAgentTest(unittest.TestCase):
         self.assertNotIn("stale release-check answer", combined)
         self.assertNotIn("docs/RELEASE-CHECKLIST.md", combined)
 
-    def test_remote_diagnose_status_fast_path_uses_preflight_without_model(self):
+    def test_plan_active_spec_fast_path_uses_ranked_context_without_model(self):
+        specs = self.root / ".specs"
+        specs.mkdir()
+        (specs / "001-feature.md").write_text(make_spec_text())
+        ranked = [{
+            "path": "src/local-agent",
+            "score": 90,
+            "reasons": ["task_path_match", "semantic_contract:context-intelligence"],
+        }, {
+            "path": "tests/test_local_agent.py",
+            "score": 80,
+            "reasons": ["task_path_match"],
+        }]
+
+        with mock.patch.object(agent, "CLI_ARGS", ["--plan", "Identify the next high-value milestone and likely files and tests."]), \
+             mock.patch.object(agent, "server_ready") as server_ready, \
+             mock.patch.object(agent, "rank_context_candidates", return_value=ranked), \
+             mock.patch.object(agent, "context_git_changed_paths", return_value={"tests/test_local_agent.py", "CHANGELOG.md"}), \
+             mock.patch.object(agent, "api_call") as api_call, \
+             mock.patch.object(agent, "record_metric_event"), \
+             mock.patch.object(agent, "record_audit_event"), \
+             redirect_stdout(io.StringIO()) as output:
+            agent.main()
+
+        server_ready.assert_not_called()
+        api_call.assert_not_called()
+        rendered = output.getvalue()
+        self.assertIn("PLAN PREFLIGHT RESULT", rendered)
+        self.assertIn("active_spec: Synthetic", rendered)
+        self.assertIn("src/local-agent", rendered)
+        self.assertIn("tests/test_local_agent.py", rendered)
+        self.assertNotIn("- CHANGELOG.md", rendered)
+        self.assertIn("files_modified: false", rendered)
+
+    def test_plan_active_spec_fast_path_allows_negated_edit_guidance(self):
+        specs = self.root / ".specs"
+        specs.mkdir()
+        (specs / "001-feature.md").write_text(make_spec_text())
+
+        with mock.patch.object(agent, "CLI_ARGS", ["--plan", "Identify the next highest-value milestone and likely files and tests. Do not edit files."]), \
+             mock.patch.object(agent, "server_ready") as server_ready, \
+             mock.patch.object(agent, "rank_context_candidates", return_value=[]), \
+             mock.patch.object(agent, "context_git_changed_paths", return_value=set()), \
+             mock.patch.object(agent, "api_call") as api_call, \
+             mock.patch.object(agent, "record_metric_event"), \
+             mock.patch.object(agent, "record_audit_event"), \
+             redirect_stdout(io.StringIO()) as output:
+            agent.main()
+
+        server_ready.assert_not_called()
+        api_call.assert_not_called()
+        self.assertIn("PLAN PREFLIGHT RESULT", output.getvalue())
+
+    def test_plan_active_spec_fast_path_does_not_handle_mutation_request(self):
+        specs = self.root / ".specs"
+        specs.mkdir()
+        (specs / "001-feature.md").write_text(make_spec_text())
+
+        captured = {}
+
+        def stop_at_model(host, messages, **kwargs):
+            captured["messages"] = messages
+            raise RuntimeError("STOP_AT_MODEL")
+
+        with mock.patch.object(agent, "CLI_ARGS", ["--plan", "Identify the next high-value milestone and implement now."]), \
+             mock.patch.object(agent, "server_ready", return_value=True), \
+             mock.patch.object(agent, "rank_context_candidates", return_value=[]), \
+             mock.patch.object(agent, "load_mode_skill", return_value="synthetic plan skill"), \
+             mock.patch.object(agent, "api_call", side_effect=stop_at_model), \
+             mock.patch.object(agent, "record_metric_event"), \
+             mock.patch.object(agent, "record_audit_event"):
+            with self.assertRaisesRegex(RuntimeError, "STOP_AT_MODEL"):
+                agent.main()
+
+        self.assertIn("ACTIVE SPEC", captured["messages"][0]["content"])
+
+    def test_diagnose_status_fast_path_uses_preflight_without_model(self):
         readiness = {
             "overall": "ready",
             "git": {"branch": "fast-branch", "clean": True, "status": "[clean]"},
@@ -3113,8 +3210,7 @@ class LocalAgentTest(unittest.TestCase):
             "security": {"executes_tools": False},
         }
 
-        with mock.patch.dict(os.environ, {agent.CONTROL_RUN_CHILD_ENV: "1"}, clear=False), \
-             mock.patch.object(agent, "CLI_ARGS", ["--diagnose", "Read-only status check: report branch, git clean state, MCP broker readiness, execution policy, and model endpoint."]), \
+        with mock.patch.object(agent, "CLI_ARGS", ["--diagnose", "Read-only status check: report branch, git clean state, MCP broker readiness, execution policy, and model endpoint."]), \
              mock.patch.object(agent, "server_ready", return_value=True), \
              mock.patch.object(agent, "collect_readiness_status", return_value=readiness), \
              mock.patch.object(agent, "mcp_status_payload", return_value=mcp), \
@@ -3134,6 +3230,59 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("mcp_broker: ready", rendered)
         self.assertIn("mcp_execution_policy: disabled; call-tool DENY", rendered)
         self.assertIn("files_modified: false", rendered)
+
+    def test_diagnose_fast_path_allows_negated_inspect_guidance(self):
+        readiness = {
+            "overall": "ready",
+            "git": {"branch": "negated", "clean": True, "status": "[clean]"},
+            "server": {"authentication_ok": True},
+        }
+        mcp = {
+            "overall": "ready",
+            "server_count": 1,
+            "issues": [],
+            "security": {"executes_tools": False},
+        }
+
+        with mock.patch.object(agent, "CLI_ARGS", ["--diagnose", "Report readiness and MCP status. Do not inspect files."]), \
+             mock.patch.object(agent, "collect_readiness_status", return_value=readiness), \
+             mock.patch.object(agent, "mcp_status_payload", return_value=mcp), \
+             mock.patch.object(agent, "api_call") as api_call, \
+             mock.patch.object(agent, "record_metric_event"), \
+             mock.patch.object(agent, "record_audit_event"), \
+             redirect_stdout(io.StringIO()) as output:
+            agent.main()
+
+        api_call.assert_not_called()
+        self.assertIn("branch: negated", output.getvalue())
+
+    def test_remote_diagnose_status_fast_path_still_uses_no_model(self):
+        readiness = {
+            "overall": "ready",
+            "git": {"branch": "remote-fast", "clean": True, "status": "[clean]"},
+            "server": {"authentication_ok": True},
+        }
+        mcp = {
+            "overall": "ready",
+            "server_count": 1,
+            "issues": [],
+            "security": {"executes_tools": False},
+        }
+
+        with mock.patch.dict(os.environ, {agent.CONTROL_RUN_CHILD_ENV: "1"}, clear=False), \
+             mock.patch.object(agent, "CLI_ARGS", ["--diagnose", "status MCP model readiness"]), \
+             mock.patch.object(agent, "collect_readiness_status", return_value=readiness), \
+             mock.patch.object(agent, "mcp_status_payload", return_value=mcp), \
+             mock.patch.object(agent, "server_ready") as server_ready, \
+             mock.patch.object(agent, "api_call") as api_call, \
+             mock.patch.object(agent, "record_metric_event"), \
+             mock.patch.object(agent, "record_audit_event"), \
+             redirect_stdout(io.StringIO()) as output:
+            agent.main()
+
+        server_ready.assert_not_called()
+        api_call.assert_not_called()
+        self.assertIn("branch: remote-fast", output.getvalue())
 
     def test_main_injects_ranked_context_only_in_selected_modes(self):
         candidate = [{
@@ -3652,6 +3801,27 @@ class LocalAgentTest(unittest.TestCase):
         shown = json.loads(result.stdout)
         self.assertEqual(shown["host"], "127.0.0.9")
         self.assertEqual(shown["port"], 9012)
+
+    def test_inspect_active_spec_returns_compact_summary(self):
+        specs = self.root / ".specs"
+        specs.mkdir()
+        long_spec = make_spec_text().replace(
+            "Synthetic requirement.",
+            "Synthetic requirement. " + ("extra detail " * 600),
+        )
+        (specs / "001-feature.md").write_text(long_spec)
+
+        rendered = agent.tool_inspect({
+            "paths": [".specs/001-feature.md"],
+            "max_lines": 60,
+        })
+
+        self.assertIn("ACTIVE SPEC ALREADY LOADED", rendered)
+        self.assertIn("already included", rendered)
+        self.assertIn("REQ-001", rendered)
+        self.assertLessEqual(len(rendered), 520)
+        self.assertNotIn("extra detail extra detail extra detail extra detail", rendered)
+
 
     def test_context_task_terms_normalize_accents(self):
         terms = agent.context_task_terms("corrigir autenticação do usuário")
