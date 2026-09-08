@@ -41,3 +41,11 @@ Decision: no new Harness or Gateway release should start from the current planni
 Reason: the current changes are planning artifacts, not a user-installable runtime milestone.
 
 Implication: a future release-freeze spec is required before tag, release notes, or publication work.
+
+## DEC-006 — Close M2 with sanitization and repeatable dogfood, not UI expansion
+
+Decision: M2 is complete once the Gateway phone-equivalent path has sanitized session/run/event payloads, repeatable read-only dogfood, focused tests, stack validation, and merged Gateway CI.
+
+Rationale: the observed failure was payload safety and repeatability, not missing UI controls. Adding more UI before a repeated phone friction appears would be Gateway polish, not product progress.
+
+Consequence: the next milestone is M3 MCP allowlist design. MCP tool execution remains disabled.

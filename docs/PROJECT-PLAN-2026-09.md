@@ -209,3 +209,7 @@ Success metric:
 - Fewer early discovery calls for the same answer quality.
 - Lower latency or fewer truncation retries on the same local model.
 - No expansion of authority or secret exposure.
+
+## M2 completion note
+
+M2 complete: `lai-gateway` PR #42 added mobile-safe sanitization and a repeatable read-only dogfood script. The next milestone is M3 MCP allowlist design, still non-executing.
