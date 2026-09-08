@@ -84,6 +84,22 @@ class QualitySensorsTest(unittest.TestCase):
         else:
             self.assertIn("Status: none", result.stdout)
 
+
+    def test_m3_mcp_allowlist_design_is_traceable_and_non_executing(self):
+        design = (ROOT / "docs" / "M3-MCP-ALLOWLIST-DESIGN.md").read_text()
+        evidence = (ROOT / "docs" / "M3-MCP-ALLOWLIST-EVIDENCE.md").read_text()
+
+        for req in range(1, 7):
+            self.assertIn(f"REQ-{req:03d}", design)
+        self.assertIn("repo_public_text_read", design)
+        self.assertIn("call-tool` is denied", design)
+        self.assertIn("executed=false", design)
+        self.assertIn("never transform `DENY` into `ASK` or `ALLOW`", design)
+        self.assertIn("Gateway UI must not invent MCP policy", design)
+        self.assertIn("MCP status: `ALLOW`, `executed=false`", evidence)
+        self.assertIn("MCP call-tool: `DENY`, `executed=false`", evidence)
+        self.assertNotIn("MCP execution is enabled", design)
+
     def test_runtime_installer_does_not_install_python_dependencies(self):
         installer = (ROOT / "scripts" / "install-local.sh").read_text()
         self.assertNotIn("pip install", installer)

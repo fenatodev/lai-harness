@@ -81,3 +81,7 @@ Mitigation: require a release-freeze spec and coherent user-visible theme before
 ## RISK-005 mitigation note
 
 M2 reduced the mobile dogfood risk by adding Gateway sanitization for session/run/event payloads and a repeatable read-only dogfood script. Remaining risk moves to real phone ergonomics and should be addressed only from observed friction, not speculative UI expansion.
+
+## M3 mitigation note
+
+M3 mitigates MCP authority creep by freezing execution at `DENY`, documenting one narrow future operation class, and requiring synthetic fixtures before any real server execution.

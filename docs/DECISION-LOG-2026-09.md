@@ -49,3 +49,11 @@ Decision: M2 is complete once the Gateway phone-equivalent path has sanitized se
 Rationale: the observed failure was payload safety and repeatability, not missing UI controls. Adding more UI before a repeated phone friction appears would be Gateway polish, not product progress.
 
 Consequence: the next milestone is M3 MCP allowlist design. MCP tool execution remains disabled.
+
+## DEC-007 — Keep M3 design-only and defer MCP execution
+
+Decision: M3 defines `repo_public_text_read` as the only future candidate MCP operation class, but does not enable MCP `call-tool`.
+
+Rationale: current MCP protocol behavior makes tool calls model-accessible and therefore authority-bearing. The safe step is policy, audit, output bounds, fixtures, and Gateway boundaries before implementation.
+
+Consequence: the next MCP implementation must be a separate milestone with tests and explicit approval semantics.

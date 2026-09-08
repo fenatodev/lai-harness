@@ -81,6 +81,9 @@ Done means:
 
 ## M3 — mcp-allowlist-design
 
+Status: complete. Evidence: `docs/M3-MCP-ALLOWLIST-DESIGN.md` and `docs/M3-MCP-ALLOWLIST-EVIDENCE.md`. The milestone is design-only; MCP `call-tool` remains denied.
+
+
 Goal: design the first safe step from MCP visibility toward narrow read-only usefulness.
 
 Primary repo: `lai-local-agent`.
