@@ -8,12 +8,12 @@
 <p align="center">
   <a href="https://github.com/fenatodev/lai-harness/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/fenatodev/lai-harness/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="https://github.com/fenatodev/lai-harness/releases"><img alt="Release" src="https://img.shields.io/github/v/release/fenatodev/lai-harness?include_prereleases&label=release"></a>
-  <img alt="Harness Score" src="https://img.shields.io/badge/Harness%20Score-L4%20%C2%B7%20100%2F108-2563eb">
+  <img alt="Harness Score" src="https://img.shields.io/badge/Harness%20Score-L4%20%C2%B7%20103%2F108-2563eb">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-0f766e"></a>
 </p>
 
-> **Current release:** `v0.4.8` · context intelligence and operating policy · Linux/WSL-first · local inference through an OpenAI-compatible endpoint such as llama.cpp.
+> **Current release:** `v0.4.9` · model-evaluation evidence expansion · Linux/WSL-first · local inference through an OpenAI-compatible endpoint such as llama.cpp.
 
 lai harness makes constrained local models more useful by giving them a smaller, more deterministic operating environment. Instead of relying on a huge prompt and a generic shell, it combines mode-specific tools, repository-aware context, explicit policy decisions, validation gates, persistent state, and a release workflow that can be audited from feature branch to the final GitHub Release.
 
@@ -23,8 +23,8 @@ It complements high-context cloud agents rather than trying to replace them: loc
 
 | Area | Current posture |
 | --- | --- |
-| Product version | `0.4.8` |
-| Harness maturity | L4 · Self-correcting · 100/108 (93%) |
+| Product version | `0.4.9` |
+| Harness maturity | L4 · Self-correcting · 103/108 (95%) |
 | Runtime | Python standard library; no Python package dependencies in the harness |
 | Primary surfaces | CLI (`lai`) + VS Code extension |
 | Local model path | OpenAI-compatible HTTP; developed with llama.cpp + user-supplied GGUF |
@@ -185,10 +185,10 @@ The release process is intentionally stricter than a normal local package build:
 8. require a converged project handoff with no remaining manual actions.
 
 ```bash
-lai release-check --target 0.4.8 --json
-lai release-pack --target 0.4.8 --with-vsix --json
-lai release-governance --target 0.4.8 --remote --json
-lai project-handoff --target 0.4.8 --remote --json
+lai release-check --target 0.4.9 --json
+lai release-pack --target 0.4.9 --with-vsix --json
+lai release-governance --target 0.4.9 --remote --json
+lai project-handoff --target 0.4.9 --remote --json
 lai operating-mode --json
 ```
 

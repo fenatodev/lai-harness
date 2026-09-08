@@ -10,7 +10,7 @@ See [Project Plan — 2026-09](docs/PROJECT-PLAN-2026-09.md), [Execution Backlog
 - Next after event quality: improve token-efficient context intelligence through structured repo maps, symbol summaries, and compact diff/test/process views.
 - Continue incremental subsystem extraction from `src/local-agent` only when a tested runtime slice is ready; no Big Bang modular rewrite.
 - Keep update-evidence convergence under dogfood across stable upgrades; add automation only when repeated evidence proves it saves more time than it costs.
-- Expand automated model-evaluation fixtures from observed dogfood failures and keep Ministral as the baseline until repeated decision-eligible evidence beats it.
+- Expand automated model-evaluation fixtures from observed dogfood failures, including validation-command grounding, and keep Ministral as the baseline until repeated decision-eligible evidence beats it.
 - Keep generic `bash` out of remote control profiles; evolve structured `validate`/sandbox capabilities from measured fixtures rather than exposing shell text.
 - Keep repository-scoped sessions, read-only web evidence, and the non-executing MCP broker under dogfood; expand them only from measured failures and without enabling broad MCP/browser authority.
 
@@ -31,7 +31,7 @@ See [Project Plan — 2026-09](docs/PROJECT-PLAN-2026-09.md), [Execution Backlog
 - Add deterministic wave orchestration for subagents/delegates using explicit dependencies and disjoint file ownership.
 - Add quality-gate ratchets: measure as warning, enforce no-regression, then promote to required gate when debt reaches zero.
 - Add token-efficient structured views for Git, tests, diffs, process state, and other verbose evidence.
-- Keep the Ministral baseline until another <=8 GiB candidate beats it with repeated, decision-eligible local model-evaluation evidence; Qwen dogfood did not clear that bar for the current milestone.
+- Keep the Ministral baseline until another <=8 GiB candidate beats it with repeated, decision-eligible local model-evaluation evidence across the expanded required scenario set; Qwen dogfood did not clear that bar for the current milestone.
 - Explore signed releases and provenance attestations.
 
 Roadmap items are intentions, not commitments. Model redistribution and automatic downloading are deliberately out of scope.

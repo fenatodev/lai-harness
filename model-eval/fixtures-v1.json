@@ -18,6 +18,32 @@
           "unittest"
         ],
         "expected_changed_paths": [],
+        "validation_profile": null,
+        "forbidden_output_patterns": [
+          "pytest"
+        ]
+      }
+    },
+    {
+      "id": "plan-validation-command-grounding",
+      "mode": "plan",
+      "prompt": "Inspect this repository and recommend the exact validation command for the current tests. Do not edit files. Do not recommend tools that are not present in the repository.",
+      "files": {
+        "AGENTS.md": "# Evaluation fixture\nUse only Python standard library tools. Tests use unittest.\nNo third-party test runner is installed.\n",
+        "string_utils.py": "def normalize(value):\n    return str(value).strip().lower()\n",
+        "test_string_utils.py": "import unittest\nfrom string_utils import normalize\n\nclass TestStringUtils(unittest.TestCase):\n    def test_normalize(self):\n        self.assertEqual(normalize('  Hi  '), 'hi')\n"
+      },
+      "expected": {
+        "read_only": true,
+        "required_output_patterns": [
+          "python(3)?\\s+-m\\s+unittest|unittest",
+          "test_string_utils\\.py"
+        ],
+        "forbidden_output_patterns": [
+          "pytest",
+          "pip\\s+install"
+        ],
+        "expected_changed_paths": [],
         "validation_profile": null
       }
     },

@@ -1,3 +1,42 @@
+## lai harness v0.4.9 — model-evaluation evidence expansion
+
+`v0.4.9` packages the next local-first reliability slice after `v0.4.8`: bounded planning evidence, safer diagnose behavior, design-only MCP allowlist evidence, and a stronger model-evaluation suite based on observed dogfood failures. It does not enable MCP tool execution, browser automation, mobile writes, Telegram/PWA integration, automatic dependency updates, model switching, learning/self-modification, commits, pushes, tags, releases, or remote resource mutation.
+
+### What changed
+
+- Added `plan-validation-command-grounding`, a read-only model-evaluation fixture derived from observed Qwen dogfood where a candidate recommended unavailable `pytest` validation in a stdlib-only repository.
+- Expanded required model-backed decision eligibility from five scenarios to six, so older repeated baseline records remain historical support rather than fresh decision-eligible evidence under the expanded suite.
+- Added forbidden output-pattern checks for validation/tool recommendations such as `pytest` and `pip install` in fixtures that intentionally expose only stdlib `unittest` validation.
+- Recorded `refusal_flags` and refusal reasons separately from hallucination flags so quality review can distinguish generic disclaimers/refusals from unsupported edit, validation, or line-reference claims.
+- Preserved Ministral as the local baseline until another <=8 GiB candidate beats it with repeated, decision-eligible evidence across the expanded required scenario set.
+- Added M3 MCP allowlist design evidence for a future narrow `repo_public_text_read` class while keeping MCP `call-tool` denied and non-executing.
+- Kept M1 structured-context dogfood and diagnose hardening in the release scope: compact active-spec context, minimal active-spec receipts, deterministic diagnose preflight for simple status requests, strict chat-template history normalization, and bounded model API error reporting.
+
+### Safety boundary
+
+- The release is evidence hardening, not an authority expansion.
+- MCP `call-tool` remains denied by default.
+- Model-evaluation records remain bounded and secret-free.
+- The default model remains Ministral; Qwen or any other candidate must win repeated local evidence before adoption.
+- Release tooling still performs no tag, merge, push, upload, publication, or GitHub mutation by itself.
+
+### Validation gate
+
+```bash
+make milestone-gate
+```
+
+Local milestone evidence: Ruff passed; pytest passed with 325 tests and 144 subtests; Harness Score passed at L4 103/108; `validate.sh` passed with 325 unittest tests, strict mypy over seven source files, generalized publication scan, package generation, and VSIX inspection green in 162.63s. A focused dogfood run of `plan-validation-command-grounding` against the current Ministral endpoint passed with score 100.0, three tool calls, no refusals, no hallucinations, and no changed paths; because the source tree was dirty during that run, it is focused fixture evidence rather than final decision-eligible model-selection evidence.
+
+### Release commands
+
+```bash
+lai release-check --target 0.4.9 --json
+lai release-pack --target 0.4.9 --with-vsix --json
+lai release-governance --target 0.4.9 --remote --json
+lai project-handoff --target 0.4.9 --remote --json
+```
+
 ## lai harness v0.4.8 — context intelligence and operating policy
 
 `v0.4.8` improves day-to-day development quality for constrained local models by packaging deterministic context-intelligence views and a codified operating-mode policy. It does not enable shell authority for remote read-only profiles, MCP tool execution, browser automation, dependency updates, model switching, commits, pushes, tags, releases, or remote resource mutation.
