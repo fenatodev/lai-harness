@@ -33,12 +33,13 @@
       "status": "complete"
     },
     {
+      "completion_evidence": "docs/M3-MCP-ALLOWLIST-DESIGN.md; docs/M3-MCP-ALLOWLIST-EVIDENCE.md",
       "id": "M3",
       "name": "mcp-allowlist-design",
       "primary_repo": "lai-local-agent",
       "priority": 3,
       "spec": ".specs/056-mcp-allowlist-design.md",
-      "status": "draft"
+      "status": "complete"
     },
     {
       "id": "M4",
@@ -60,12 +61,12 @@
   "next_action": {
     "do_not_start_with": [
       "MCP call-tool execution",
+      "model switching by impression",
       "release packaging",
-      "model switching",
       "Gateway visual polish without a new dogfood failure"
     ],
-    "milestone": "M3 mcp-allowlist-design",
-    "recommended_step": "begin MCP allowlist design only as a non-executing policy/spec milestone after M2 integration is green"
+    "milestone": "M4 model-eval-evidence-expansion",
+    "recommended_step": "expand model-eval fixtures only from real dogfood failures and keep Ministral as baseline until evidence says otherwise"
   },
   "planning_window": "2026-09",
   "primary_focus": "Harness core context intelligence before further Gateway polish",

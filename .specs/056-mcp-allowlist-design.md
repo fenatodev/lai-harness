@@ -3,7 +3,7 @@
 ## Metadata
 
 - Mode: `full`
-- Status: `draft`
+- Status: `complete`
 
 ## Goal
 
@@ -47,9 +47,13 @@ Document the default posture: MCP `call-tool` remains denied until a later imple
 
 ## Validation
 
-- Documentation/spec section validation.
-- Existing MCP foundation tests remain green when implementation begins.
-- Publication scan proves the design contains no private credential values or local runtime details.
+- `REQ-001`: Design document defines exactly one candidate read-only MCP operation class and explains why broader `call-tool` remains unsafe.
+- `REQ-002`: Design document includes a policy decision table covering `ALLOW`, `ASK`, and `DENY` for status, tool listing, candidate execution, malformed requests, unsafe tools, and unsafe outputs.
+- `REQ-003`: Design document defines bounded output, timeout behavior, audit fields, and redaction requirements.
+- `REQ-004`: Design document defines synthetic fixtures for policy and output handling without starting a real external MCP server.
+- `REQ-005`: Design document defines Gateway responsibilities and states that Gateway cannot broaden Harness policy decisions.
+- `REQ-006`: Design document and spec state that MCP `call-tool` remains denied until a later implementation milestone changes it.
+- Repository gates: publication scan, spec quality sensor, and focused MCP foundation tests pass.
 
 ## Context and Constraints
 
@@ -75,3 +79,9 @@ Prefer design tables and synthetic fixtures first. The first execution milestone
 - `REQ-004` -> synthetic fixture plan.
 - `REQ-005` -> Gateway responsibility section.
 - `REQ-006` -> default posture documentation.
+
+## Completion Evidence
+
+- Design: `docs/M3-MCP-ALLOWLIST-DESIGN.md`.
+- Evidence: `docs/M3-MCP-ALLOWLIST-EVIDENCE.md`.
+- Focused MCP foundation tests passed while `call-tool` remained `DENY` and `executed=false`.
