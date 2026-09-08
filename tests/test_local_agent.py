@@ -3605,6 +3605,7 @@ class LocalAgentTest(unittest.TestCase):
             self.assertIn(fixture["mode"], {"plan", "debug", "implement", "review", "security"})
             self.assertTrue(fixture["prompt"])
             self.assertIsInstance(fixture["expected"]["required_output_patterns"], list)
+            self.assertIsInstance(fixture["expected"].get("forbidden_output_patterns", []), list)
             self.assertIn(fixture["expected"]["validation_profile"], {None, "python-unittest"})
             self.assertNotIn("validation_command", fixture["expected"])
 
@@ -3643,6 +3644,29 @@ class LocalAgentTest(unittest.TestCase):
         self.assertEqual(result["outcome"], "fail")
         self.assertEqual(result["validation"], "fail")
         self.assertGreaterEqual(result["hallucination_flags"], 2)
+
+    def test_model_eval_validation_tracks_forbidden_tools_and_refusals(self):
+        fixture = next(
+            item for item in agent.load_model_evaluation_fixtures()["fixtures"]
+            if item["id"] == "plan-validation-command-grounding"
+        )
+        proc = subprocess.CompletedProcess(
+            ["agent"],
+            0,
+            stdout=(
+                "Use python -m unittest test_string_utils.py. "
+                "Do not use pytest. As an AI, I cannot help beyond that."
+            ),
+            stderr="",
+        )
+        result = agent.model_evaluation_validate_result(
+            fixture, proc, "", [], "", [], None
+        )
+        self.assertEqual(result["outcome"], "partial")
+        self.assertEqual(result["validation"], "fail")
+        self.assertIn("forbidden_output_pattern=pytest", result["failures"])
+        self.assertGreaterEqual(result["refusal_flags"], 1)
+        self.assertIn("ai_disclaimer", result["refusal_reasons"])
 
     def test_model_eval_run_args_repeat_is_bounded(self):
         options = agent.parse_model_evaluation_run_args([

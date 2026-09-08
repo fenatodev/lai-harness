@@ -81,7 +81,7 @@ from lai_web import (
     search_web_evidence as search_web_evidence,
 )
 
-VERSION = "0.4.8"
+VERSION = "0.4.9"
 PRODUCT_NAME = "lai harness"
 def render_config_status(config=None):
     return _render_config_status(CONFIG if config is None else config, VERSION)
@@ -1194,6 +1194,16 @@ MODEL_EVALUATION_SCENARIOS = [
         ],
     },
     {
+        "id": "plan-validation-command-grounding",
+        "mode": "plan",
+        "prompt": "Plan validation for a small stdlib-only repository without editing files.",
+        "signals": [
+            "grounds validation in repository files",
+            "prefers stdlib unittest when pytest is absent",
+            "does not invent unavailable validation tooling",
+        ],
+    },
+    {
         "id": "debug-repro",
         "mode": "debug",
         "prompt": "Reproduce a failing behavior and identify the root cause.",
@@ -1259,6 +1269,7 @@ MODEL_EVALUATION_NUMERIC_FIELDS = {
     "truncation_retries",
     "policy_blocks",
     "hallucination_flags",
+    "refusal_flags",
 }
 MODEL_EVALUATION_OUTCOMES = {"pass", "partial", "fail", "not_run"}
 MODEL_EVALUATION_VALIDATION = {"pass", "fail", "not_run"}
@@ -1353,6 +1364,7 @@ def render_model_evaluation_sample():
             "truncation_retries": 0,
             "policy_blocks": 0,
             "hallucination_flags": 0,
+            "refusal_flags": 0,
             "notes": "fill after running this scenario",
         }
         lines.append(json.dumps(record, ensure_ascii=False, sort_keys=True))
@@ -1492,6 +1504,7 @@ MODEL_EVALUATION_SOURCE_FIXTURE_FILE = (
 )
 MODEL_EVALUATION_MODEL_BACKED_SCENARIOS = {
     "plan-repo-change",
+    "plan-validation-command-grounding",
     "debug-repro",
     "implement-small-diff",
     "review-supported-findings",
@@ -1688,6 +1701,19 @@ def model_evaluation_validation_argv(profile):
     raise ValueError(f"unsupported model evaluation validation profile: {profile}")
 
 
+def model_evaluation_refusal_flags(output):
+    patterns = {
+        "generic_refusal": r"\b(?:cannot|can't|unable to|not able to)\s+(?:help|assist|comply|perform|do)\b",
+        "capability_refusal": r"\b(?:I|we)\s+(?:cannot|can't|am unable to|am not able to)\b",
+        "ai_disclaimer": r"\bas an AI\b",
+    }
+    flags = []
+    for name, pattern in patterns.items():
+        if re.search(pattern, output, flags=re.IGNORECASE):
+            flags.append(name)
+    return sorted(set(flags))
+
+
 def model_evaluation_claim_flags(output, baseline_diff, final_diff, validation_returncode, fixture):
     flags = []
     expected = fixture.get("expected") or {}
@@ -1739,7 +1765,11 @@ def model_evaluation_validate_result(fixture, proc, baseline_diff, baseline_path
     for pattern in expected.get("required_output_patterns") or []:
         if not re.search(pattern, output, flags=re.IGNORECASE | re.DOTALL):
             failures.append(f"missing_output_pattern={pattern}")
+    for pattern in expected.get("forbidden_output_patterns") or []:
+        if re.search(pattern, output, flags=re.IGNORECASE | re.DOTALL):
+            failures.append(f"forbidden_output_pattern={pattern}")
 
+    refusal_flags = model_evaluation_refusal_flags(output)
     validation_returncode = validation_proc.returncode if validation_proc is not None else None
     if validation_proc is not None and validation_proc.returncode != 0:
         failures.append(f"validator_exit={validation_proc.returncode}")
@@ -1764,6 +1794,8 @@ def model_evaluation_validate_result(fixture, proc, baseline_diff, baseline_path
         "outcome": outcome,
         "validation": validation,
         "hallucination_flags": len(claim_flags),
+        "refusal_flags": len(refusal_flags),
+        "refusal_reasons": refusal_flags,
         "failures": failures,
         "output": output,
     }
@@ -1863,6 +1895,7 @@ def run_model_evaluation_fixture(fixture, run_root, server_profile):
         "truncation_retries": measured["truncation_retries"],
         "policy_blocks": measured["policy_blocks"],
         "hallucination_flags": evaluated["hallucination_flags"],
+        "refusal_flags": evaluated["refusal_flags"],
         "notes": notes[:1200],
         "agent_exit_code": proc.returncode,
         "changed_paths": final_paths,
@@ -2027,7 +2060,8 @@ def render_model_evaluation_run(summary, records, json_mode=False):
             f"{record['outcome']} / {record['validation']} "
             f"score={score_model_evaluation_record(normalize_model_eval_record(record, 1)):.1f} "
             f"latency_ms={record['latency_ms']:.0f} tools={record['tool_calls']} "
-            f"hallucinations={record['hallucination_flags']}"
+            f"hallucinations={record['hallucination_flags']} "
+            f"refusals={record.get('refusal_flags', 0)}"
         )
         if record.get("notes"):
             lines.append(f"  notes: {record['notes']}")

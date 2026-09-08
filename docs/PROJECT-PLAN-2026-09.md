@@ -213,3 +213,17 @@ Success metric:
 ## M2 completion note
 
 M2 complete: `lai-gateway` PR #42 added mobile-safe sanitization and a repeatable read-only dogfood script. The next milestone is M3 MCP allowlist design, still non-executing.
+
+
+## M4 completion note
+
+M4 complete: model evaluation now includes `plan-validation-command-grounding`, derived from observed Qwen dogfood where a candidate recommended unavailable `pytest` validation in a stdlib-only fixture. The runner records `refusal_flags` separately from hallucination flags and rejects forbidden validation/tool recommendations in fixtures. The required model-backed scenario set expanded from five to six, so earlier Ministral evidence remains historical baseline support but is not fresh decision-eligible evidence under the expanded suite.
+
+The default model remains Ministral. The next milestone is M5 release freeze: package a coherent installable milestone from M1-M4 evidence without claiming MCP execution, browser/action authority, learning, or model superiority.
+
+
+## M5 completion note
+
+M5 complete locally: `v0.4.9` is frozen as a stable release candidate for model-evaluation evidence expansion and bounded diagnose/planning reliability. Runtime, VS Code extension, README/PT-BR, visual asset metadata, changelog, and release notes are aligned to `0.4.9`.
+
+The release remains unpublished. Git commit, PR merge, push, tag creation, GitHub Release publication, and remote governance verification remain manual/protected actions. The release does not claim MCP execution, browser automation, mobile writes, autonomous learning, model switching, or model superiority.

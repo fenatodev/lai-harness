@@ -21,7 +21,7 @@ It is not a wish list. Each item must either improve core Harness capability, su
 4. `M4 model-eval-evidence-expansion`.
 5. `M5 next-release-freeze`.
 
-Do not skip to MCP execution, mobile write approval, or release ritual before M1 and M2 have produced evidence. M1 and M2 now have evidence; M3 may start only as non-executing allowlist design.
+Do not skip to MCP execution, mobile write approval, or release ritual before M1 and M2 have produced evidence. M1, M2, M3, M4, and M5 now have local evidence; publication still requires the human-approved Git/PR/tag/release path.
 
 ## M1 — structured-context-dogfood
 
@@ -106,6 +106,8 @@ Done means:
 
 ## M4 — model-eval-evidence-expansion
 
+Status: complete. Evidence: `.specs/057-model-eval-evidence-expansion.md`, `docs/M4-MODEL-EVAL-EVIDENCE.md`, and `docs/MODEL-EVALUATION.md`.
+
 Goal: keep local model decisions empirical and cheap enough to rerun.
 
 Primary repo: `lai-local-agent`.
@@ -116,16 +118,18 @@ Deliverables:
 
 - Fixtures derived from real dogfood failures.
 - Separate tracking for latency, truncation, refusal, tool-call count, and correctness.
-- A repeatable baseline record for the current local model.
+- A repeatable focused fixture record for the current local model.
 - A rule for when a candidate model becomes decision-eligible.
 
 Done means:
 
 - Model recommendations are grounded in local records.
 - A single promising manual run cannot change the default model.
-- Qwen or any other candidate must beat the baseline repeatedly under the hardware budget before adoption.
+- Qwen or any other candidate must beat the expanded six-scenario baseline repeatedly under the hardware budget before adoption.
 
 ## M5 — next-release-freeze
+
+Status: complete locally. Evidence: `.specs/058-v049-release-freeze.md`, `CHANGELOG.md`, `docs/RELEASE-NOTES.md`, README/PT-BR release metadata, and `lai release-check --target 0.4.9 --json`.
 
 Goal: package a coherent user-installable milestone only after evidence exists.
 
@@ -133,17 +137,18 @@ Primary repos: whichever changed during M1-M4.
 
 Deliverables:
 
-- Version target chosen from actual user-visible changes.
-- Release notes generated from merged evidence.
-- Publication gates green.
-- Gateway/Harness compatibility verified by capability contract, not guesswork.
+- Version target chosen from actual user-visible changes: `0.4.9` stable.
+- Release notes generated from M1-M4 evidence.
+- Publication gates green locally through `make milestone-gate`.
+- Release-check confirms expected stable tag posture while blocking on dirty pre-commit state.
 - Explicit statement of what remains deferred.
 
 Done means:
 
-- Release work does not begin just because `main` has commits.
-- The release has a coherent theme that a user can understand.
-- The release does not claim MCP execution, browser action, learning, or model superiority unless those are actually implemented and validated.
+- Release work did not begin until M1-M4 had evidence and a freeze spec existed.
+- The release has a coherent theme: model-evaluation evidence expansion and bounded diagnose/planning reliability.
+- The release does not claim MCP execution, browser action, learning, or model superiority.
+- Publication, tag, push, and PR merge remain outside local agent execution.
 
 ## Stop rules
 

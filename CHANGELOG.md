@@ -1,11 +1,19 @@
 ## [Unreleased]
 
+## [0.4.9] - 2026-09-08
+
 ### Added
 - Add the `structured-context-dogfood` planning/spec package and M1 dogfood evidence to guide the next context-intelligence milestone.
+- Add M3 MCP allowlist design and evidence documents for a future narrow read-only operation class while keeping MCP `call-tool` denied.
+- Add the `plan-validation-command-grounding` model-evaluation fixture derived from observed Qwen dogfood, covering stdlib-only validation advice and unavailable-tool recommendations.
+- Add M4 model-evaluation evidence documentation and expand required model-backed decision eligibility from five scenarios to six.
 
 ### Changed
 - Compact active-spec prompt context and reduce root `AGENTS.md` preload size so constrained local models have more room for useful reasoning.
 - Return a minimal receipt when `inspect` targets the already-loaded active spec, avoiding duplicated spec content in subsequent model calls.
+- Record model-evaluation `refusal_flags` separately from hallucination flags so generic refusals/disclaimers do not get mixed with unsupported edit, test, or line-reference claims.
+- Reject forbidden validation/tool recommendations such as `pytest` in stdlib-only model-evaluation fixtures.
+- Keep Ministral as the local baseline until another <=8 GiB candidate wins repeated evidence under the expanded required scenario set.
 
 ### Fixed
 - Answer simple local `diagnose` readiness/model/MCP status requests through deterministic preflight without model calls, matching the existing remote fast path.
