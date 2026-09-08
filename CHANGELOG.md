@@ -1,9 +1,15 @@
 ## [Unreleased]
 
-### Fixed
-- Normalize prior tool-call exchanges into alternating text messages before model API calls so strict llama.cpp/Mistral chat templates do not reject remote diagnose runs after tool results.
+### Added
+- Add the `structured-context-dogfood` planning/spec package and M1 dogfood evidence to guide the next context-intelligence milestone.
+
+### Changed
+- Compact active-spec prompt context and reduce root `AGENTS.md` preload size so constrained local models have more room for useful reasoning.
+- Return a minimal receipt when `inspect` targets the already-loaded active spec, avoiding duplicated spec content in subsequent model calls.
 
 ### Fixed
+- Answer simple local `diagnose` readiness/model/MCP status requests through deterministic preflight without model calls, matching the existing remote fast path.
+- Normalize prior tool-call exchanges into alternating text messages before model API calls so strict llama.cpp/Mistral chat templates do not reject remote diagnose runs after tool results.
 - Keep remote control `diagnose` runs isolated from implicit workspace handoff context unless an explicit control session is used.
 - Preload deterministic branch, Git status, readiness, and model-auth metadata for remote `diagnose` runs so simple operational checks do not depend on stale context.
 - Report local model HTTP failures as bounded `MODEL_API_ERROR` messages with sanitized server details instead of leaking raw Python tracebacks from `urllib`.

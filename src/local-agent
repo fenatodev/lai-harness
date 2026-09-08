@@ -211,6 +211,7 @@ except Exception:
 
 MAX_ROUNDS = 8
 MAX_TOOL_OUTPUT = 24000
+PRELOADED_AGENTS_MAX_CHARS = 2200
 PRE_WRITE_EXPLORATION_BUDGET = 6
 
 WRITE_TOOLS = {"edit", "create", "patch", "rewrite"}
@@ -4150,6 +4151,30 @@ def tool_project(args):
     return trim("\n".join(output))
 
 
+def _compact_active_spec_inspection(rel):
+    try:
+        spec = load_active_spec()
+    except SystemExit:
+        return None
+    if spec is None:
+        return None
+    try:
+        active_rel = spec["path"].resolve().relative_to(ROOT.resolve()).as_posix()
+    except Exception:
+        return None
+    if str(rel).strip().replace("\\", "/") != active_rel:
+        return None
+    reqs = ", ".join(spec.get("requirements") or []) or "[none]"
+    return (
+        "ACTIVE SPEC ALREADY LOADED (metadata only; use read only when exact line evidence is required):\n"
+        f"Path: {active_rel}\n"
+        f"Title: {spec.get('title')}\n"
+        f"Workflow: {spec.get('mode')}\n"
+        f"Requirements: {reqs}\n"
+        "The active spec summary was already included in the system context."
+    )
+
+
 def tool_inspect(args):
     paths = args.get("paths")
 
@@ -4273,11 +4298,13 @@ def tool_inspect(args):
 
         inspected.add(rel)
 
-        result = tool_read({
-            "path": rel,
-            "start_line": 1,
-            "max_lines": max_lines,
-        })
+        result = _compact_active_spec_inspection(rel)
+        if result is None:
+            result = tool_read({
+                "path": rel,
+                "start_line": 1,
+                "max_lines": max_lines,
+            })
 
         chunks.append(
             f"===== {rel} =====\n{result}"
@@ -8709,21 +8736,43 @@ def render_diagnose_preflight_context(status=None):
     ])
 
 
-def remote_diagnose_preflight_fast_path_response(task, status=None):
-    """Answer simple remote diagnose health checks without a model round trip."""
+def _task_mentions_any(task_lower, terms):
+    return any(term in task_lower for term in terms)
+
+
+def diagnose_preflight_fast_path_response(task, status=None):
+    """Answer simple diagnose health checks without a model round trip."""
     task_lower = str(task or "").lower()
     simple_terms = (
-        "status", "readiness", "ready", "health", "branch", "git",
-        "clean state", "mcp", "model endpoint", "model server", "operational",
+        "status", "estado", "readiness", "ready", "pronto", "health",
+        "saude", "saúde", "branch", "git", "clean state", "mcp",
+        "model", "modelo", "model endpoint", "model server", "operational",
     )
     deeper_terms = (
         "root cause", "debug", "trace", "stack trace", "inspect file",
         "read file", "search", "investigate failure", "why did",
         "corrigir", "corrija", "falha", "erro",
     )
+    negated_discovery_phrases = (
+        "do not inspect file", "do not inspect files",
+        "don't inspect file", "don't inspect files",
+        "do not read file", "do not read files",
+        "don't read file", "don't read files",
+        "do not search", "don't search",
+        "sem inspecionar arquivo", "sem inspecionar arquivos",
+        "não inspecione arquivo", "não inspecione arquivos",
+        "nao inspecione arquivo", "nao inspecione arquivos",
+        "sem ler arquivo", "sem ler arquivos",
+        "não leia arquivo", "não leia arquivos",
+        "nao leia arquivo", "nao leia arquivos",
+    )
+    deeper_task = task_lower
+    for phrase in negated_discovery_phrases:
+        deeper_task = deeper_task.replace(phrase, "")
+
     if not any(term in task_lower for term in simple_terms):
         return None
-    if any(term in task_lower for term in deeper_terms) and "status check" not in task_lower:
+    if any(term in deeper_task for term in deeper_terms) and "status check" not in task_lower:
         return None
 
     status = collect_readiness_status() if status is None else status
@@ -8766,6 +8815,122 @@ def remote_diagnose_preflight_fast_path_response(task, status=None):
     issues = mcp.get("issues") or []
     if issues:
         lines.append("mcp_issues: " + str(len(issues)))
+    return "\n".join(lines)
+
+
+def plan_active_spec_fast_path_response(task, active_spec=None, ranked_context=None):
+    """Answer simple active-spec planning orientation without a model round trip."""
+    if active_spec is None:
+        return None
+
+    task_lower = str(task or "").lower()
+    simple_terms = (
+        "next high-value", "highest-value", "next milestone",
+        "próximo milestone", "proximo milestone", "próxima etapa",
+        "proxima etapa", "likely files", "files and tests",
+        "arquivos e testes", "where to modify", "onde modificar",
+        "implementation-facing plan", "workplan",
+    )
+    mutation_terms = (
+        "edit", "modify files", "patch", "rewrite", "implement now",
+        "make changes", "apply", "corrija agora", "implemente agora",
+        "edite", "modifique", "altere arquivos",
+    )
+    negated_mutation_phrases = (
+        "do not edit", "don't edit", "do not modify", "don't modify",
+        "do not patch", "don't patch", "do not rewrite", "don't rewrite",
+        "do not make changes", "don't make changes",
+        "sem editar", "não edite", "nao edite",
+        "sem modificar", "não modifique", "nao modifique",
+        "sem alterar arquivos", "não altere arquivos", "nao altere arquivos",
+    )
+    mutation_task = task_lower
+    for phrase in negated_mutation_phrases:
+        mutation_task = mutation_task.replace(phrase, "")
+
+    if not _task_mentions_any(task_lower, simple_terms):
+        return None
+    if _task_mentions_any(mutation_task, mutation_terms):
+        return None
+
+    candidate_by_path = {}
+    for index, candidate in enumerate(ranked_context or []):
+        path = str(candidate.get("path") or "[unknown]")
+        candidate_by_path[path] = {
+            "path": path,
+            "score": int(candidate.get("score") or 0),
+            "reasons": list(candidate.get("reasons") or []),
+            "index": index,
+        }
+
+    for changed_path in sorted(context_git_changed_paths()):
+        if not (
+            changed_path.startswith("src/")
+            or changed_path.startswith("tests/")
+            or changed_path.startswith(".specs/")
+            or changed_path.startswith("docs/M1-")
+        ):
+            continue
+        if changed_path not in candidate_by_path:
+            candidate_by_path[changed_path] = {
+                "path": changed_path,
+                "score": 0,
+                "reasons": ["git_changed"],
+                "index": 999,
+            }
+
+    def plan_candidate_priority(candidate):
+        path = str(candidate.get("path") or "")
+        if path.startswith("src/"):
+            group = 0
+        elif path.startswith("tests/"):
+            group = 1
+        elif path.startswith(".specs/"):
+            group = 2
+        elif path.startswith("docs/M1-"):
+            group = 3
+        elif path in {"CHANGELOG.md", "ROADMAP.md"}:
+            group = 5
+        else:
+            group = 4
+        return (group, -int(candidate.get("score") or 0), int(candidate.get("index") or 0), path)
+
+    candidates = sorted(candidate_by_path.values(), key=plan_candidate_priority)
+    candidate_lines = []
+    for candidate in candidates[:6]:
+        path = str(candidate.get("path") or "[unknown]")
+        reasons = ",".join(str(item) for item in candidate.get("reasons") or [])
+        suffix = f" [{reasons}]" if reasons else ""
+        candidate_lines.append(f"- {path}{suffix}")
+    if not candidate_lines:
+        candidate_lines.append("- [no ranked candidates available]")
+
+    checks = context_checks_payload(limit=12)
+    targets = checks.get("make_targets") or []
+    target_names = []
+    for item in targets[:6]:
+        name = item.get("name") if isinstance(item, dict) else item
+        if name:
+            target_names.append(str(name))
+    if not target_names:
+        target_names = ["make check"]
+
+    requirements = ", ".join(active_spec.get("requirements") or []) or "[none]"
+    lines = [
+        "PLAN PREFLIGHT RESULT",
+        "source: active spec and deterministic context metadata",
+        "active_spec: " + str(active_spec.get("title") or "[unknown]"),
+        "workflow: " + str(active_spec.get("mode") or "[unknown]"),
+        "requirements: " + requirements,
+        "goal: follow the active spec before opening new Gateway/UI polish work.",
+        "candidate_files:",
+        *candidate_lines,
+        "validation:",
+        "- focused context/spec/diagnose tests",
+        "- " + ", ".join(target_names[:4]),
+        "next_step: validate this M1 cut, then use measured dogfood to decide whether broader model-backed planning still needs context improvements.",
+        "files_modified: false",
+    ]
     return "\n".join(lines)
 
 
@@ -14345,6 +14510,17 @@ def main():
         print(exact.group(1).strip())
         return
 
+    diagnose_preflight_status = None
+    if mode == "diagnose":
+        diagnose_preflight_status = collect_readiness_status()
+        fast_path_response = diagnose_preflight_fast_path_response(
+            task,
+            status=diagnose_preflight_status,
+        )
+        if fast_path_response:
+            print(fast_path_response)
+            return
+
     active_spec = None if selection_mode else load_active_spec()
     active_spec_context = render_active_spec_context(active_spec)
     ranked_context = (
@@ -14356,6 +14532,16 @@ def main():
         else []
     )
     ranked_context_text = render_context_candidates(ranked_context) if ranked_context else ""
+    if mode == "plan":
+        fast_path_response = plan_active_spec_fast_path_response(
+            task,
+            active_spec=active_spec,
+            ranked_context=ranked_context,
+        )
+        if fast_path_response:
+            print(fast_path_response)
+            return
+
     context_map_text = (
         render_context_map_prompt(repository_context_map(max_paths=0))
         if mode in CONTEXT_INTELLIGENCE_MODES
@@ -14503,15 +14689,9 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
         system += '\n\n' + ranked_context_text
 
     if remote_control_child and mode == "diagnose":
-        diagnose_preflight_status = collect_readiness_status()
+        if diagnose_preflight_status is None:
+            diagnose_preflight_status = collect_readiness_status()
         system += "\n\n" + render_diagnose_preflight_context(diagnose_preflight_status)
-        fast_path_response = remote_diagnose_preflight_fast_path_response(
-            task,
-            status=diagnose_preflight_status,
-        )
-        if fast_path_response:
-            print(fast_path_response)
-            return
 
     if mode == "release":
         system += "\n\n" + render_release_preflight_context()
@@ -14537,7 +14717,7 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
             try:
                 agents_text = agents_path.read_text(
                     errors="replace"
-                )[:5000]
+                )[:PRELOADED_AGENTS_MAX_CHARS]
 
                 system += (
                     "\n\nPRELOADED ROOT AGENTS.md:\n"

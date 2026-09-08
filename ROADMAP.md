@@ -2,7 +2,9 @@
 
 ## Near term
 
-- Treat `v0.4.6` plus `lai-gateway` `v0.1.33` as the current stable integration baseline. Do not expand remote authority until timeline quality, trust, and context quality improve.
+See [Project Plan — 2026-09](docs/PROJECT-PLAN-2026-09.md), [Execution Backlog — 2026-09](docs/EXECUTION-BACKLOG-2026-09.md), and [Risk Register — 2026-09](docs/RISK-REGISTER-2026-09.md) for the current execution order, guardrails, milestone IDs, stop rules, and planning risks.
+
+- Treat Harness `v0.4.8` plus `lai-gateway` `v0.1.34` as the current stable integration baseline. Do not expand remote authority until timeline quality, trust, context quality, and mobile dogfood quality justify it.
 - `v0.4.7` stability focus: enrich control-run event timelines with metadata-only execution milestones that polling clients can display without reading stdout, stderr, task text, transcripts, file contents, or workspace paths.
 - `v0.4.8` operating-mode policy: codify local-first milestone batches, delayed release/version ritual, product-progress decision gates, read-only external evidence before current/uncertain/strategic decisions, and capability-based compatibility before more context-intelligence work.
 - Next after event quality: improve token-efficient context intelligence through structured repo maps, symbol summaries, and compact diff/test/process views.
