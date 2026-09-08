@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="436" viewBox="0 0 1280 436">
+<rect width="100%" height="100%" rx="18" fill="#0b1020"/>
+<rect x="18" y="18" width="1244" height="34" rx="10" fill="#151b2d"/>
+<text x="32" y="41" fill="#d7e1ff" font-family="ui-sans-serif, system-ui, sans-serif" font-size="15" font-weight="600">distribution status fixture</text>
+<text x="28" y="82" fill="#8ef0a3" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">$ LAI_DATA_DIR=$(mktemp -d) ./src/lai distribution status</text>
+<text x="28" y="106" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16"># lai distribution status</text>
+<text x="28" y="130" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16"></text>
+<text x="28" y="154" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">Repository: &lt;checkout&gt;</text>
+<text x="28" y="178" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">Installed state: not detected</text>
+<text x="28" y="202" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">Installed version: [unknown]</text>
+<text x="28" y="226" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">Previous version: [none]</text>
+<text x="28" y="250" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">Core stdlib only: True</text>
+<text x="28" y="274" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">Optional install performed: False</text>
+<text x="28" y="298" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">Model runtime policy: one</text>
+<text x="28" y="322" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">Artifact backup available: False</text>
+<text x="28" y="346" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16"></text>
+<text x="28" y="370" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">No release, tag, push, VSIX publication, model download, browser launch, or autoupdate was performed.</text>
+<text x="28" y="394" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">Use scripts/install-local.sh explicitly to install/upgrade and lai-uninstall to remove binaries.</text>
+</svg>

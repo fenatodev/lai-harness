@@ -5,15 +5,6 @@
     {
       "path": "core-architecture.png",
       "purpose": "README and core architecture overview"
-    },
-    {
-      "path": "private-mobile-access.png",
-      "purpose": "local control plane and private mobile access",
-      "source": "private-mobile-access.svg"
-    },
-    {
-      "path": "release-flow.png",
-      "purpose": "protected release governance flow"
     }
   ]
 }

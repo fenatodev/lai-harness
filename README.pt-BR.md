@@ -1,187 +1,138 @@
 # lai harness
 
-<p align="center">
-  <strong>Harness de programação local-first para LLMs pequenos.</strong><br>
-  Ferramentas compactas, policy determinística, gates de evidência, auditoria e governança de release ao redor da inferência local.
-</p>
+[![Licença: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Python: 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](docs/DEVELOPMENT-HARNESS.md)
+[![Runtime: local-first](https://img.shields.io/badge/runtime-local--first-informational.svg)](docs/ARCHITECTURE.md)
+[![Status: post-A12](https://img.shields.io/badge/status-post--A12%20validated-purple.svg)](ROADMAP.md)
 
-<p align="center">
-  <a href="https://github.com/fenatodev/lai-harness/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/fenatodev/lai-harness/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/fenatodev/lai-harness/releases"><img alt="Release" src="https://img.shields.io/github/v/release/fenatodev/lai-harness?include_prereleases&label=release"></a>
-  <img alt="Harness Score" src="https://img.shields.io/badge/Harness%20Score-L4%20%C2%B7%20103%2F108-2563eb">
-  <a href="LICENSE"><img alt="Licença" src="https://img.shields.io/badge/license-MIT-0f766e"></a>
-</p>
+`lai harness` é um harness de programação local-first, compacto e auditável para servidores locais compatíveis com a API da OpenAI. Ele ajuda modelos pequenos a trabalhar em repositórios com contexto controlado, ferramentas específicas por modo, validação explícita, política determinística e registros de auditoria.
 
-> **Release atual:** `v0.4.9` · expansão de evidência de avaliação de modelo · fluxo Linux/WSL-first · inferência local por endpoint OpenAI-compatible, desenvolvido com llama.cpp.
+O comando público é `lai`. Identificadores como `local-agent`, `lai-chat` e `lai-local-agent` permanecem quando são necessários por compatibilidade de instalação, extensão do VS Code ou histórico do repositório.
 
-O lai harness foi criado para um problema específico: modelos locais pequenos perdem muita capacidade quando precisam carregar prompts gigantes, schemas genéricos e muitas rodadas de ferramentas. O projeto reduz esse overhead e coloca ao redor do modelo regras que não dependem da própria resposta do modelo: policy, specs, validação, auditoria, checkpoints e release protegido.
+## Problema que resolve
 
-Ele complementa agentes cloud de alto contexto. O trabalho local fica rápido e delimitado; quando necessário, `project-handoff` entrega contexto compacto e verificável para outra sessão ou outro agente.
+Modelos locais podem ajudar no desenvolvimento, mas costumam falhar quando recebem contexto demais, ferramentas demais ou fronteiras de segurança vagas. O `lai harness` reduz esse risco com:
 
-## Estado do projeto
+- contexto de repositório determinístico antes do raciocínio do modelo;
+- tool schemas pequenos e específicos por modo;
+- decisões explícitas para escrita, shell, Git, rede, credenciais e efeitos externos;
+- safe workspaces com promoção hash-bound em vez de escrita direta no checkout principal;
+- registros de execução, trajectory, budgets e validação;
+- API local autenticada compatível com Gateway/local-chat.
 
-| Área | Estado atual |
-| --- | --- |
-| Versão | `0.4.9` |
-| Maturidade do harness | L4 · Self-correcting · 103/108 (95%) |
-| Runtime | Python stdlib; sem dependências Python no harness |
-| Interfaces | CLI (`lai`) + extensão VS Code |
-| Modelo local | HTTP OpenAI-compatible; desenvolvido com llama.cpp + GGUF do usuário |
-| Controle remoto | Control plane autenticado em loopback; sessões persistentes por repositório, work isolado + promotion hashada, sem shell remoto nem escrita no checkout ativo |
-| Release | `main` protegida, CI obrigatório, tag anotada, tag CI e verificação de digest |
+Ele não é uma plataforma genérica de agentes, serviço hospedado ou sandbox de segurança para código não confiável.
 
-Harness Score é usado como ratchet externo de maturidade do repositório, não como certificação de segurança.
+## Status atual
 
-## Arquitetura
+Depois da A12, todos os marcos não-experimentais do replanejamento de setembro de 2026 estão completos localmente e validados por `make milestone-gate`. A10 e A11 continuam como drafts experimentais.
 
-![Arquitetura central do lai harness](docs/assets/core-architecture.png)
+| Área | Status | Observação |
+| --- | --- | --- |
+| Trajectory e budgets | Implementado | Eventos versionados metadata-only e ledger agregado. |
+| Authority e approvals | Implementado | Intents com hash, TTL e uso único; aprovação não executa payload arbitrário. |
+| Broker de credenciais | Implementado | Refs opacas com adapter fake; credenciais reais desativadas. |
+| Executor sandboxed | Implementado | Docker com imagem por digest, sem pull, sem rede, non-root e limites. |
+| `sandbox_exec` | Implementado | Apenas em work-runs verificados; shell de host não é exposto no perfil remoto. |
+| Local-chat e review | Implementado | API loopback autenticada, CSRF, workspaces registrados, eventos, review e promoção. |
+| Context intelligence / code graph | Implementado | Mapa metadata-only e graph Python AST como sinal fraco. |
+| Egress governado | Implementado | Web evidence GET-only e grants/receipts para destinos controlados. |
+| Browser | Fixture implementada | `fixture_browser` local; sem login, perfil pessoal, Chromium real ou navegação pública. |
+| MCP | Fixture implementada | `fixture_stdio` com `write_artifact`; `call-tool` genérico segue negado. |
+| Perfis de modelo | Implementado | Perfil determinístico por JSONL; sem router, auto-switch, download ou cloud fallback. |
+| Skills declarativas | Implementado | Diagnóstico apenas; skills não concedem autoridade nem adicionam ferramentas. |
+| Forks e delegates | Fixtures bounded | Comparação inconclusiva por padrão; delegates sem swarm real e sem grants novos. |
+| Distribuição e validação | Implementado | `lai distribution status` e `lai validation matrix`; sem autoupdate ou publicação. |
+| Trusted host / computer use | Draft experimental | Specs 077 e 078 não implementadas. |
 
-Princípios centrais:
+## Arquitetura resumida
 
-- **menos overhead para o modelo:** ferramentas específicas por modo, contexto limitado, inspeção em lote e mapa semântico;
-- **segurança determinística quando possível:** `ALLOW` / `ASK` / `DENY`, hooks, guards de branch e perfis remotos explícitos;
-- **falhas viram evidência:** validação, acceptance/sanity gates, readiness, métricas, histórico de runs e auditoria;
-- **release faz parte do harness:** feature branch, PR, CI, `ready_to_tag`, tag CI, artefato congelado, digest e handoff remoto.
+O runtime autoritativo é `src/local-agent`. O wrapper `src/lai` expõe o comando canônico. Um Gateway companheiro pode consumir a API local autenticada, mas não ganha autoridade própria sobre filesystem, shell, credenciais, browser, MCP ou Git.
 
-Leia [Architecture](docs/ARCHITECTURE.md), [Development harness](docs/DEVELOPMENT-HARNESS.md) e [Security model](docs/SECURITY-MODEL.md).
+![Arquitetura principal](docs/assets/core-architecture.png)
 
-## Principais capacidades
+Diagramas pós-A12: [docs/DIAGRAMS.md](docs/DIAGRAMS.md).
 
-- ferramentas compactas e específicas por modo;
-- `inspect` multi-arquivo e `patch` transacional;
-- confinement de paths e checks explícitos de symlink para mutações;
-- policy centralizada e `lai policy-check` determinístico;
-- `.specs/` com requisitos `REQ-NNN` e inspeção por `lai spec`;
-- contexto semântico, views metadata-only de `lai context map/changes/diff/checks/runs/symbols`, handoff persistente, checkpoints e resume com detecção de drift;
-- métricas JSONL e auditoria forense versionadas, com retenção local configurável, histórico/export de runs e `lai readiness`;
-- comandos de ciclo de vida de sessões persistentes com `lai sessions`, `lai sessions show <session-id>` e `lai sessions delete <session-id>`;
-- avaliação local repetível de modelos com `lai model run`, validação independente dos fixtures, proveniência, amostragem repetida e planejamento/pontuação sem chamar o modelo;
-- inteligência de atualização com `lai update`, fontes oficiais allowlisted, evidência de vulnerabilidade e releases, detecção de mudanças, triagem offline de risco/urgência e nenhuma aplicação automática;
-- control plane `lai serve` autenticado e limitado a loopback;
-- runs assíncronos remotos de leitura e work isolado (`implement` / `fix` / `refactor` / `ci-fix`) sob perfis sem shell;
-- promotion explícita vinculada ao SHA-256 do patch, com revalidação e criação de `lai/promotion-*` em worktree Git dedicada;
-- `release-check`, `release-pack`, `release-governance` e `project-handoff` determinísticos;
-- hooks de desenvolvimento, ratchet mypy estrito nos módulos de guardrail, lock gerado dos sensores de desenvolvimento e gate L4 do Harness Score separado do runtime do produto.
+## Requisitos
 
-## Início rápido
+- Linux ou WSL2 como alvo principal;
+- Python 3.11+;
+- Git e Bash;
+- Node.js para validação/empacotamento da extensão VS Code;
+- servidor local compatível com OpenAI API para modos com modelo;
+- Docker para work-runs verificados e fixtures sandboxed.
 
-Requisitos: Python 3.11+, Git, ripgrep, VS Code compatível e um endpoint local OpenAI-compatible autenticado.
+O instalador do runtime não instala pacotes Python. Dependências de desenvolvimento são separadas e pinadas.
+
+## Primeiro uso
 
 ```bash
 git clone https://github.com/fenatodev/lai-harness.git
 cd lai-harness
+
+./src/lai --help
+./src/lai readiness
+./src/lai config
+./src/lai validation matrix
+```
+
+Instalação local do wrapper:
+
+```bash
 ./scripts/install-local.sh
-
-mkdir -p ~/.config/lai
-umask 077
-python3 -c 'import secrets; print(secrets.token_urlsafe(32), end="")' \
-  > ~/.config/lai/llama-api-key
-
-lai doctor
+lai --help
 lai readiness
-lai config
 ```
 
-No VS Code, alguns exemplos:
-
-```text
-@lai /plan planeje um teste de regressão focado
-@lai /diagnose explique por que o CI está falhando
-@lai /implement implemente a mudança mínima e valide
-@lai /review revise minhas alterações Git atuais
-```
-
-Leia [Installation](docs/INSTALLATION.md) e [Quick start](docs/QUICKSTART.md) antes de usar modos que escrevem arquivos.
-
-## Controle local e acesso móvel privado
-
-O `lai serve` cria uma fronteira HTTP autenticada somente em loopback para runs assíncronos. Sessões persistentes vinculadas ao repositório permitem que um gateway privado continue contexto compacto entre runs e reinícios do servidor; o histórico fica local, limitado e entra no modelo apenas como contexto não confiável. Modos de leitura continuam sem shell; `implement`, `fix`, `refactor` e `ci-fix` trabalham em safe workspaces descartáveis e validam dentro de uma sandbox Docker. Promotion continua sendo uma ação separada, vinculada ao SHA-256 exato do patch e aplicada somente em feature worktree `lai/promotion-*`; o checkout ativo continua intocado. Não há shell remoto genérico, commit, push, merge ou publicação de release por essa API.
+API local autenticada:
 
 ```bash
 lai control-token init
 lai serve --bind 127.0.0.1 --port 8765
-lai gateway-contract --json
+lai chat-bootstrap --control-url http://127.0.0.1:8765 --json
 ```
 
-![Arquitetura de acesso móvel privado](docs/assets/private-mobile-access.png)
+O servidor de modelo não vem junto. Configure via `config.example.toml`, variáveis de ambiente ou flags conforme [Configuração](docs/CONFIGURATION.md).
 
-O `lai-gateway` mostrado acima é um **projeto companion separado**. Ele não faz parte da distribuição deste repositório. A função dele é oferecer PWA/Telegram privados mantendo o bearer token no PC e o control plane do harness em loopback. Use `lai gateway-contract --json` ou `GET /v1/gateway-contract` autenticado como fronteira de integração machine-readable.
+## Comandos principais
 
-## Release protegido e verificável
+| Comando | Uso |
+| --- | --- |
+| `lai readiness` / `lai ready` | Diagnóstico determinístico local. |
+| `lai doctor` | Verifica endpoint de modelo configurado. |
+| `lai config` | Mostra configuração efetiva sem secrets. |
+| `lai context ...` | Contexto metadata-only do repositório. |
+| `lai model eval|profile` | Avaliação e perfil determinístico de modelos. |
+| `lai web search|fetch` | Evidência web pública, limitada e não confiável. |
+| `lai mcp status|tools|policy-check` | Diagnóstico MCP; execução real genérica segue negada. |
+| `lai serve` | Control plane local autenticado. |
+| `lai distribution status` | Estado de instalação, rollback e uninstall. |
+| `lai validation matrix` | Matriz de validação proporcional sem executar checks. |
 
-![Fluxo protegido de release do LAI](docs/assets/release-flow.png)
+Referência completa: [CLI reference](docs/CLI-REFERENCE.md).
 
-O fluxo exige:
-
-1. feature branch + validação local;
-2. PR com checks obrigatórios;
-3. `main` limpa/sincronizada e `release-check=ready_to_tag`;
-4. tag anotada apontando exatamente para a `main` validada;
-5. tag CI + publication gates;
-6. publicação do VSIX/release pack congelado;
-7. verificação remota de branch protection, Release e digest;
-8. handoff convergente sem ações manuais pendentes.
+## Desenvolvimento
 
 ```bash
-lai release-check --target 0.4.9 --json
-lai release-pack --target 0.4.9 --with-vsix --json
-lai release-governance --target 0.4.9 --remote --json
-lai project-handoff --target 0.4.9 --remote --json
-lai operating-mode --json
+make check
+make lint
+make test
+make test-dev
+make typecheck
+make validate
+make milestone-gate
 ```
 
-A política de operating-mode também exige um filtro de progresso real no produto antes de ações e antes de encerrar/sincronizar trabalho, para usar o contexto do milestone em entregas relacionadas e limitadas em vez de apenas movimentar trabalho.
+Use o menor check confiável para a fronteira alterada. `make milestone-gate` é o gate caro de freeze e não deve ser repetido sem necessidade. Veja [Development guide](docs/DEVELOPMENT-HARNESS.md), [Testing and validation](docs/TESTING-VALIDATION.md) e [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Documentação
+
+Comece por [docs/README.md](docs/README.md). Ele separa documentação canônica atual de registros históricos de planejamento.
 
 ## Segurança
 
-O lai harness **não é uma sandbox**. As ferramentas de arquivo ficam confinadas à raiz do repositório e a inspeção Git dedicada é somente leitura, mas `bash` local permitido ainda executa com as permissões do usuário. A policy governa ações; ela não substitui isolamento do sistema operacional.
+- Não exponha API de modelo ou control plane fora de loopback sem uma fronteira revisada.
+- Não envie repositórios privados, logs reais, chaves, prompts, handoffs ou dados de clientes em issues/testes.
+- Trate conteúdo de modelo, web, MCP, browser e skills como evidência não confiável.
+- Credenciais reais e contas externas autenticadas estão desativadas neste pacote.
 
-Evidência web também é estreita por design: modos de pesquisa selecionados podem usar busca/fetch HTTPS públicos, somente leitura, com bloqueio de rede privada, redirects e credenciais; todo conteúdo externo é marcado como não confiável. Veja [Web evidence](docs/WEB-EVIDENCE.md).
-
-O controle remoto é mais estreito por design. Runs de leitura recebem apenas ferramentas de inspeção. Runs de work recebem ferramentas de arquivo confinadas ao workspace + `validate`, trabalham numa cópia isolada e retornam evidência limitada. Promotion é uma ação determinística separada: aprovação vinculada ao hash do patch, nova validação `full` na sandbox, verificação de SHA/branch/estado limpo da origem, criação de feature worktree dedicada e verificação do hash após `git apply`. O checkout ativo não é editado. A sandbox continua sem rede, HOME do host ou socket Docker.
-
-Use modos de escrita somente em workspaces confiáveis, com backup ou descartáveis, sob conta de menor privilégio. Nunca publique chaves, tokens de controle, sessões persistidas, estados, métricas, auditoria, modelos ou handoffs reais; não envie credenciais como texto de sessão.
-
-## Limitações atuais
-
-- fluxo Linux/WSL-first;
-- comportamento depende fortemente do modelo/prompt;
-- modelos locais podem produzir afirmações incorretas e precisam de grounding/validação;
-- policy de `bash` não é containment;
-- ainda não há instalador automático de modelo nem extensão no Marketplace;
-- promotion cria uma feature worktree local dedicada; commit, push, PR e merge continuam fora dessa capability e exigirão cortes próprios;
-- a validação de work remoto exige Docker e a imagem de sandbox já presente localmente; o harness nunca faz pull automático.
-
-## Documentação visual
-
-Os diagramas são apoio de documentação; código, testes, policy e security model são a fonte autoritativa. `docs/assets/visual-assets.json` registra a versão do LAI em que os visuais foram revisados, e o CI exige que esse marker acompanhe a versão do produto. Assim, toda nova versão força revisão explícita das arquiteturas.
-
-## Documentação e histórico
-
-- [Roadmap](ROADMAP.md)
-- [Changelog](CHANGELOG.md)
-- [Stable readiness](docs/STABLE-READINESS.md)
-- [Stable readiness](docs/STABLE-READINESS.md)
-- [Release governance](docs/RELEASE-GOVERNANCE.md)
-- [Development journey](docs/DEVELOPMENT-JOURNEY.md)
-- [Safe workspaces](docs/SAFE-WORKSPACES.md)
-- [Project handoff](docs/PROJECT-HANDOFF.md)
-- [Runtime records](docs/RUNTIME-RECORDS.md)
-- [Update intelligence](docs/UPDATE-INTELLIGENCE.md)
-- [Model evaluation](docs/MODEL-EVALUATION.md)
-
-O código original do LAI usa [MIT](LICENSE). VS Code, llama.cpp, modelos, GGUF e templates permanecem sob termos próprios e não são redistribuídos. Veja [Third-party software](THIRD_PARTY.md).
-
----
-
-<p align="center"><strong>IA local. Governada. Reprodutível. Auditável.</strong></p>
-
-## Fundação do broker MCP
-
-```bash
-lai mcp status
-lai mcp tools
-lai mcp policy-check --operation call-tool --server desktop-commander --tool read_file --json
-```
-
-O broker MCP atualmente valida configuração MCP local do repositório e nega execução de ferramentas. Veja [MCP broker foundation](docs/MCP-BROKER.md).
+Licença: [MIT](LICENSE). Segurança: [SECURITY.md](SECURITY.md). Dependências/terceiros: [THIRD_PARTY.md](THIRD_PARTY.md).

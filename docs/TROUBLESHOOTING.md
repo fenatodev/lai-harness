@@ -1,46 +1,110 @@
 # Troubleshooting
 
-## Server does not start
+Use this guide for current post-A12 behavior. Do not paste secrets, private paths, real prompts, customer data, audit logs or model files into public issues.
 
-Run `lai doctor`. Confirm `LAI_HOST`, `LAI_PORT`, the Windows launcher path when startup is needed, and that the selected `llama-server` supports `--api-key-file`. Inspect private server logs locally; do not paste secrets into issues.
+## Start with deterministic diagnostics
 
-## HTTP 401
+```bash
+lai readiness
+lai config
+lai validation matrix
+lai gateway-contract --json
+```
 
-Confirm the WSL and Windows key files contain the same value without trailing line breaks. Check `LAI_API_KEY_FILE` and `LAI_API_KEY_FILE_WINDOWS`. Never print the key to diagnose authentication.
+These commands do not require a model response and should be the first evidence collected for most issues.
 
-## WSL gateway is wrong
+## Model endpoint fails
 
-Set `LAI_HOST` explicitly. The default is the first gateway from `ip route`, which is common for WSL but not universal. Verify Windows firewall scope before binding beyond loopback.
+Run:
 
-## PowerShell launcher returns but no server appears
+```bash
+lai doctor
+```
 
-Run the script in a PowerShell terminal to observe its error. Validate `LAI_LLAMA_SERVER`, model access, write access to `LAI_LOG_DIR`, and llama.cpp flags for your build.
+Check host, port, model name, context size, API key file, server logs and whether the server is OpenAI-compatible. The model server is external to this repository. `lai harness` does not download models or manage model licenses.
 
-## Permission denied for local-agent
+## HTTP 401 or control-plane auth failure
 
-Re-run `scripts/install-local.sh` or apply executable permission to the installed file. Copy operations can lose executable metadata; the installer deliberately uses mode 0755.
+Separate the two credential classes:
 
-## Model fails to load
+- the model API key authenticates the local model server;
+- the control token authenticates `lai serve`.
 
-Check available RAM/VRAM, model identifier/path, quantization, context size, and the server log. For local GGUF files in WSL/Windows, set `LAI_MODEL` to the Windows-visible path and tune `LAI_CTX_SIZE` and `LAI_GPU_LAYERS`; the small local-code smoke path used 4096 context and CPU layers. lai harness does not manage model downloads or licenses.
+Initialize the control token with:
 
-## VS Code does not show @lai
+```bash
+lai control-token init
+lai serve --bind 127.0.0.1 --port 8765
+```
 
-Reload the extension host, confirm the extension activated, and verify its required VS Code engine. Set `lai.agentPath` if the harness is not under `~/.local/bin`.
+Do not print tokens while debugging.
 
-## Context appears stale
+## Local-chat or Gateway connection fails
 
-Run `/status`, compare it with `git status`, then use `/clearcontext` if needed. Handoff is advisory and never overrides current files.
+Run:
 
-## Metrics or audit is empty
+```bash
+lai chat-bootstrap --control-url http://127.0.0.1:8765 --json
+```
 
-Confirm `$LAI_DATA_DIR` is writable. Metrics are created by ordinary runs; audit details are richer for batch-patch implementation runs. `/clearcontext` does not erase either log.
+Expected failure classes include missing model backend, missing sandbox image, unsupported client version, non-loopback URL, missing CSRF on POST, unregistered workspace or unsupported model ID. The Gateway is a companion and must keep the control token server-side.
 
+## Work-run or sandbox fails
 
-## Configuration fails before runtime
+Remote work-runs require the verified sandbox executor. Common causes:
 
-Run `lai config` after editing `config.toml`. Unknown `[lai]` keys, invalid ports, empty required strings, URL-shaped hosts, and non-path values fail before server startup so operator mistakes are caught early.
+- required digest-pinned Docker image is not present locally;
+- Docker is unavailable to the current user;
+- command attempts network, registry, proxy, host path or Git remote access;
+- `sandbox_exec` is invoked outside a verified work-run.
 
-## Linux or remote server instead of WSL/Windows
+The executor fails closed. It does not pull images or fall back to host execution.
 
-Do not use `LAI_WINDOWS_LAUNCHER` for Linux-native or already-running remote servers. Set `LAI_HOST`, `LAI_PORT`, and `LAI_API_KEY_FILE`, then run `lai doctor`. Keep the server private and authenticated.
+## Promotion fails
+
+Promotion requires exact source state, validation evidence and `patch_sha256`. Recompute review metadata and retry only when the new hash is intentional. Stale hashes, dirty source checkout and source drift are expected blocking conditions.
+
+## Distribution status fails with future schema
+
+`lai distribution status` fails closed when `$LAI_DATA_DIR/distribution/installed-state.json` uses an unknown future schema. This preserves data. Inspect the file locally, back it up if needed and avoid deleting state unless you intentionally use uninstall with `--delete-data`.
+
+## MCP, browser or external actions appear unavailable
+
+That is usually correct for the current package:
+
+- generic MCP `call-tool` remains denied;
+- MCP execution is limited to `fixture_stdio` `write_artifact`;
+- browser support is `fixture_browser` only;
+- real credentials and real external accounts are disabled;
+- fake Git remote actions are receipts, not GitHub pushes.
+
+## Context seems wrong or stale
+
+Use:
+
+```bash
+lai context map
+lai context changes
+lai context graph --json
+lai context runs
+```
+
+Context metadata is advisory. Inspect actual files before relying on it. Code graph is Python AST only and can report heuristic or unknown edges.
+
+## Installed command is missing or not executable
+
+Re-run:
+
+```bash
+./scripts/install-local.sh
+```
+
+The installer uses executable permissions and records local distribution state. To remove installed files while preserving data/config:
+
+```bash
+lai-uninstall
+```
+
+## Validation fails
+
+Read the first failing boundary. Do not weaken tests to make a bad implementation pass. For documentation-only changes, start with link/static checks and `make check`. For runtime/security/distribution boundaries, use the relevant focused tests and the broader gates described in [Testing and validation](TESTING-VALIDATION.md).

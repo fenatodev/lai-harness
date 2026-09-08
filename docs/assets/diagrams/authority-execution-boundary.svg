@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+<defs><marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M2,2 L10,6 L2,10 z" fill="#334155"/></marker></defs>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="60" y="70" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="700" fill="#0f172a">Authority and execution boundary</text>
+<rect x="70" y="180" width="270" height="116" rx="18" fill="#e8f1ff" stroke="#334155" stroke-width="2"/>
+<text x="88" y="216" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#0f172a">Request</text>
+<text x="88" y="246" font-family="Inter, Arial, sans-serif" font-size="15" fill="#334155">CLI or local-chat intent</text>
+<rect x="400" y="180" width="270" height="116" rx="18" fill="#edf7ed" stroke="#334155" stroke-width="2"/>
+<text x="418" y="216" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#0f172a">Policy</text>
+<text x="418" y="246" font-family="Inter, Arial, sans-serif" font-size="15" fill="#334155">ALLOW / ASK / DENY</text>
+<rect x="730" y="180" width="270" height="116" rx="18" fill="#fff4de" stroke="#334155" stroke-width="2"/>
+<text x="748" y="216" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#0f172a">Approval intent</text>
+<text x="748" y="246" font-family="Inter, Arial, sans-serif" font-size="15" fill="#334155">hash-bound, TTL, use-once</text>
+<rect x="1060" y="180" width="270" height="116" rx="18" fill="#f4eaff" stroke="#334155" stroke-width="2"/>
+<text x="1078" y="216" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#0f172a">Run budget</text>
+<text x="1078" y="246" font-family="Inter, Arial, sans-serif" font-size="15" fill="#334155">rounds, tools, tokens, time</text>
+<rect x="400" y="430" width="270" height="116" rx="18" fill="#fdecec" stroke="#334155" stroke-width="2"/>
+<text x="418" y="466" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#0f172a">Sandbox exec</text>
+<text x="418" y="496" font-family="Inter, Arial, sans-serif" font-size="15" fill="#334155">work-run only; host shell</text>
+<text x="418" y="516" font-family="Inter, Arial, sans-serif" font-size="15" fill="#334155">excluded</text>
+<rect x="730" y="430" width="270" height="116" rx="18" fill="#e9fbfb" stroke="#334155" stroke-width="2"/>
+<text x="748" y="466" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#0f172a">Promotion</text>
+<text x="748" y="496" font-family="Inter, Arial, sans-serif" font-size="15" fill="#334155">patch hash, validation, source</text>
+<text x="748" y="516" font-family="Inter, Arial, sans-serif" font-size="15" fill="#334155">drift</text>
+<rect x="1060" y="430" width="270" height="116" rx="18" fill="#e8f1ff" stroke="#334155" stroke-width="2"/>
+<text x="1078" y="466" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#0f172a">External action</text>
+<text x="1078" y="496" font-family="Inter, Arial, sans-serif" font-size="15" fill="#334155">fake adapter receipts only</text>
+<line x1="340" y1="238.0" x2="400" y2="238.0" stroke="#334155" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="370.0" y="228.0" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14" fill="#475569">classify</text>
+<line x1="670" y1="238.0" x2="730" y2="238.0" stroke="#334155" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="700.0" y="228.0" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14" fill="#475569">if ASK</text>
+<line x1="670" y1="238.0" x2="1060" y2="238.0" stroke="#334155" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="865.0" y="228.0" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14" fill="#475569">reserve</text>
+<line x1="1060" y1="238.0" x2="670" y2="488.0" stroke="#334155" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="865.0" y="353.0" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14" fill="#475569">bounded</text>
+<line x1="670" y1="488.0" x2="730" y2="488.0" stroke="#334155" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="700.0" y="478.0" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14" fill="#475569">review</text>
+<line x1="1000" y1="488.0" x2="1060" y2="488.0" stroke="#334155" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="1030.0" y="478.0" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14" fill="#475569">explicit intent</text>
+<text x="60" y="850" font-family="Inter, Arial, sans-serif" font-size="16" fill="#64748b">Post-A12 documentation asset. Describes implemented boundaries only; experimental A10/A11 are excluded.</text>
+</svg>

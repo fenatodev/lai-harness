@@ -29,4 +29,4 @@ Changing compatibility identifiers should be a separate migration with aliases, 
 
 ## Style
 
-Prefer “lai harness” when describing the product and “`lai`” when describing the command. Avoid presenting “LAI — Local AI Agent” as a current product title.
+Prefer “lai harness” when describing the product and “`lai`” when describing the command. Avoid presenting the pre-branding long-form title as a current product title.

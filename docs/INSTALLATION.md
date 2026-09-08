@@ -5,9 +5,11 @@
 - Linux or WSL2;
 - Python 3.11 or newer;
 - Git and ripgrep (`rg`);
-- VS Code with Chat Participant API support;
 - a running OpenAI-compatible local chat-completions endpoint;
+- optionally VS Code with Chat Participant API support for the extension;
 - optionally Node.js for JavaScript syntax checks and extension development.
+
+The CLI works without VS Code. The first platform target remains Linux/WSL2. A Gateway-based local web chat uses the separate `lai-gateway` project, while the harness now provides deterministic bootstrap diagnostics for the already-running loopback control endpoint.
 
 ## Install the harness
 
@@ -73,14 +75,36 @@ For Linux-native or remote OpenAI-compatible servers, set `LAI_HOST`, `LAI_PORT`
 
 ## Optional local control plane
 
-For future mobile/private gateway access, initialize a separate control token and start the loopback-only API:
+For the separate Gateway or another private client, initialize a separate control token and start the loopback-only API:
 
 ```bash
 lai control-token init
 lai serve --bind 127.0.0.1 --port 8765
 ```
 
-Do not reuse the llama.cpp key for this API. See [Local control plane](CONTROL-PLANE.md). Beta.11 does not expose model execution or repository writes over HTTP.
+Do not reuse the llama.cpp key for this API. The current control plane supports repository-scoped sessions, read-only runs, isolated work runs, cancellation, and separate hash-bound promotion. Remote work requires Docker and the locally available validation image; the harness does not pull it automatically. It does not expose generic remote shell or direct writes to the active checkout. See [Local control plane](CONTROL-PLANE.md) and [Safe workspaces](SAFE-WORKSPACES.md).
+
+The Gateway is installed/configured separately and keeps the harness bearer token server-side. Current v1 capabilities are discoverable with `lai gateway-contract --json`.
+
+Check the local-chat bootstrap without installing optional components or starting a second persistent runtime:
+
+```bash
+lai chat-bootstrap --control-url http://127.0.0.1:8765 --json
+```
+
+The command reads the existing control token, negotiates `/v1/local-chat/contract`, lists the server-registered workspace/model, reports Linux/WSL2 support, shows whether the model backend and sandbox are ready, and attempts one Safe `plan` chat only when the model endpoint is already authenticated and reachable. Missing Docker or browser support does not block the core chat bootstrap; missing model backend disables only the first-chat attempt. The command does not download models, install Gateway/browser/runtime components, expose tokens, or open a browser.
+
+`install-local.sh` also writes `$LAI_DATA_DIR/distribution/installed-state.json` as schema-versioned local state. The state records the installed component names, current/previous harness version, one-model-runtime policy, publication non-effects and rollback metadata for replaced local artifacts. A repeat install backs up previously installed binaries under `$LAI_DATA_DIR/distribution/rollback/previous` before replacing them.
+
+Inspect the local distribution state without contacting the model or publishing anything:
+
+```bash
+lai distribution status --json
+```
+
+The distribution diagnostic fails closed when it sees a future state schema and preserves data/config instead of deleting or rewriting unknown state. It does not download a model, install optional Gateway/browser components, start a persistent runtime, create tags, push, publish a VSIX or perform autoupdate.
+
+`install-local.sh` also installs `lai-uninstall`. Running it without flags removes installed binaries and preserves `$LAI_DATA_DIR`, `$LAI_CONFIG_DIR`, and the distribution state; deleting local data/config requires the explicit `--delete-data` flag.
 
 ## Extension from source
 
