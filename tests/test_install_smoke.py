@@ -96,6 +96,7 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             self.assertTrue((bin_dir / "lai_mcp.py").is_file())
             self.assertTrue((bin_dir / "lai_web.py").is_file())
             self.assertTrue((bin_dir / "lai-server-start").is_file())
+            self.assertTrue((bin_dir / "start-secure.ps1").is_file())
             self.assertTrue((bin_dir / "lai-server-stop").is_file())
             self.assertTrue((bin_dir / "lai-server-restart").is_file())
             self.assertTrue((bin_dir / "lai-uninstall").is_file())

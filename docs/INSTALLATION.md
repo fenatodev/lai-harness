@@ -67,7 +67,7 @@ Supported settings include:
 
 ## llama.cpp on Windows with WSL
 
-For WSL with a Windows-hosted `llama-server`, `scripts/ministral-start` first accepts an already-running authenticated server. When it must start one, it auto-discovers the checkout-local `scripts/start-secure.ps1`, converts the configured key file path for Windows, locates `llama-server.exe` when it is on either WSL or Windows PATH, and injects those values inside PowerShell without printing the key. Set `LAI_WINDOWS_LAUNCHER`, `LAI_LLAMA_SERVER`, or `LAI_API_KEY_FILE_WINDOWS` only when autodiscovery cannot resolve your local setup.
+For WSL with a Windows-hosted `llama-server`, `scripts/ministral-start` first accepts an already-running authenticated server. When it must start one, it auto-discovers the installed `start-secure.ps1` next to `lai-server-start`, converts the configured key file path for Windows, locates `llama-server.exe` when it is on either WSL or Windows PATH, and injects those values inside PowerShell without printing the key. Set `LAI_WINDOWS_LAUNCHER`, `LAI_LLAMA_SERVER`, or `LAI_API_KEY_FILE_WINDOWS` only when autodiscovery cannot resolve your local setup.
 
 The reference launcher requires `llama-server` support for `--api-key-file`, requests `--no-webui` and metrics when supported, and supports both local GGUF file paths and Hugging Face model identifiers through `LAI_MODEL`. Adjust context and GPU settings for your hardware. Do not reuse an internet-facing bind without firewall and authentication review.
 

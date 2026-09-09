@@ -28,7 +28,7 @@ install -d "$rollback_dir"
 backup_count=0
 for name in \
     lai local-agent lai_semantics.py lai_config.py lai_specs.py lai_sessions.py \
-    lai_mcp.py lai_web.py lai-doctor lai-server-start lai-server-stop \
+    lai_mcp.py lai_web.py lai-doctor lai-server-start start-secure.ps1 lai-server-stop \
     lai-server-restart lai-uninstall; do
     if [ -f "$bin_dir/$name" ]; then
         cp -p -- "$bin_dir/$name" "$rollback_dir/$name"
@@ -45,6 +45,7 @@ install -m 0644 "$repo_root/src/lai_web.py" "$bin_dir/lai_web.py"
 install -m 0755 "$repo_root/src/lai" "$bin_dir/lai"
 install -m 0755 "$repo_root/scripts/ministral-doctor" "$bin_dir/lai-doctor"
 install -m 0755 "$repo_root/scripts/ministral-start" "$bin_dir/lai-server-start"
+install -m 0644 "$repo_root/scripts/start-secure.ps1" "$bin_dir/start-secure.ps1"
 install -m 0755 "$repo_root/scripts/ministral-stop" "$bin_dir/lai-server-stop"
 install -m 0755 "$repo_root/scripts/ministral-restart" "$bin_dir/lai-server-restart"
 install -m 0755 "$repo_root/scripts/uninstall-local.sh" "$bin_dir/lai-uninstall"
@@ -82,6 +83,7 @@ components = [
     "lai_web.py",
     "lai-doctor",
     "lai-server-start",
+    "start-secure.ps1",
     "lai-server-stop",
     "lai-server-restart",
     "lai-uninstall",

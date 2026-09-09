@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Fixed
+- Install `start-secure.ps1` beside `lai-server-start` so WSL/VS Code installs can auto-discover the Windows llama.cpp launcher after local installation.
+
+### Documentation
+- Refresh the public core architecture image and add its SVG source for reproducible rendering.
+
 ## [0.5.0] - 2026-09-08
 
 ### Added
