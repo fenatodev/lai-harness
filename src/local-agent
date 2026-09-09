@@ -9,6 +9,7 @@ import json
 import os
 import platform
 import re
+import socket
 import secrets
 import shutil
 import signal
@@ -3898,6 +3899,11 @@ REMOTE_VALIDATION_SANDBOX_IMAGE_ENV = "LAI_REMOTE_SANDBOX_IMAGE"
 REMOTE_SANDBOX_CONTAINER_PYTHON_ENV = "LAI_REMOTE_SANDBOX_PYTHON"
 REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT = "python3"
 REMOTE_SANDBOX_WORKSPACE_ENTRYPOINT = "/workspace/src/local-agent"
+CONTROL_MODEL_BRIDGE_SOCKET_ENV = "LAI_CONTROL_MODEL_BRIDGE_SOCKET"
+CONTROL_MODEL_BRIDGE_CONTAINER_SOCKET = "/workspace/.lai-model-bridge.sock"
+CONTROL_MODEL_BRIDGE_SCHEMA_VERSION = 1
+CONTROL_MODEL_BRIDGE_REQUEST_LIMIT_BYTES = 1_000_000
+CONTROL_MODEL_BRIDGE_RESPONSE_LIMIT_BYTES = 8_000_000
 REMOTE_VALIDATION_SOURCE_ROOT_ENV = "LAI_CONTROL_SOURCE_ROOT"
 REMOTE_SANDBOX_SCHEMA_VERSION = 1
 REMOTE_SANDBOX_BACKEND = "docker"
@@ -4111,7 +4117,7 @@ def _remote_sandbox_checked_root(path, label):
     return root
 
 
-def _remote_sandbox_base_argv(*, workspace=None, source_root=None):
+def _remote_sandbox_base_argv(*, workspace=None, source_root=None, model_bridge_socket=None):
     workspace = _remote_sandbox_checked_root(workspace or ROOT, "workspace")
     source_root = _remote_sandbox_checked_root(
         source_root
@@ -4138,6 +4144,11 @@ def _remote_sandbox_base_argv(*, workspace=None, source_root=None):
         "--workdir", "/workspace",
         "--mount", f"type=bind,src={workspace},dst=/workspace",
     ]
+    if model_bridge_socket:
+        command.extend([
+            "--env",
+            f"{CONTROL_MODEL_BRIDGE_SOCKET_ENV}={model_bridge_socket}",
+        ])
     if source_root != workspace:
         command.extend([
             "--mount",
@@ -4153,8 +4164,10 @@ def remote_validation_docker_argv(argv, *, workspace=None, source_root=None):
     return command
 
 
-def remote_project_sandbox_docker_argv(argv, *, workspace=None, source_root=None):
-    command = _remote_sandbox_base_argv(workspace=workspace, source_root=source_root)
+def remote_project_sandbox_docker_argv(argv, *, workspace=None, source_root=None, model_bridge_socket=None):
+    command = _remote_sandbox_base_argv(
+        workspace=workspace, source_root=source_root, model_bridge_socket=model_bridge_socket,
+    )
     command.append(remote_validation_sandbox_image())
     command.extend(str(item) for item in argv)
     return command
@@ -10890,6 +10903,7 @@ def _control_run_worker(server):
         workspace_path = ROOT
         effective_task = task
         session_id = record.get("session_id")
+        model_bridge_close = None
         try:
             if session_id:
                 with server.control_session_lock:
@@ -10930,12 +10944,25 @@ def _control_run_worker(server):
             child_env = control_run_child_env(source_root=ROOT)
             child_command = control_run_command(mode, effective_task)
             if mode in CONTROL_RUN_WORK_MODES:
+                model_bridge_host = child_env.get("LAI_HOST") or gateway()
+                try:
+                    model_bridge_port = int(child_env.get("LAI_PORT") or LLAMA_PORT)
+                except (TypeError, ValueError):
+                    model_bridge_port = LLAMA_PORT
+                model_bridge_close = start_control_model_bridge(
+                    workspace_path / ".lai-model-bridge.sock",
+                    model_bridge_host,
+                    port=model_bridge_port,
+                    api_key_file=child_env.get("LAI_API_KEY_FILE"),
+                )
+                child_env[CONTROL_MODEL_BRIDGE_SOCKET_ENV] = str(workspace_path / ".lai-model-bridge.sock")
                 child_command = remote_control_run_command(mode, effective_task)
                 child_env[SANDBOX_EXEC_VERIFIED_ENV] = "1"
                 child_command = remote_project_sandbox_docker_argv(
                     child_command,
                     workspace=workspace_path,
                     source_root=ROOT,
+                    model_bridge_socket=CONTROL_MODEL_BRIDGE_CONTAINER_SOCKET,
                 )
                 with server.control_run_condition:
                     record["sandbox_executor"] = remote_sandbox_public_contract(ready=True)
@@ -11119,6 +11146,8 @@ def _control_run_worker(server):
                     "control runner failed: " + type(exc).__name__ + ": " + str(exc)
                 )[:2000]
         finally:
+            if model_bridge_close is not None:
+                model_bridge_close()
             stdout_handle.close()
             stderr_handle.close()
             with server.control_run_condition:
@@ -12186,6 +12215,155 @@ def server_ready(host):
 
     with urllib.request.urlopen(req, timeout=2) as response:
         return response.status == 200
+
+
+def _model_bridge_socket_path():
+    value = os.environ.get(CONTROL_MODEL_BRIDGE_SOCKET_ENV, "").strip()
+    return value or None
+
+
+def _recv_exact(sock, size):
+    chunks = []
+    remaining = int(size)
+    while remaining > 0:
+        chunk = sock.recv(remaining)
+        if not chunk:
+            raise EOFError("model bridge closed before payload completed")
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+def model_bridge_chat_completion(payload):
+    socket_path = _model_bridge_socket_path()
+    if not socket_path:
+        raise ModelAPIError("model bridge socket is not configured")
+    body = json.dumps({
+        "schema_version": CONTROL_MODEL_BRIDGE_SCHEMA_VERSION,
+        "payload": payload,
+    }).encode("utf-8")
+    if len(body) > CONTROL_MODEL_BRIDGE_REQUEST_LIMIT_BYTES:
+        raise ModelAPIError("model bridge request is too large")
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.settimeout(180)
+        client.connect(socket_path)
+        client.sendall(len(body).to_bytes(4, "big") + body)
+        size = int.from_bytes(_recv_exact(client, 4), "big")
+        if size <= 0 or size > CONTROL_MODEL_BRIDGE_RESPONSE_LIMIT_BYTES:
+            raise ModelAPIError("model bridge response is invalid or too large")
+        response = json.loads(_recv_exact(client, size).decode("utf-8"))
+    if not isinstance(response, dict) or response.get("schema_version") != CONTROL_MODEL_BRIDGE_SCHEMA_VERSION:
+        raise ModelAPIError("model bridge response schema is invalid")
+    if not response.get("ok"):
+        message = str(response.get("error") or "model bridge call failed")[:500]
+        raise ModelAPIError(message)
+    result = response.get("response")
+    if not isinstance(result, dict):
+        raise ModelAPIError("model bridge returned invalid model response")
+    return result
+
+
+def _control_model_bridge_api_key(api_key_file=None):
+    if api_key_file:
+        return Path(api_key_file).read_text(encoding="utf-8").strip()
+    return llama_api_key()
+
+
+def control_model_bridge_call_model(host, port, api_key_file, payload):
+    key = _control_model_bridge_api_key(api_key_file)
+    request = urllib.request.Request(
+        f"http://{host}:{port}/v1/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {key}",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=180) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise ModelAPIError(model_api_http_error_message(exc, api_key=key)) from None
+
+
+def _control_model_bridge_handle_connection(conn, host, port, api_key_file):
+    try:
+        size = int.from_bytes(_recv_exact(conn, 4), "big")
+        if size <= 0 or size > CONTROL_MODEL_BRIDGE_REQUEST_LIMIT_BYTES:
+            raise ValueError("model bridge request is invalid or too large")
+        request = json.loads(_recv_exact(conn, size).decode("utf-8"))
+        if not isinstance(request, dict) or request.get("schema_version") != CONTROL_MODEL_BRIDGE_SCHEMA_VERSION:
+            raise ValueError("model bridge request schema is invalid")
+        payload = request.get("payload")
+        if not isinstance(payload, dict):
+            raise ValueError("model bridge payload must be an object")
+        response = {
+            "schema_version": CONTROL_MODEL_BRIDGE_SCHEMA_VERSION,
+            "ok": True,
+            "response": control_model_bridge_call_model(host, port, api_key_file, payload),
+        }
+    except Exception as exc:
+        response = {
+            "schema_version": CONTROL_MODEL_BRIDGE_SCHEMA_VERSION,
+            "ok": False,
+            "error": str(exc)[:500],
+        }
+    raw = json.dumps(response, ensure_ascii=False).encode("utf-8")
+    if len(raw) > CONTROL_MODEL_BRIDGE_RESPONSE_LIMIT_BYTES:
+        raw = json.dumps({
+            "schema_version": CONTROL_MODEL_BRIDGE_SCHEMA_VERSION,
+            "ok": False,
+            "error": "model bridge response is too large",
+        }).encode("utf-8")
+    try:
+        conn.sendall(len(raw).to_bytes(4, "big") + raw)
+    except OSError:
+        pass
+
+
+def start_control_model_bridge(socket_path, host, port=None, api_key_file=None):
+    path = Path(socket_path)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(str(path))
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+    server.listen(4)
+    server.settimeout(0.2)
+    stop = threading.Event()
+
+    def loop():
+        while not stop.is_set():
+            try:
+                conn, _addr = server.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            with conn:
+                _control_model_bridge_handle_connection(conn, host, port or LLAMA_PORT, api_key_file)
+
+    thread = threading.Thread(target=loop, name="lai-model-bridge", daemon=True)
+    thread.start()
+
+    def close():
+        stop.set()
+        try:
+            server.close()
+        except OSError:
+            pass
+        try:
+            path.unlink()
+        except (FileNotFoundError, OSError):
+            pass
+
+    return close
 
 
 def doctor_status(host):
@@ -15980,34 +16158,40 @@ def api_call(
         payload["tools"] = selected_tools
         payload["tool_choice"] = "auto"
 
-    key = llama_api_key()
-
-    req = urllib.request.Request(
-        f"http://{host}:{LLAMA_PORT}/v1/chat/completions",
-        data=json.dumps(payload).encode(),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {key}",
-        },
-    )
+    bridge_socket = _model_bridge_socket_path()
+    key = None
+    req = None
+    if not bridge_socket:
+        key = llama_api_key()
+        req = urllib.request.Request(
+            f"http://{host}:{LLAMA_PORT}/v1/chat/completions",
+            data=json.dumps(payload).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {key}",
+            },
+        )
 
     started = _metrics_time.perf_counter()
 
     try:
-        with urllib.request.urlopen(
-            req,
-            timeout=180,
-        ) as response:
-            result = json.loads(
-                response.read().decode()
-            )
+        if bridge_socket:
+            result = model_bridge_chat_completion(payload)
+        else:
+            with urllib.request.urlopen(
+                req,
+                timeout=180,
+            ) as response:
+                result = json.loads(
+                    response.read().decode()
+                )
     except urllib.error.HTTPError as e:
         duration_ms = (
             _metrics_time.perf_counter()
             - started
         ) * 1000.0
 
-        message = model_api_http_error_message(e, api_key=key)
+        message = model_api_http_error_message(e, api_key=key or "")
         record_metric_event({
             "type": "api",
             "duration_ms": round(duration_ms, 2),
@@ -20814,12 +20998,16 @@ def main():
         else ""
     )
 
-    host = gateway()
-
-    try:
-        ready = server_ready(host)
-    except Exception:
-        ready = False
+    bridge_socket = _model_bridge_socket_path()
+    if bridge_socket:
+        host = "model-bridge"
+        ready = True
+    else:
+        host = gateway()
+        try:
+            ready = server_ready(host)
+        except Exception:
+            ready = False
 
     if not ready:
         if os.environ.get(CONTROL_RUN_CHILD_ENV) == "1":

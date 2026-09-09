@@ -587,6 +587,7 @@ class ControlPlaneTest(unittest.TestCase):
         )
         self.assertFalse((self.root / "hello.txt").exists())
         self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " " + agent.REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT + " " + agent.REMOTE_SANDBOX_WORKSPACE_ENTRYPOINT, docker_log.read_text(encoding="utf-8"))
+        self.assertIn(agent.CONTROL_MODEL_BRIDGE_SOCKET_ENV + "=" + agent.CONTROL_MODEL_BRIDGE_CONTAINER_SOCKET, docker_log.read_text(encoding="utf-8"))
 
     def test_local_chat_lifecycle_cancel_is_idempotent_and_pause_is_explicitly_blocked(self):
         run_id = "cr-2222222222222222"
@@ -2111,6 +2112,24 @@ class ControlPlaneTest(unittest.TestCase):
         )
         self.assertNotIn(".local/bin/local-agent", " ".join(agent.remote_control_run_command("fix", "task")))
 
+    def test_remote_work_model_bridge_is_socket_only_and_secret_free(self):
+        argv = agent.remote_project_sandbox_docker_argv(
+            (agent.REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT, agent.REMOTE_SANDBOX_WORKSPACE_ENTRYPOINT),
+            workspace=self.root,
+            source_root=self.root,
+            model_bridge_socket=agent.CONTROL_MODEL_BRIDGE_CONTAINER_SOCKET,
+        )
+        rendered = " ".join(argv)
+        self.assertIn("--network=none", argv)
+        self.assertIn("--pull=never", argv)
+        self.assertIn(
+            agent.CONTROL_MODEL_BRIDGE_SOCKET_ENV + "=" + agent.CONTROL_MODEL_BRIDGE_CONTAINER_SOCKET,
+            argv,
+        )
+        self.assertNotIn("LAI_API_KEY", rendered)
+        self.assertNotIn("control-api-key", rendered)
+        self.assertNotIn("/var/run/docker.sock", rendered)
+
     def test_remote_sandbox_container_python_rejects_paths_or_shell_words(self):
         for value in ("/usr/bin/python3", "python3 -m", "../python", "-python", "python3:bad", "python@bad"):
             with mock.patch.dict(os.environ, {agent.REMOTE_SANDBOX_CONTAINER_PYTHON_ENV: value}, clear=False):
@@ -2190,6 +2209,7 @@ class ControlPlaneTest(unittest.TestCase):
         with mock.patch.object(agent, "remote_project_sandbox_available", return_value=True), \
                 mock.patch.object(agent, "create_control_work_workspace", return_value=workspace_info), \
                 mock.patch.object(agent, "collect_control_workspace_result", return_value=workspace_result), \
+                mock.patch.object(agent, "gateway", return_value="127.0.0.1"), \
                 mock.patch.object(agent.subprocess, "Popen", InstantProcess):
             status, payload = self.request(
                 "/v1/runs", method="POST", token=self.token,
@@ -3142,6 +3162,7 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertIn("value.txt", final["workspace"]["changed_paths"])
         log = docker_log.read_text(encoding="utf-8")
         self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " " + agent.REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT + " " + agent.REMOTE_SANDBOX_WORKSPACE_ENTRYPOINT, log)
+        self.assertIn(agent.CONTROL_MODEL_BRIDGE_SOCKET_ENV + "=" + agent.CONTROL_MODEL_BRIDGE_CONTAINER_SOCKET, log)
         self.assertNotIn("git push", json.dumps(final, sort_keys=True))
 
     def test_remote_implement_real_child_writes_only_isolated_workspace(self):
@@ -3276,6 +3297,7 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertIn("--pull=never", log)
         self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " make test", log)
         self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " " + agent.REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT + " " + agent.REMOTE_SANDBOX_WORKSPACE_ENTRYPOINT, log)
+        self.assertIn(agent.CONTROL_MODEL_BRIDGE_SOCKET_ENV + "=" + agent.CONTROL_MODEL_BRIDGE_CONTAINER_SOCKET, log)
 
     def test_control_server_close_terminates_active_child(self):
         started = threading.Event()

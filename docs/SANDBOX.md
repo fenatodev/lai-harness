@@ -28,6 +28,12 @@ The value must match `<repository>[:tag]@sha256:<64 lowercase hex>`. Mutable tag
 
 If Docker is unavailable or the configured digest-pinned image is not present locally, work-runs fail before model execution and do not fall back to host execution.
 
+## Model bridge for work-runs
+
+Work-run children execute inside the no-network Docker sandbox. To let them call the configured host model without granting container networking, the control supervisor creates a per-run Unix-domain socket inside the disposable workspace and forwards bounded chat-completion payloads to the trusted host model service. The container receives only `LAI_CONTROL_MODEL_BRIDGE_SOCKET=/workspace/.lai-model-bridge.sock`; model API keys stay on the host side of the bridge and are not mounted into the sandbox. The bridge is removed when the run finishes.
+
+This is not generic egress. `sandbox_exec` and project commands still run with `--network=none` and remain blocked from network clients, proxy configuration, registries and Git remotes.
+
 ## `sandbox_exec`
 
 `sandbox_exec` is available only inside verified work-runs. It is not a replacement for host `bash`. It blocks obvious network clients, proxy variables, Git remotes, registry access, system path escape and secret environment inheritance.
