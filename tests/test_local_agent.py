@@ -3367,12 +3367,12 @@ class LocalAgentTest(unittest.TestCase):
         self.assertIn("sandboxed software development agent", system)
         self.assertIn("ACTIVE SKILL", system)
         self.assertIn("synthetic implement skill", system)
-        self.assertIn("CONTEXT CANDIDATES", system)
-        self.assertIn("src/module_0.py", system)
+        self.assertNotIn("CONTEXT CANDIDATES", system)
+        self.assertNotIn("src/module_0.py", system)
         self.assertNotIn("src/module_11.py", system)
         self.assertNotIn("CONTEXT MAP", system)
         self.assertNotIn("CONTEXT CHANGES", system)
-        self.assertLess(len(system), 2600)
+        self.assertLess(len(system), 1900)
 
     def test_plan_active_spec_fast_path_uses_ranked_context_without_model(self):
         specs = self.root / ".specs"
