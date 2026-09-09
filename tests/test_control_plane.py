@@ -587,7 +587,9 @@ class ControlPlaneTest(unittest.TestCase):
         )
         self.assertFalse((self.root / "hello.txt").exists())
         self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " " + agent.REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT + " " + agent.REMOTE_SANDBOX_WORKSPACE_ENTRYPOINT, docker_log.read_text(encoding="utf-8"))
-        self.assertIn(agent.CONTROL_MODEL_BRIDGE_SOCKET_ENV + "=" + agent.CONTROL_MODEL_BRIDGE_CONTAINER_SOCKET, docker_log.read_text(encoding="utf-8"))
+        log_text = docker_log.read_text(encoding="utf-8")
+        self.assertIn("LAI_SKILLS_DIR=" + agent.REMOTE_SANDBOX_SKILLS_DIR, log_text)
+        self.assertIn(agent.CONTROL_MODEL_BRIDGE_SOCKET_ENV + "=" + agent.CONTROL_MODEL_BRIDGE_CONTAINER_SOCKET, log_text)
 
     def test_local_chat_lifecycle_cancel_is_idempotent_and_pause_is_explicitly_blocked(self):
         run_id = "cr-2222222222222222"
@@ -3162,6 +3164,7 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertIn("value.txt", final["workspace"]["changed_paths"])
         log = docker_log.read_text(encoding="utf-8")
         self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " " + agent.REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT + " " + agent.REMOTE_SANDBOX_WORKSPACE_ENTRYPOINT, log)
+        self.assertIn("LAI_SKILLS_DIR=" + agent.REMOTE_SANDBOX_SKILLS_DIR, log)
         self.assertIn(agent.CONTROL_MODEL_BRIDGE_SOCKET_ENV + "=" + agent.CONTROL_MODEL_BRIDGE_CONTAINER_SOCKET, log)
         self.assertNotIn("git push", json.dumps(final, sort_keys=True))
 
@@ -3297,6 +3300,7 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertIn("--pull=never", log)
         self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " make test", log)
         self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " " + agent.REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT + " " + agent.REMOTE_SANDBOX_WORKSPACE_ENTRYPOINT, log)
+        self.assertIn("LAI_SKILLS_DIR=" + agent.REMOTE_SANDBOX_SKILLS_DIR, log)
         self.assertIn(agent.CONTROL_MODEL_BRIDGE_SOCKET_ENV + "=" + agent.CONTROL_MODEL_BRIDGE_CONTAINER_SOCKET, log)
 
     def test_control_server_close_terminates_active_child(self):

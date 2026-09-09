@@ -3899,6 +3899,7 @@ REMOTE_VALIDATION_SANDBOX_IMAGE_ENV = "LAI_REMOTE_SANDBOX_IMAGE"
 REMOTE_SANDBOX_CONTAINER_PYTHON_ENV = "LAI_REMOTE_SANDBOX_PYTHON"
 REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT = "python3"
 REMOTE_SANDBOX_WORKSPACE_ENTRYPOINT = "/workspace/src/local-agent"
+REMOTE_SANDBOX_SKILLS_DIR = "/workspace/skills"
 CONTROL_MODEL_BRIDGE_SOCKET_ENV = "LAI_CONTROL_MODEL_BRIDGE_SOCKET"
 CONTROL_MODEL_BRIDGE_CONTAINER_SOCKET = "/workspace/.lai-model-bridge.sock"
 CONTROL_MODEL_BRIDGE_SCHEMA_VERSION = 1
@@ -4141,6 +4142,7 @@ def _remote_sandbox_base_argv(*, workspace=None, source_root=None, model_bridge_
         "--env", f"{CONTROL_RUN_CHILD_ENV}=1",
         "--env", f"{SANDBOX_EXEC_VERIFIED_ENV}=1",
         "--env", f"{REMOTE_VALIDATION_SOURCE_ROOT_ENV}=/workspace",
+        "--env", f"LAI_SKILLS_DIR={REMOTE_SANDBOX_SKILLS_DIR}",
         "--workdir", "/workspace",
         "--mount", f"type=bind,src={workspace},dst=/workspace",
     ]
