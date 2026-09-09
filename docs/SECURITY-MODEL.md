@@ -3,7 +3,7 @@
 For the concise current limitations list, see [Known limitations](KNOWN-LIMITATIONS.md).
 
 
-This document describes the implemented 0.4.9 source boundary after A12. The [autonomy threat model](AUTONOMY-THREAT-MODEL.md) and [target architecture](TARGET-ARCHITECTURE.md) remain useful for residual-risk analysis and future A10/A11 planning, but current capability claims come from this document, the code, and the tests.
+This document describes the implemented 0.5.0 source boundary after A12. The [autonomy threat model](AUTONOMY-THREAT-MODEL.md) and [target architecture](TARGET-ARCHITECTURE.md) remain useful for residual-risk analysis and future A10/A11 planning, but current capability claims come from this document, the code, and the tests.
 
 ## Assets and trust boundaries
 

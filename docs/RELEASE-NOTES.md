@@ -1,3 +1,30 @@
+## lai harness v0.5.0 — post-A12 autonomy and public repository graduation
+
+`v0.5.0` marks the post-A12 public graduation of lai harness. It packages the completed A0-A9 and A12 work, preserves A10/A11 as experimental drafts, and publishes the refreshed GitHub-facing documentation set. The release keeps the product local-first and conservative: fixture-only browser/MCP/external-action surfaces remain fixtures, real credentials and real account effects remain disabled, and publication does not enable autoupdate or remote administration.
+
+### Highlights
+
+- Structured trajectory, aggregate budgets, scoped authority presets and durable approval intents.
+- Verified sandbox executor, safe workspaces, sandbox primitives and hash-bound promotion boundaries.
+- Local-chat/Gateway contract, inspector/review surfaces and Linux/WSL bootstrap diagnostics.
+- Governed egress, fixture browser workflows, sandboxed fixture MCP execution and fake external-action adapter.
+- Model capability profiles, capability-declared skills, session forks and bounded delegate waves.
+- Distribution status diagnostics, uninstall preservation behavior and risk-proportional validation matrix.
+- Public README refresh, documentation portal, architecture diagrams, sanitized CLI screenshots, contribution guidance and known limitations.
+
+### Validation
+
+Local release gate before tagging:
+
+```bash
+lai release-check --target 0.5.0 --json
+make milestone-gate
+```
+
+### Deliberate non-goals
+
+This release does not enable real credential delivery, real GitHub push/PR/merge/tag/release automation inside the harness, real browser automation, generic MCP `call-tool`, model downloads, cloud fallback, autoupdate, branch-protection changes or package-registry publication.
+
 ## lai harness v0.4.9 — model-evaluation evidence expansion
 
 `v0.4.9` packages the next local-first reliability slice after `v0.4.8`: bounded planning evidence, safer diagnose behavior, design-only MCP allowlist evidence, and a stronger model-evaluation suite based on observed dogfood failures. It does not enable MCP tool execution, browser automation, mobile writes, Telegram/PWA integration, automatic dependency updates, model switching, learning/self-modification, commits, pushes, tags, releases, or remote resource mutation.
