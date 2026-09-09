@@ -1,7 +1,7 @@
 ## [Unreleased]
 
 ### Fixed
-- Compact sandboxed work-run prompts and response budgets so remote work children fit small 4k-context local model servers while preserving sandbox guardrails and validation requirements.
+- Further compact sandboxed work-run prompts and response budgets so remote children have enough headroom for post-write validation on 4k-context local model servers.
 - Set `LAI_SKILLS_DIR=/workspace/skills` for sandboxed work-run children so installed supervisors use checked-in skills inside the disposable workspace.
 - Add a per-run Unix-socket model bridge so sandboxed work-run children can reach the host model service without enabling container networking or exposing model API keys inside the sandbox.
 - Run installed remote work-run children through the `/workspace/src/local-agent` sandbox entrypoint instead of the host-installed `~/.local/bin/local-agent` path.

@@ -16320,9 +16320,9 @@ CONTEXT_CHECK_TARGET_ORDER = (
 )
 CONTEXT_INTELLIGENCE_MODES = {"plan", "debug", "diagnose", "fix", "ci-fix", "release", "implement", "refactor"}
 CONTEXT_RENDER_LIMIT = 1800
-REMOTE_WORK_CONTEXT_RENDER_LIMIT = 600
-REMOTE_WORK_CONTEXT_RESULT_LIMIT = 4
-REMOTE_WORK_MAX_TOKENS = 256
+REMOTE_WORK_CONTEXT_RENDER_LIMIT = 0
+REMOTE_WORK_CONTEXT_RESULT_LIMIT = 0
+REMOTE_WORK_MAX_TOKENS = 96
 CONTEXT_SAMPLE_BYTES = 32768
 CONTEXT_GRAPH_SCHEMA_VERSION = 1
 CONTEXT_GRAPH_PARSER_VERSION = "python-ast-v1"
@@ -20984,12 +20984,16 @@ def main():
         else CONTEXT_RESULT_LIMIT
     )
     ranked_context = (
-        rank_context_candidates(
-            task, workspace_state=prompt_workspace_state, active_spec=active_spec,
-            limit=ranked_context_limit,
+        []
+        if remote_work_child
+        else (
+            rank_context_candidates(
+                task, workspace_state=prompt_workspace_state, active_spec=active_spec,
+                limit=ranked_context_limit,
+            )
+            if mode in CONTEXT_INTELLIGENCE_MODES
+            else []
         )
-        if mode in CONTEXT_INTELLIGENCE_MODES
-        else []
     )
     ranked_context_text = (
         render_context_candidates(
@@ -21066,12 +21070,12 @@ Repository root: {ROOT}
 
 Complete the user's explicit acceptance criteria with the smallest safe patch.
 Use tools only for necessary repository evidence, edits, or validation.
-Inspect only files directly needed for the task; do not reread blocked or already provided context.
-If AGENTS.md exists, inspect it before the first edit.
-After any successful write, run the narrowest relevant validation before concluding.
+Inspect only files directly needed for the task.
+If AGENTS.md exists, inspect it before the first edit unless the task only creates one explicitly named smoke/check file.
+After any successful write, validate next; do not inspect, search, or gather more context.
 Never install dependencies, access networks, use remotes, modify unrelated files, commit, push, merge, tag, release, or claim unrun validation.
 Stay inside the repository and ground claims in tool results.
-Final response must be concise and factual."""
+Final response must be under 60 words."""
     else:
         system = f"""You are Local Dev, a fast software development agent.
 
