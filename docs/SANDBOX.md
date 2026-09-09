@@ -34,6 +34,8 @@ Work-run children execute inside the no-network Docker sandbox with `LAI_SKILLS_
 
 This is not generic egress. `sandbox_exec` and project commands still run with `--network=none` and remain blocked from network clients, proxy configuration, registries and Git remotes.
 
+Remote work children use a compact prompt envelope and a smaller completion budget than interactive local CLI runs. This keeps installed sandbox runs usable with small local model contexts while relying on explicit tool inspection for task-specific evidence.
+
 ## `sandbox_exec`
 
 `sandbox_exec` is available only inside verified work-runs. It is not a replacement for host `bash`. It blocks obvious network clients, proxy variables, Git remotes, registry access, system path escape and secret environment inheritance.

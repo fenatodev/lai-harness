@@ -16320,6 +16320,9 @@ CONTEXT_CHECK_TARGET_ORDER = (
 )
 CONTEXT_INTELLIGENCE_MODES = {"plan", "debug", "diagnose", "fix", "ci-fix", "release", "implement", "refactor"}
 CONTEXT_RENDER_LIMIT = 1800
+REMOTE_WORK_CONTEXT_RENDER_LIMIT = 600
+REMOTE_WORK_CONTEXT_RESULT_LIMIT = 4
+REMOTE_WORK_MAX_TOKENS = 256
 CONTEXT_SAMPLE_BYTES = 32768
 CONTEXT_GRAPH_SCHEMA_VERSION = 1
 CONTEXT_GRAPH_PARSER_VERSION = "python-ast-v1"
@@ -20968,17 +20971,38 @@ def main():
             print(fast_path_response)
             return
 
+    remote_work_child = (
+        remote_control_child
+        and mode in CONTROL_RUN_WORK_MODES
+    )
+
     active_spec = None if selection_mode else load_active_spec()
     active_spec_context = render_active_spec_context(active_spec)
+    ranked_context_limit = (
+        REMOTE_WORK_CONTEXT_RESULT_LIMIT
+        if remote_work_child
+        else CONTEXT_RESULT_LIMIT
+    )
     ranked_context = (
         rank_context_candidates(
             task, workspace_state=prompt_workspace_state, active_spec=active_spec,
-            limit=CONTEXT_RESULT_LIMIT,
+            limit=ranked_context_limit,
         )
         if mode in CONTEXT_INTELLIGENCE_MODES
         else []
     )
-    ranked_context_text = render_context_candidates(ranked_context) if ranked_context else ""
+    ranked_context_text = (
+        render_context_candidates(
+            ranked_context,
+            max_chars=(
+                REMOTE_WORK_CONTEXT_RENDER_LIMIT
+                if remote_work_child
+                else CONTEXT_RENDER_LIMIT
+            ),
+        )
+        if ranked_context
+        else ""
+    )
     if mode == "plan":
         fast_path_response = plan_active_spec_fast_path_response(
             task,
@@ -20990,14 +21014,22 @@ def main():
             return
 
     context_map_text = (
-        render_context_map_prompt(repository_context_map(max_paths=0))
-        if mode in CONTEXT_INTELLIGENCE_MODES
-        else ""
+        ""
+        if remote_work_child
+        else (
+            render_context_map_prompt(repository_context_map(max_paths=0))
+            if mode in CONTEXT_INTELLIGENCE_MODES
+            else ""
+        )
     )
     context_changes_text = (
-        render_context_changes_prompt(context_git_changes_payload(limit=8))
-        if mode in CONTEXT_INTELLIGENCE_MODES
-        else ""
+        ""
+        if remote_work_child
+        else (
+            render_context_changes_prompt(context_git_changes_payload(limit=8))
+            if mode in CONTEXT_INTELLIGENCE_MODES
+            else ""
+        )
     )
 
     bridge_socket = _model_bridge_socket_path()
@@ -21027,7 +21059,21 @@ def main():
         subprocess.run([str(CONFIG["server_launcher"])], check=True, env=launch_env)
         host = gateway()
 
-    system = f"""You are Local Dev, a fast software development agent.
+    if remote_work_child:
+        system = f"""You are Local Dev, a sandboxed software development agent.
+
+Repository root: {ROOT}
+
+Complete the user's explicit acceptance criteria with the smallest safe patch.
+Use tools only for necessary repository evidence, edits, or validation.
+Inspect only files directly needed for the task; do not reread blocked or already provided context.
+If AGENTS.md exists, inspect it before the first edit.
+After any successful write, run the narrowest relevant validation before concluding.
+Never install dependencies, access networks, use remotes, modify unrelated files, commit, push, merge, tag, release, or claim unrun validation.
+Stay inside the repository and ground claims in tool results.
+Final response must be concise and factual."""
+    else:
+        system = f"""You are Local Dev, a fast software development agent.
 
 Repository root: {ROOT}
 
@@ -21099,6 +21145,8 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
     }
 
     mode_max_tokens = max_tokens_by_mode.get(mode, 1024)
+    if remote_work_child:
+        mode_max_tokens = min(mode_max_tokens, REMOTE_WORK_MAX_TOKENS)
 
     context_modes = {
         "general",

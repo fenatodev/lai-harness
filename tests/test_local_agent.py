@@ -67,6 +67,8 @@ class LocalAgentTest(unittest.TestCase):
         agent.ROOT = self.root.resolve()
         agent.STATE_BASE = self.base / "data" / "state"
         agent.RUN_CHECKPOINT_CONTEXT = None
+        agent.ACTIVE_MODE = ""
+        agent.ACTIVE_TASK = ""
         agent.CONFIG["api_key_file"] = self.root / "key"
         agent.read_paths.clear()
         agent.full_read_hashes.clear()
@@ -3318,6 +3320,59 @@ class LocalAgentTest(unittest.TestCase):
         self.assertNotIn("stale release-check investigation", combined)
         self.assertNotIn("stale release-check answer", combined)
         self.assertNotIn("docs/RELEASE-CHECKLIST.md", combined)
+
+    def test_remote_work_child_uses_compact_4k_prompt_envelope(self):
+        captured = {}
+        candidate = [
+            {
+                "path": f"src/module_{index}.py",
+                "score": 100 - index,
+                "reasons": ["task_path_match", "content_match"],
+            }
+            for index in range(12)
+        ]
+
+        def stop_at_model(host, messages, **kwargs):
+            captured["host"] = host
+            captured["messages"] = messages
+            captured["max_tokens"] = kwargs.get("max_tokens")
+            raise RuntimeError("STOP_AT_MODEL")
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                agent.CONTROL_RUN_CHILD_ENV: "1",
+                agent.CONTROL_MODEL_BRIDGE_SOCKET_ENV: "/workspace/.lai-model-bridge.sock",
+            },
+            clear=False,
+        ), mock.patch.object(
+            agent, "CLI_ARGS", ["--implement", "create a tiny smoke file"]
+        ), mock.patch.object(
+            agent, "rank_context_candidates", return_value=candidate
+        ), mock.patch.object(
+            agent, "load_mode_skill", return_value="synthetic implement skill"
+        ), mock.patch.object(
+            agent, "api_call", side_effect=stop_at_model
+        ), mock.patch.object(
+            agent, "record_metric_event"
+        ), mock.patch.object(
+            agent, "record_audit_event"
+        ):
+            with self.assertRaisesRegex(RuntimeError, "STOP_AT_MODEL"):
+                agent.main()
+
+        system = captured["messages"][0]["content"]
+        self.assertEqual(captured["host"], "model-bridge")
+        self.assertEqual(captured["max_tokens"], agent.REMOTE_WORK_MAX_TOKENS)
+        self.assertIn("sandboxed software development agent", system)
+        self.assertIn("ACTIVE SKILL", system)
+        self.assertIn("synthetic implement skill", system)
+        self.assertIn("CONTEXT CANDIDATES", system)
+        self.assertIn("src/module_0.py", system)
+        self.assertNotIn("src/module_11.py", system)
+        self.assertNotIn("CONTEXT MAP", system)
+        self.assertNotIn("CONTEXT CHANGES", system)
+        self.assertLess(len(system), 2600)
 
     def test_plan_active_spec_fast_path_uses_ranked_context_without_model(self):
         specs = self.root / ".specs"
