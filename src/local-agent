@@ -3892,7 +3892,11 @@ VALIDATION_MATRIX_REQUIRED_CHECK_IDS = (
 )
 VALIDATION_MATRIX_USAGE = "Usage: lai validation matrix [--json]"
 VALIDATION_TIMEOUT_SECONDS = 180
-REMOTE_VALIDATION_SANDBOX_IMAGE = "alpine:3.20@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+REMOTE_VALIDATION_SANDBOX_IMAGE_DEFAULT = "alpine:3.20@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+REMOTE_VALIDATION_SANDBOX_IMAGE = REMOTE_VALIDATION_SANDBOX_IMAGE_DEFAULT
+REMOTE_VALIDATION_SANDBOX_IMAGE_ENV = "LAI_REMOTE_SANDBOX_IMAGE"
+REMOTE_SANDBOX_CONTAINER_PYTHON_ENV = "LAI_REMOTE_SANDBOX_PYTHON"
+REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT = "python3"
 REMOTE_VALIDATION_SOURCE_ROOT_ENV = "LAI_CONTROL_SOURCE_ROOT"
 REMOTE_SANDBOX_SCHEMA_VERSION = 1
 REMOTE_SANDBOX_BACKEND = "docker"
@@ -4015,6 +4019,20 @@ def remote_sandbox_image_is_digest_pinned(image):
     return bool(re.fullmatch(r"[A-Za-z0-9./_-]+(?::[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}", str(image or "")))
 
 
+def remote_validation_sandbox_image():
+    value = os.environ.get(REMOTE_VALIDATION_SANDBOX_IMAGE_ENV, "").strip()
+    return value or REMOTE_VALIDATION_SANDBOX_IMAGE_DEFAULT
+
+
+def remote_sandbox_container_python():
+    value = os.environ.get(REMOTE_SANDBOX_CONTAINER_PYTHON_ENV, "").strip()
+    if not value:
+        return REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", value) or value.startswith("-"):
+        return REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT
+    return value
+
+
 def remote_sandbox_non_root_user():
     uid = os.getuid() if hasattr(os, "getuid") else 1000
     gid = os.getgid() if hasattr(os, "getgid") else 1000
@@ -4026,7 +4044,7 @@ def remote_sandbox_non_root_user():
 
 
 def remote_sandbox_public_contract(*, ready=None):
-    image = REMOTE_VALIDATION_SANDBOX_IMAGE
+    image = remote_validation_sandbox_image()
     pinned = remote_sandbox_image_is_digest_pinned(image)
     if ready is None:
         ready = remote_project_sandbox_available()
@@ -4062,7 +4080,8 @@ def remote_sandbox_public_contract(*, ready=None):
     }
 
 
-def remote_validation_sandbox_available(image=REMOTE_VALIDATION_SANDBOX_IMAGE):
+def remote_validation_sandbox_available(image=None):
+    image = remote_validation_sandbox_image() if image is None else image
     if not remote_sandbox_image_is_digest_pinned(image):
         return False
     try:
@@ -4079,7 +4098,7 @@ def remote_validation_sandbox_available(image=REMOTE_VALIDATION_SANDBOX_IMAGE):
 
 
 def remote_project_sandbox_available():
-    return remote_validation_sandbox_available(REMOTE_VALIDATION_SANDBOX_IMAGE)
+    return remote_validation_sandbox_available(remote_validation_sandbox_image())
 
 
 def _remote_sandbox_checked_root(path, label):
@@ -4128,14 +4147,14 @@ def _remote_sandbox_base_argv(*, workspace=None, source_root=None):
 
 def remote_validation_docker_argv(argv, *, workspace=None, source_root=None):
     command = _remote_sandbox_base_argv(workspace=workspace, source_root=source_root)
-    command.append(REMOTE_VALIDATION_SANDBOX_IMAGE)
+    command.append(remote_validation_sandbox_image())
     command.extend(str(item) for item in argv)
     return command
 
 
 def remote_project_sandbox_docker_argv(argv, *, workspace=None, source_root=None):
     command = _remote_sandbox_base_argv(workspace=workspace, source_root=source_root)
-    command.append(REMOTE_VALIDATION_SANDBOX_IMAGE)
+    command.append(remote_validation_sandbox_image())
     command.extend(str(item) for item in argv)
     return command
 
@@ -6990,7 +7009,7 @@ def init_control_api_token(path=None, force=False):
         raise SystemExit(f"Control API token path is a directory: {target}")
     target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     token = secrets.token_urlsafe(CONTROL_API_TOKEN_BYTES)
-    temp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+    temp = target.with_name(f".{target.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
     try:
         fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
@@ -7722,7 +7741,7 @@ def chat_bootstrap_payload(args=None):
             "ready": remote_project_sandbox_available(),
             "opt_in_only": True,
             "core_blocked_when_missing": False,
-            "image": REMOTE_VALIDATION_SANDBOX_IMAGE,
+            "image": remote_validation_sandbox_image(),
         },
         "local_chat": {
             "contract_negotiated": False,
@@ -8440,13 +8459,14 @@ def _control_authority_write(record):
     base.mkdir(parents=True, exist_ok=True, mode=0o700)
     target = _control_authority_path(record["approval_intent_id"])
     text = json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    temp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+    temp = target.with_name(f".{target.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
     try:
         fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.replace(temp, target)
         os.chmod(target, 0o600)
     finally:
@@ -8776,13 +8796,14 @@ def _control_fake_outbox_path(receipt_id):
 def _control_private_json_write(target, payload):
     target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    temp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+    temp = target.with_name(f".{target.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
     try:
         fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.replace(temp, target)
         os.chmod(target, 0o600)
     finally:
@@ -9780,6 +9801,12 @@ def control_run_command(mode, task):
     return [sys.executable, str(Path(__file__).resolve()), f"--{mode}", task]
 
 
+def remote_control_run_command(mode, task):
+    if mode not in CONTROL_RUN_ALLOWED_MODES:
+        raise ValueError("control run mode is not allowed")
+    return [remote_sandbox_container_python(), str(Path(__file__).resolve()), f"--{mode}", task]
+
+
 def control_run_child_env(source_root=None):
     child_env = os.environ.copy()
     child_env[CONTROL_RUN_CHILD_ENV] = "1"
@@ -10104,7 +10131,7 @@ def control_submit_run(server, request):
     if mode in CONTROL_RUN_WORK_MODES and not remote_project_sandbox_available():
         raise RuntimeError(
             "remote project sandbox is unavailable; required digest-pinned local image "
-            + REMOTE_VALIDATION_SANDBOX_IMAGE
+            + remote_validation_sandbox_image()
             + " was not pulled automatically and no host fallback is allowed"
         )
     if not isinstance(task, str):
@@ -10902,6 +10929,7 @@ def _control_run_worker(server):
             child_env = control_run_child_env(source_root=ROOT)
             child_command = control_run_command(mode, effective_task)
             if mode in CONTROL_RUN_WORK_MODES:
+                child_command = remote_control_run_command(mode, effective_task)
                 child_env[SANDBOX_EXEC_VERIFIED_ENV] = "1"
                 child_command = remote_project_sandbox_docker_argv(
                     child_command,

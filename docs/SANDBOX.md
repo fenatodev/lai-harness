@@ -20,6 +20,14 @@ The verified sandbox executor uses Docker with:
 
 If the required local image is unavailable, the executor fails closed. It does not pull an image or fall back to host execution.
 
+## Local image provisioning
+
+Remote work-runs require a local Docker image reference pinned by digest. The harness does not pull or build that image automatically. Operators may set `LAI_REMOTE_SANDBOX_IMAGE` to a locally available reference such as `python:3.12-bookworm@sha256:<digest>` after provisioning it deliberately.
+
+The value must match `<repository>[:tag]@sha256:<64 lowercase hex>`. Mutable tags such as `python:3.12` or `alpine:latest` are rejected for verified work-runs. The container entrypoint Python defaults to `python3`; `LAI_REMOTE_SANDBOX_PYTHON` may override only a bare executable name, not a path or shell expression.
+
+If Docker is unavailable or the configured digest-pinned image is not present locally, work-runs fail before model execution and do not fall back to host execution.
+
 ## `sandbox_exec`
 
 `sandbox_exec` is available only inside verified work-runs. It is not a replacement for host `bash`. It blocks obvious network clients, proxy variables, Git remotes, registry access, system path escape and secret environment inheritance.
