@@ -17,7 +17,7 @@ Do not include real keys, private repositories, customer data, raw handoffs, loc
 
 ## Supported versions
 
-The current public package reports `lai harness 0.4.9`. After a stable release line is published, the latest published `0.4.x` patch line receives security fixes. Pre-release or local-only builds are supported only when explicitly identified as the active test line.
+The current public package reports `lai harness 0.5.0`. After a stable release line is published, the latest published `0.5.x` patch line receives security fixes. Pre-release or local-only builds are supported only when explicitly identified as the active test line.
 
 ## Current security posture
 

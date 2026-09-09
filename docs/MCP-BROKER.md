@@ -3,7 +3,7 @@
 For the public status vocabulary used across docs, see [Documentation portal](README.md#status-vocabulary).
 
 
-`lai mcp` provides the implemented MCP foundation in lai harness v0.4.9. It discovers and validates local MCP configuration without executing generic MCP tools. A narrow `fixture_stdio` execution adapter is available only through authenticated control-plane routes for deterministic local fixtures; repository MCP config alone still does not start servers. Real private servers, HTTP transports, OAuth, sampling/callbacks, and wildcard tool trust remain planned work.
+`lai mcp` provides the implemented MCP foundation in lai harness v0.5.0. It discovers and validates local MCP configuration without executing generic MCP tools. A narrow `fixture_stdio` execution adapter is available only through authenticated control-plane routes for deterministic local fixtures; repository MCP config alone still does not start servers. Real private servers, HTTP transports, OAuth, sampling/callbacks, and wildcard tool trust remain planned work.
 
 ```bash
 lai mcp status

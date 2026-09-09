@@ -1,10 +1,17 @@
 ## [Unreleased]
 
-### Documentation
-- Graduate the post-A12 repository documentation for public GitHub presentation with current README files, documentation portal, architecture diagrams, CLI screenshots, contributor guidance and explicit known limitations.
-- Reconcile public capability language so implemented, fixture-only, experimental, deferred and out-of-scope areas are distinct.
-- Add repository graduation notes, GitHub metadata suggestions and risk-proportional documentation links without creating a release, tag, push or publication.
+## [0.5.0] - 2026-09-08
 
+### Added
+- Complete the post-A12 LAI Harness graduation package with structured autonomy/runtime/security capabilities, sessions, forks, bounded delegates, distribution diagnostics and risk-proportional validation metadata.
+- Add public repository documentation, documentation portal, architecture diagrams, CLI screenshots, contributor guidance and explicit known limitations.
+
+### Changed
+- Reconcile public capability language so implemented, fixture-only, experimental, deferred and out-of-scope areas are distinct.
+- Keep A10 trusted-host and A11 computer-use as experimental drafts rather than stable public capabilities.
+
+### Security
+- Preserve local-first, loopback, sandbox, hash-bound approval and fixture-only external-action boundaries in public release documentation.
 
 ## [0.4.9] - 2026-09-08
 

@@ -273,7 +273,7 @@
         ".specs/059-autonomy-architecture-replan.md"
       ],
       "status": "complete",
-      "stop_rule": "A0 termina quando documentos e checklist passam; implementa\u00e7\u00e3o aguarda aprova\u00e7\u00e3o."
+      "stop_rule": "A0 termina quando documentos e checklist passam; implementação aguarda aprovação."
     },
     {
       "depends_on": [
@@ -286,7 +286,7 @@
         ".specs/061-aggregate-run-budgets.md"
       ],
       "status": "complete",
-      "stop_rule": "Parar se evento cr\u00edtico/consumo puder desaparecer; concluir quando 060\u2013061 passarem."
+      "stop_rule": "Parar se evento crítico/consumo puder desaparecer; concluir quando 060–061 passarem."
     },
     {
       "depends_on": [
@@ -299,7 +299,7 @@
         ".specs/063-credential-broker-foundation.md"
       ],
       "status": "complete",
-      "stop_rule": "N\u00e3o avan\u00e7ar se approval puder ampliar boundary ou ser reutilizada; concluir 062\u2013063."
+      "stop_rule": "Não avançar se approval puder ampliar boundary ou ser reutilizada; concluir 062–063."
     },
     {
       "depends_on": [
@@ -312,7 +312,7 @@
         ".specs/065-autonomous-sandbox-primitives.md"
       ],
       "status": "complete",
-      "stop_rule": "Qualquer escape ou limite falso bloqueia A3; concluir 064\u2013065 com teste real do backend provisionado."
+      "stop_rule": "Qualquer escape ou limite falso bloqueia A3; concluir 064–065 com teste real do backend provisionado."
     },
     {
       "completed_specs": [
@@ -334,7 +334,7 @@
         ".specs/068-chat-bootstrap-linux-wsl.md"
       ],
       "status": "complete",
-      "stop_rule": "UI 066 pode come\u00e7ar ap\u00f3s A1/A2; entrega de trabalho exige A3 e 067\u2013068."
+      "stop_rule": "UI 066 pode começar após A1/A2; entrega de trabalho exige A3 e 067–068."
     },
     {
       "completed_specs": [
@@ -375,7 +375,7 @@
         ".specs/071-isolated-browser-workflows.md"
       ],
       "status": "complete",
-      "stop_rule": "070 precede browser; 081 depende 063/062/070; browser an\u00f4nimo dispensa 081, autenticado n\u00e3o."
+      "stop_rule": "070 precede browser; 081 depende 063/062/070; browser anônimo dispensa 081, autenticado não."
     },
     {
       "depends_on": [
@@ -389,7 +389,7 @@
         ".specs/072-sandboxed-mcp-execution.md"
       ],
       "status": "complete",
-      "stop_rule": "Concluir 072 com valor \u00fatil e abuso contido; HTTP autenticado requer A6 e nova spec."
+      "stop_rule": "Concluir 072 com valor útil e abuso contido; HTTP autenticado requer A6 e nova spec."
     },
     {
       "depends_on": [
@@ -403,7 +403,7 @@
         ".specs/074-capability-declared-skills.md"
       ],
       "status": "complete",
-      "stop_rule": "Concluir 073\u2013074; roteamento s\u00f3 ganha spec ap\u00f3s evid\u00eancia local repetida."
+      "stop_rule": "Concluir 073–074; roteamento só ganha spec após evidência local repetida."
     },
     {
       "depends_on": [
@@ -419,7 +419,7 @@
         ".specs/076-bounded-delegate-waves.md"
       ],
       "status": "complete",
-      "stop_rule": "075 antes de 076; graph/perfis ajudam, mas n\u00e3o s\u00e3o depend\u00eancias obrigat\u00f3rias de seguran\u00e7a."
+      "stop_rule": "075 antes de 076; graph/perfis ajudam, mas não são dependências obrigatórias de segurança."
     },
     {
       "depends_on": [
@@ -435,7 +435,7 @@
         ".specs/077-trusted-host-profile.md"
       ],
       "status": "experimental",
-      "stop_rule": "Exigir evid\u00eancia A3/A4/A6; delegates/MCP n\u00e3o s\u00e3o pr\u00e9-requisitos artificiais de host."
+      "stop_rule": "Exigir evidência A3/A4/A6; delegates/MCP não são pré-requisitos artificiais de host."
     },
     {
       "depends_on": [
@@ -447,7 +447,7 @@
         ".specs/078-isolated-computer-use.md"
       ],
       "status": "experimental",
-      "stop_rule": "Se inten\u00e7\u00e3o e alvo cr\u00edtico n\u00e3o puderem ser vinculados, handoff; concluir piloto 078 sem ampliar escopo."
+      "stop_rule": "Se intenção e alvo crítico não puderem ser vinculados, handoff; concluir piloto 078 sem ampliar escopo."
     },
     {
       "depends_on": [

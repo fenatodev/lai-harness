@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "reviewed_for_version": "0.4.9",
+  "reviewed_for_version": "0.5.0",
   "assets": [
     {
       "path": "core-architecture.png",
