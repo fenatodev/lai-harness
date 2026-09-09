@@ -4,9 +4,11 @@
 
 ![LAI protected release flow](assets/release-flow.png)
 
+SVG source: [release-flow.svg](assets/release-flow.svg).
+
 ```bash
-lai release-governance --target 0.4.3 --json
-lai release-governance --target 0.4.3 --remote --json
+lai release-governance --target 0.5.0 --json
+lai release-governance --target 0.5.0 --remote --json
 lai governance --remote --json
 ```
 
