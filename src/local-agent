@@ -3897,6 +3897,7 @@ REMOTE_VALIDATION_SANDBOX_IMAGE = REMOTE_VALIDATION_SANDBOX_IMAGE_DEFAULT
 REMOTE_VALIDATION_SANDBOX_IMAGE_ENV = "LAI_REMOTE_SANDBOX_IMAGE"
 REMOTE_SANDBOX_CONTAINER_PYTHON_ENV = "LAI_REMOTE_SANDBOX_PYTHON"
 REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT = "python3"
+REMOTE_SANDBOX_WORKSPACE_ENTRYPOINT = "/workspace/src/local-agent"
 REMOTE_VALIDATION_SOURCE_ROOT_ENV = "LAI_CONTROL_SOURCE_ROOT"
 REMOTE_SANDBOX_SCHEMA_VERSION = 1
 REMOTE_SANDBOX_BACKEND = "docker"
@@ -9804,7 +9805,7 @@ def control_run_command(mode, task):
 def remote_control_run_command(mode, task):
     if mode not in CONTROL_RUN_ALLOWED_MODES:
         raise ValueError("control run mode is not allowed")
-    return [remote_sandbox_container_python(), str(Path(__file__).resolve()), f"--{mode}", task]
+    return [remote_sandbox_container_python(), REMOTE_SANDBOX_WORKSPACE_ENTRYPOINT, f"--{mode}", task]
 
 
 def control_run_child_env(source_root=None):

@@ -442,6 +442,7 @@ class ControlPlaneTest(unittest.TestCase):
             "[ \"$#\" -gt 0 ] || exit 2\n"
             "shift\n"
             "export LAI_SANDBOX_EXECUTOR_VERIFIED=1\n"
+            "if [ \"$2\" = \"/workspace/src/local-agent\" ]; then py=\"$1\"; shift 2; set -- \"$py\" \"$FAKE_CONTAINER_ENTRYPOINT\" \"$@\"; fi\n"
             "exec \"$@\"\n",
             encoding="utf-8",
         )
@@ -497,6 +498,7 @@ class ControlPlaneTest(unittest.TestCase):
                 "PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
                 "FAKE_DOCKER_LOG": str(docker_log),
                 "FAKE_SANDBOX_IMAGE": agent.REMOTE_VALIDATION_SANDBOX_IMAGE,
+                "FAKE_CONTAINER_ENTRYPOINT": str(SOURCE),
                 "LAI_HOST": llama.host,
                 "LAI_PORT": str(llama.port),
                 "LAI_API_KEY_FILE": str(key_file),
@@ -584,7 +586,7 @@ class ControlPlaneTest(unittest.TestCase):
             source_head,
         )
         self.assertFalse((self.root / "hello.txt").exists())
-        self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " " + agent.REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT, docker_log.read_text(encoding="utf-8"))
+        self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " " + agent.REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT + " " + agent.REMOTE_SANDBOX_WORKSPACE_ENTRYPOINT, docker_log.read_text(encoding="utf-8"))
 
     def test_local_chat_lifecycle_cancel_is_idempotent_and_pause_is_explicitly_blocked(self):
         run_id = "cr-2222222222222222"
@@ -2097,6 +2099,18 @@ class ControlPlaneTest(unittest.TestCase):
             )
         self.assertEqual(argv[-3:], [configured, "make", "test"])
 
+    def test_remote_work_child_uses_workspace_entrypoint_not_installed_host_path(self):
+        self.assertEqual(
+            agent.remote_control_run_command("implement", "task"),
+            [
+                agent.REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT,
+                agent.REMOTE_SANDBOX_WORKSPACE_ENTRYPOINT,
+                "--implement",
+                "task",
+            ],
+        )
+        self.assertNotIn(".local/bin/local-agent", " ".join(agent.remote_control_run_command("fix", "task")))
+
     def test_remote_sandbox_container_python_rejects_paths_or_shell_words(self):
         for value in ("/usr/bin/python3", "python3 -m", "../python", "-python", "python3:bad", "python@bad"):
             with mock.patch.dict(os.environ, {agent.REMOTE_SANDBOX_CONTAINER_PYTHON_ENV: value}, clear=False):
@@ -3042,6 +3056,7 @@ class ControlPlaneTest(unittest.TestCase):
             "[ \"$#\" -gt 0 ] || exit 2\n"
             "shift\n"
             "export LAI_SANDBOX_EXECUTOR_VERIFIED=1\n"
+            "if [ \"$2\" = \"/workspace/src/local-agent\" ]; then py=\"$1\"; shift 2; set -- \"$py\" \"$FAKE_CONTAINER_ENTRYPOINT\" \"$@\"; fi\n"
             "exec \"$@\"\n",
             encoding="utf-8",
         )
@@ -3093,6 +3108,7 @@ class ControlPlaneTest(unittest.TestCase):
                 "PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
                 "FAKE_DOCKER_LOG": str(docker_log),
                 "FAKE_SANDBOX_IMAGE": agent.REMOTE_VALIDATION_SANDBOX_IMAGE,
+                "FAKE_CONTAINER_ENTRYPOINT": str(SOURCE),
                 "LAI_HOST": llama.host,
                 "LAI_PORT": str(llama.port),
                 "LAI_API_KEY_FILE": str(key_file),
@@ -3125,7 +3141,7 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertFalse((self.root / "value.txt").exists())
         self.assertIn("value.txt", final["workspace"]["changed_paths"])
         log = docker_log.read_text(encoding="utf-8")
-        self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " " + agent.REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT, log)
+        self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " " + agent.REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT + " " + agent.REMOTE_SANDBOX_WORKSPACE_ENTRYPOINT, log)
         self.assertNotIn("git push", json.dumps(final, sort_keys=True))
 
     def test_remote_implement_real_child_writes_only_isolated_workspace(self):
@@ -3158,6 +3174,7 @@ class ControlPlaneTest(unittest.TestCase):
             "while [ \"$#\" -gt 0 ] && [ \"$1\" != \"$FAKE_SANDBOX_IMAGE\" ]; do shift; done\n"
             "[ \"$#\" -gt 0 ] || exit 2\n"
             "shift\n"
+            "if [ \"$2\" = \"/workspace/src/local-agent\" ]; then py=\"$1\"; shift 2; set -- \"$py\" \"$FAKE_CONTAINER_ENTRYPOINT\" \"$@\"; fi\n"
             "exec \"$@\"\n",
             encoding="utf-8",
         )
@@ -3216,6 +3233,7 @@ class ControlPlaneTest(unittest.TestCase):
                 "PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
                 "FAKE_DOCKER_LOG": str(docker_log),
                 "FAKE_SANDBOX_IMAGE": agent.REMOTE_VALIDATION_SANDBOX_IMAGE,
+                "FAKE_CONTAINER_ENTRYPOINT": str(SOURCE),
                 "LAI_HOST": llama.host,
                 "LAI_PORT": str(llama.port),
                 "LAI_API_KEY_FILE": str(key_file),
@@ -3257,7 +3275,7 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertIn("--network=none", log)
         self.assertIn("--pull=never", log)
         self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " make test", log)
-        self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " " + agent.REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT, log)
+        self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " " + agent.REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT + " " + agent.REMOTE_SANDBOX_WORKSPACE_ENTRYPOINT, log)
 
     def test_control_server_close_terminates_active_child(self):
         started = threading.Event()
