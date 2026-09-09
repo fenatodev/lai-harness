@@ -30,7 +30,7 @@ If Docker is unavailable or the configured digest-pinned image is not present lo
 
 ## Model bridge for work-runs
 
-Work-run children execute inside the no-network Docker sandbox. To let them call the configured host model without granting container networking, the control supervisor creates a per-run Unix-domain socket inside the disposable workspace and forwards bounded chat-completion payloads to the trusted host model service. The container receives only `LAI_CONTROL_MODEL_BRIDGE_SOCKET=/workspace/.lai-model-bridge.sock`; model API keys stay on the host side of the bridge and are not mounted into the sandbox. The bridge is removed when the run finishes.
+Work-run children execute inside the no-network Docker sandbox with `LAI_SKILLS_DIR=/workspace/skills`, so installed supervisors use the checked-in skills copied into the disposable workspace. To let them call the configured host model without granting container networking, the control supervisor creates a per-run Unix-domain socket inside the disposable workspace and forwards bounded chat-completion payloads to the trusted host model service. The container receives only `LAI_CONTROL_MODEL_BRIDGE_SOCKET=/workspace/.lai-model-bridge.sock`; model API keys stay on the host side of the bridge and are not mounted into the sandbox. The bridge is removed when the run finishes.
 
 This is not generic egress. `sandbox_exec` and project commands still run with `--network=none` and remain blocked from network clients, proxy configuration, registries and Git remotes.
 

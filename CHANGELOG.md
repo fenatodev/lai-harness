@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Set `LAI_SKILLS_DIR=/workspace/skills` for sandboxed work-run children so installed supervisors use checked-in skills inside the disposable workspace.
 - Add a per-run Unix-socket model bridge so sandboxed work-run children can reach the host model service without enabling container networking or exposing model API keys inside the sandbox.
 - Run installed remote work-run children through the `/workspace/src/local-agent` sandbox entrypoint instead of the host-installed `~/.local/bin/local-agent` path.
 - Allow operators to configure the verified Docker sandbox image with `LAI_REMOTE_SANDBOX_IMAGE` while preserving digest-pinning, `--pull=never`, no host fallback, and local-chat work-run fail-closed behavior when the image is unavailable.
