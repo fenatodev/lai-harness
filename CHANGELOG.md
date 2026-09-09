@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Allow sandboxed remote work-runs to satisfy an explicit user-provided validation command through `sandbox_exec`, including multi-line heredoc validation commands, without falling back to host shell access.
 - Further compact sandboxed work-run prompts and response budgets so remote children have enough headroom for post-write validation on 4k-context local model servers.
 - Set `LAI_SKILLS_DIR=/workspace/skills` for sandboxed work-run children so installed supervisors use checked-in skills inside the disposable workspace.
 - Add a per-run Unix-socket model bridge so sandboxed work-run children can reach the host model service without enabling container networking or exposing model API keys inside the sandbox.

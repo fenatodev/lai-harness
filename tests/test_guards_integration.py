@@ -84,7 +84,14 @@ class GuardIntegrationTest(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def run_agent(self, server, *args, check=True, allow_protected_writes=True):
+    def run_agent(
+        self,
+        server,
+        *args,
+        check=True,
+        allow_protected_writes=True,
+        extra_env=None,
+    ):
         env = {
             **os.environ,
             "LAI_HOST": server.host,
@@ -93,6 +100,8 @@ class GuardIntegrationTest(unittest.TestCase):
             "LAI_DATA_DIR": str(self.data),
             "LAI_MODEL": "fake-local-model",
         }
+        if extra_env:
+            env.update(extra_env)
         if allow_protected_writes:
             env["LAI_ALLOW_PROTECTED_BRANCH_WRITES"] = "1"
         else:
@@ -1010,6 +1019,59 @@ class GuardIntegrationTest(unittest.TestCase):
         self.assertEqual(
             (self.repo / "hello.txt").read_text(),
             "hello alpha3\n",
+        )
+
+    def test_remote_explicit_user_validation_command_can_use_sandbox_exec(self):
+        validation_command = (
+            "python3 - <<'PYV'\n"
+            "from pathlib import Path\n"
+            "assert Path('hello.txt').read_text() == 'hello beta4\\n'\n"
+            "PYV"
+        )
+        responder = SequenceResponder([
+            tool_call(
+                "create",
+                "create",
+                {
+                    "path": "hello.txt",
+                    "content": "hello beta4\n",
+                },
+            ),
+            tool_call(
+                "verify",
+                "sandbox_exec",
+                {"command": validation_command, "timeout_seconds": 5},
+            ),
+            completion("implemented and sandbox-validated"),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--implement",
+                (
+                    "Create only hello.txt containing hello beta4. "
+                    "Validate only with: " + validation_command
+                ),
+                extra_env={
+                    "LAI_CONTROL_RUN_CHILD": "1",
+                    "LAI_SANDBOX_EXECUTOR_VERIFIED": "1",
+                },
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.strip(),
+            "implemented and sandbox-validated",
+        )
+        self.assertEqual(
+            (self.repo / "hello.txt").read_text(),
+            "hello beta4\n",
+        )
+        self.assertGreaterEqual(len(responder.payloads), 3)
+        self.assertIn(
+            "TOOL RESULTS",
+            str(responder.payloads[2]["messages"]),
         )
 
         final_messages = responder.payloads[-1]["messages"]
