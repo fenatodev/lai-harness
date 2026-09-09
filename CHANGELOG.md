@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Run installed remote work-run children through the `/workspace/src/local-agent` sandbox entrypoint instead of the host-installed `~/.local/bin/local-agent` path.
 - Allow operators to configure the verified Docker sandbox image with `LAI_REMOTE_SANDBOX_IMAGE` while preserving digest-pinning, `--pull=never`, no host fallback, and local-chat work-run fail-closed behavior when the image is unavailable.
 - Install `start-secure.ps1` beside `lai-server-start` so WSL/VS Code installs can auto-discover the Windows llama.cpp launcher after local installation.
 
