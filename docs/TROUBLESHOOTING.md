@@ -54,6 +54,7 @@ Expected failure classes include missing model backend, missing sandbox image, u
 Remote work-runs require the verified sandbox executor. Common causes:
 
 - required digest-pinned Docker image is not present locally;
+- `LAI_REMOTE_SANDBOX_IMAGE` is unset, still points at the placeholder default, is not digest-pinned, or references an image that `docker image inspect` cannot find;
 - Docker is unavailable to the current user;
 - command attempts network, registry, proxy, host path or Git remote access;
 - `sandbox_exec` is invoked outside a verified work-run.

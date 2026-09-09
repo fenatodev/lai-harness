@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Allow operators to configure the verified Docker sandbox image with `LAI_REMOTE_SANDBOX_IMAGE` while preserving digest-pinning, `--pull=never`, no host fallback, and local-chat work-run fail-closed behavior when the image is unavailable.
 - Install `start-secure.ps1` beside `lai-server-start` so WSL/VS Code installs can auto-discover the Windows llama.cpp launcher after local installation.
 
 ### Documentation

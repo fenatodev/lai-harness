@@ -54,3 +54,7 @@ Keep the control API bound to loopback. A companion Gateway should keep the toke
 - Do not copy proxy variables or secret environment into `sandbox_exec`.
 - Public diagnostic output must remain secret-free.
 - Future unknown config/state schemas fail closed where implemented.
+
+## Verified sandbox image
+
+`LAI_REMOTE_SANDBOX_IMAGE` optionally selects the Docker image used for verified remote work-runs and promotion validation. It must be digest-pinned and already present locally; the harness uses `--pull=never`. Use a Python-capable image because work-run children execute the harness inside the container. `LAI_REMOTE_SANDBOX_PYTHON` defaults to `python3` and accepts only a bare executable name.

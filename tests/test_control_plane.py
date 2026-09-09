@@ -584,7 +584,7 @@ class ControlPlaneTest(unittest.TestCase):
             source_head,
         )
         self.assertFalse((self.root / "hello.txt").exists())
-        self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " " + sys.executable, docker_log.read_text(encoding="utf-8"))
+        self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " " + agent.REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT, docker_log.read_text(encoding="utf-8"))
 
     def test_local_chat_lifecycle_cancel_is_idempotent_and_pause_is_explicitly_blocked(self):
         run_id = "cr-2222222222222222"
@@ -2084,6 +2084,27 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertNotIn(str(Path.home()), rendered)
         self.assertEqual(argv[-3:], [agent.REMOTE_VALIDATION_SANDBOX_IMAGE, "make", "test"])
 
+    def test_remote_sandbox_image_can_be_operator_configured_by_digest(self):
+        configured = "python:3.12-bookworm@sha256:" + "a" * 64
+        with mock.patch.dict(os.environ, {
+            agent.REMOTE_VALIDATION_SANDBOX_IMAGE_ENV: configured,
+            agent.REMOTE_SANDBOX_CONTAINER_PYTHON_ENV: "python3",
+        }, clear=False):
+            self.assertEqual(agent.remote_validation_sandbox_image(), configured)
+            self.assertEqual(agent.remote_sandbox_container_python(), "python3")
+            argv = agent.remote_validation_docker_argv(
+                ("make", "test"), workspace=self.root, source_root=self.root,
+            )
+        self.assertEqual(argv[-3:], [configured, "make", "test"])
+
+    def test_remote_sandbox_container_python_rejects_paths_or_shell_words(self):
+        for value in ("/usr/bin/python3", "python3 -m", "../python", "-python", "python3:bad", "python@bad"):
+            with mock.patch.dict(os.environ, {agent.REMOTE_SANDBOX_CONTAINER_PYTHON_ENV: value}, clear=False):
+                self.assertEqual(
+                    agent.remote_sandbox_container_python(),
+                    agent.REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT,
+                )
+
     def test_remote_sandbox_requires_digest_pinned_image_and_no_host_runtime_mounts(self):
         self.assertTrue(
             agent.remote_sandbox_image_is_digest_pinned(
@@ -3104,7 +3125,7 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertFalse((self.root / "value.txt").exists())
         self.assertIn("value.txt", final["workspace"]["changed_paths"])
         log = docker_log.read_text(encoding="utf-8")
-        self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " " + sys.executable, log)
+        self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " " + agent.REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT, log)
         self.assertNotIn("git push", json.dumps(final, sort_keys=True))
 
     def test_remote_implement_real_child_writes_only_isolated_workspace(self):
@@ -3236,7 +3257,7 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertIn("--network=none", log)
         self.assertIn("--pull=never", log)
         self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " make test", log)
-        self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " " + sys.executable, log)
+        self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " " + agent.REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT, log)
 
     def test_control_server_close_terminates_active_child(self):
         started = threading.Event()
