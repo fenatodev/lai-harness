@@ -36,6 +36,8 @@ This is not generic egress. `sandbox_exec` and project commands still run with `
 
 Remote work children use a tiny prompt envelope and a smaller completion budget than interactive local CLI runs. This keeps installed sandbox runs usable with small local model contexts while relying on explicit tool inspection for task-specific evidence.
 
+When a user explicitly provides a validation command, such as `Validate only with: ...`, a remote work child may run that command through `sandbox_exec` to satisfy the post-write validation gate. The command still runs inside the verified no-network sandbox and remains subject to the `sandbox_exec` policy.
+
 ## `sandbox_exec`
 
 `sandbox_exec` is available only inside verified work-runs. It is not a replacement for host `bash`. It blocks obvious network clients, proxy variables, Git remotes, registry access, system path escape and secret environment inheritance.
