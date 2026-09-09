@@ -140,6 +140,15 @@ flowchart TD
     Gateway --> Serve
 ```
 
+
+## Private companion boundary
+
+![Private companion boundary and approved promotion](assets/private-mobile-access.png)
+
+SVG source: [private-mobile-access.svg](assets/private-mobile-access.svg).
+
+This visual describes the companion `lai-gateway` path as a separate private transport around `lai serve`; it does not make PWA, Telegram or Tailscale part of the harness runtime. Promotion remains hash-bound and creates a durable feature worktree instead of changing the active checkout.
+
 ## Screenshots
 
 CLI screenshots rendered from real sanitized command output are listed in [Screenshots](SCREENSHOTS.md).

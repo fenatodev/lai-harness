@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1672" height="941" viewBox="0 0 1672 941">
+<defs>
+  <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#f3f7ff"/></linearGradient>
+  <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#0b5cad"/></marker>
+</defs>
+<style>
+.title { font: 700 46px ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; fill:#071b3f; }
+.sub { font: 400 23px ui-sans-serif, system-ui, sans-serif; fill:#415572; }
+.h { font: 700 20px ui-sans-serif, system-ui, sans-serif; fill:#0b1d3a; }
+.b { font: 400 15px ui-sans-serif, system-ui, sans-serif; fill:#3a4d67; }
+.tiny { font: 600 12px ui-sans-serif, system-ui, sans-serif; fill:#476485; }
+.box { fill:#f7fbff; stroke:#87b7ee; stroke-width:2; }
+.box2 { fill:#f9f6ff; stroke:#b4a0ff; stroke-width:2; }
+.box3 { fill:#f6fffb; stroke:#43cda2; stroke-width:2; }
+.warn { fill:#fff9eb; stroke:#e9b54d; stroke-width:2; }
+.arrow { stroke:#0b5cad; stroke-width:3; fill:none; }
+.foot { font: 700 16px ui-sans-serif, system-ui, sans-serif; fill:#09244d; }
+.footb { font: 400 14px ui-sans-serif, system-ui, sans-serif; fill:#45617f; }
+</style>
+<rect width="100%" height="100%" fill="url(#bg)"/>
+<text x="836" y="70" text-anchor="middle" class="title">LAI Release Flow — Protected Source Release</text>
+<text x="836" y="112" text-anchor="middle" class="sub">Branch → PR checks → protected main → tag CI → GitHub Release. Package publication stays separate.</text>
+<rect x="90" y="178" width="250" height="142" rx="18" class="box"/>
+<text x="114" y="222" class="h">Feature branch</text>
+<text x="114" y="260" class="b">Bounded change</text>
+<text x="114" y="286" class="b">No direct main push</text>
+<line x1="340" y1="248" x2="400" y2="248" class="arrow" marker-end="url(#arrow)"/>
+<rect x="410" y="178" width="250" height="142" rx="18" class="box"/>
+<text x="434" y="222" class="h">Local validation</text>
+<text x="434" y="260" class="b">make check</text>
+<text x="434" y="286" class="b">Focused risk profile</text>
+<line x1="660" y1="248" x2="720" y2="248" class="arrow" marker-end="url(#arrow)"/>
+<rect x="730" y="178" width="250" height="142" rx="18" class="box2"/>
+<text x="754" y="222" class="h">Pull request</text>
+<text x="754" y="260" class="b">Reviewable diff</text>
+<text x="754" y="286" class="b">Discussion and audit</text>
+<line x1="980" y1="248" x2="1040" y2="248" class="arrow" marker-end="url(#arrow)"/>
+<rect x="1050" y="178" width="250" height="142" rx="18" class="box"/>
+<text x="1074" y="222" class="h">Required checks</text>
+<text x="1074" y="260" class="b">Python 3.11 / 3.12</text>
+<text x="1074" y="286" class="b">Publication gates</text>
+<text x="1074" y="312" class="b">Harness Score L4</text>
+<line x1="1300" y1="248" x2="1360" y2="248" class="arrow" marker-end="url(#arrow)"/>
+<rect x="1370" y="178" width="250" height="142" rx="18" class="box3"/>
+<text x="1394" y="222" class="h">Protected main</text>
+<text x="1394" y="260" class="b">Squash merge only</text>
+<text x="1394" y="286" class="b">Strict status checks</text>
+<line x1="1495" y1="320" x2="1495" y2="417" class="arrow" marker-end="url(#arrow)"/>
+<text x="1495" y="308" class="tiny" text-anchor="middle">after green main CI</text>
+<rect x="1370" y="445" width="250" height="142" rx="18" class="warn"/>
+<text x="1394" y="489" class="h">release-check</text>
+<text x="1394" y="527" class="b">Main synchronized</text>
+<text x="1394" y="553" class="b">Tag readiness verified</text>
+<line x1="1370" y1="515" x2="1310" y2="515" class="arrow" marker-end="url(#arrow)"/>
+<rect x="1050" y="445" width="250" height="142" rx="18" class="box2"/>
+<text x="1074" y="489" class="h">Annotated tag</text>
+<text x="1074" y="527" class="b">vX.Y.Z points to main</text>
+<text x="1074" y="553" class="b">Intent recorded in tag</text>
+<line x1="1050" y1="515" x2="990" y2="515" class="arrow" marker-end="url(#arrow)"/>
+<rect x="730" y="445" width="250" height="142" rx="18" class="box"/>
+<text x="754" y="489" class="h">Tag CI</text>
+<text x="754" y="527" class="b">Checks run on tag</text>
+<text x="754" y="553" class="b">Release evidence built</text>
+<line x1="730" y1="515" x2="670" y2="515" class="arrow" marker-end="url(#arrow)"/>
+<rect x="410" y="445" width="250" height="142" rx="18" class="box3"/>
+<text x="434" y="489" class="h">GitHub Release</text>
+<text x="434" y="527" class="b">Stable: prerelease=false</text>
+<text x="434" y="553" class="b">Optional assets digest-bound</text>
+<line x1="410" y1="515" x2="350" y2="515" class="arrow" marker-end="url(#arrow)"/>
+<rect x="90" y="445" width="250" height="142" rx="18" class="box3"/>
+<text x="114" y="489" class="h">Governance</text>
+<text x="114" y="527" class="b">Remote GET verification</text>
+<text x="114" y="553" class="b">manual_actions cleared</text>
+<rect x="250" y="660" width="330" height="110" rx="18" class="box3"/>
+<text x="274" y="704" class="h">No bypass</text>
+<text x="274" y="742" class="b">Branch protection enforced</text>
+<text x="274" y="768" class="b">Required checks remain strict</text>
+<rect x="672" y="660" width="330" height="110" rx="18" class="warn"/>
+<text x="696" y="704" class="h">No hidden publish</text>
+<text x="696" y="742" class="b">Registry/marketplace release</text>
+<text x="696" y="768" class="b">is a separate action</text>
+<rect x="1095" y="660" width="330" height="110" rx="18" class="box3"/>
+<text x="1119" y="704" class="h">Verified release state</text>
+<text x="1119" y="742" class="b">Tag peels to main HEAD</text>
+<text x="1119" y="768" class="b">Governance checks remote</text>
+<rect x="36" y="820" width="1600" height="72" rx="16" fill="#f8fbff" stroke="#b8cee9"/>
+<text x="82" y="850" class="foot">Deterministic gates</text>
+<text x="82" y="875" class="footb">Same inputs, same posture.</text>
+<text x="472" y="850" class="foot">Auditability</text>
+<text x="472" y="875" class="footb">Traceable tags, checks and handoffs.</text>
+<text x="862" y="850" class="foot">Stable release flag</text>
+<text x="862" y="875" class="footb">prerelease=false for stable targets.</text>
+<text x="1252" y="850" class="foot">Human authority</text>
+<text x="1252" y="875" class="footb">Mutation and publication stay explicit.</text>
+<text x="1450" y="918" class="tiny">LAI · release governance</text>
+</svg>

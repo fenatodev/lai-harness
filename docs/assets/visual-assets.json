@@ -1,11 +1,96 @@
 {
   "schema_version": 1,
   "reviewed_for_version": "0.5.0",
+  "audit_scope": "all tracked PNG and SVG documentation assets under docs/assets",
   "assets": [
     {
       "path": "core-architecture.png",
       "purpose": "README and core architecture overview",
-      "source": "core-architecture.svg"
+      "source": "core-architecture.svg",
+      "references": [
+        "README.md",
+        "README.pt-BR.md"
+      ]
+    },
+    {
+      "path": "private-mobile-access.png",
+      "purpose": "private companion Gateway boundary and approved-promotion overview",
+      "source": "private-mobile-access.svg",
+      "references": [
+        "docs/DIAGRAMS.md"
+      ]
+    },
+    {
+      "path": "release-flow.png",
+      "purpose": "protected source-release governance overview",
+      "source": "release-flow.svg",
+      "references": [
+        "docs/RELEASE-GOVERNANCE.md"
+      ]
+    },
+    {
+      "path": "diagrams/system-overview.svg",
+      "purpose": "implemented post-A12 system overview",
+      "references": [
+        "docs/DIAGRAMS.md"
+      ]
+    },
+    {
+      "path": "diagrams/gateway-local-chat.svg",
+      "purpose": "Gateway/local-chat control-plane contract flow",
+      "references": [
+        "docs/CONTROL-PLANE.md",
+        "docs/DIAGRAMS.md"
+      ]
+    },
+    {
+      "path": "diagrams/authority-execution-boundary.svg",
+      "purpose": "authority, approval and execution boundary",
+      "references": [
+        "docs/DIAGRAMS.md"
+      ]
+    },
+    {
+      "path": "diagrams/context-model-lifecycle.svg",
+      "purpose": "context intelligence and model lifecycle",
+      "references": [
+        "docs/DIAGRAMS.md"
+      ]
+    },
+    {
+      "path": "diagrams/external-boundaries.svg",
+      "purpose": "egress, browser fixture, MCP fixture and fake external-action boundaries",
+      "references": [
+        "docs/DIAGRAMS.md"
+      ]
+    },
+    {
+      "path": "screenshots/lai-help.svg",
+      "purpose": "sanitized top-level CLI help screenshot",
+      "references": [
+        "docs/SCREENSHOTS.md"
+      ]
+    },
+    {
+      "path": "screenshots/lai-readiness.svg",
+      "purpose": "sanitized readiness diagnostic screenshot",
+      "references": [
+        "docs/SCREENSHOTS.md"
+      ]
+    },
+    {
+      "path": "screenshots/lai-validation-matrix.svg",
+      "purpose": "sanitized validation matrix screenshot",
+      "references": [
+        "docs/SCREENSHOTS.md"
+      ]
+    },
+    {
+      "path": "screenshots/lai-distribution-status.svg",
+      "purpose": "isolated distribution-status fixture screenshot",
+      "references": [
+        "docs/SCREENSHOTS.md"
+      ]
     }
   ]
 }

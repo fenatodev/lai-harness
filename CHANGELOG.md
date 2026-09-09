@@ -5,6 +5,7 @@
 
 ### Documentation
 - Refresh the public core architecture image and add its SVG source for reproducible rendering.
+- Audit all documentation image assets for v0.5.0 alignment; refresh the private companion boundary visual, protected release-flow visual, CLI help screenshot and readiness screenshot.
 
 ## [0.5.0] - 2026-09-08
 

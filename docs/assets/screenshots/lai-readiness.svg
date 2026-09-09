@@ -1,34 +1,61 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="772" viewBox="0 0 1280 772">
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1478" viewBox="0 0 1280 1478">
 <rect width="100%" height="100%" rx="18" fill="#0b1020"/>
 <rect x="18" y="18" width="1244" height="34" rx="10" fill="#151b2d"/>
 <text x="32" y="41" fill="#d7e1ff" font-family="ui-sans-serif, system-ui, sans-serif" font-size="15" font-weight="600">readiness diagnostic</text>
 <text x="28" y="82" fill="#8ef0a3" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">$ ./src/lai readiness --json</text>
 <text x="28" y="106" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">{</text>
-<text x="28" y="130" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  &quot;active_spec&quot;: {</text>
-<text x="28" y="154" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    &quot;status&quot;: &quot;none&quot;</text>
+<text x="28" y="130" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  "active_spec": {</text>
+<text x="28" y="154" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    "status": "none"</text>
 <text x="28" y="178" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  },</text>
-<text x="28" y="202" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  &quot;checks&quot;: [</text>
+<text x="28" y="202" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  "checks": [</text>
 <text x="28" y="226" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    {</text>
-<text x="28" y="250" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;detail&quot;: &quot;main&quot;,</text>
-<text x="28" y="274" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;name&quot;: &quot;git_branch&quot;,</text>
-<text x="28" y="298" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;status&quot;: &quot;ok&quot;</text>
+<text x="28" y="250" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "detail": "main",</text>
+<text x="28" y="274" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "name": "git_branch",</text>
+<text x="28" y="298" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "status": "ok"</text>
 <text x="28" y="322" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    },</text>
 <text x="28" y="346" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    {</text>
-<text x="28" y="370" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;detail&quot;: &quot; M .agents/rules/skills.md\n M AGENTS.md\n M README.md\n M README.pt-BR.md\n M ROADMAP.md\n M SECURITY.md\n M docs/ARCHITECTURE.</text>
-<text x="28" y="394" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;name&quot;: &quot;git_status&quot;,</text>
-<text x="28" y="418" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;status&quot;: &quot;warn&quot;</text>
+<text x="28" y="370" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "detail": "[clean]",</text>
+<text x="28" y="394" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "name": "git_status",</text>
+<text x="28" y="418" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "status": "ok"</text>
 <text x="28" y="442" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    },</text>
 <text x="28" y="466" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    {</text>
-<text x="28" y="490" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;detail&quot;: &quot;https://github.com/fenatodev/lai-harness.git&quot;,</text>
-<text x="28" y="514" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;name&quot;: &quot;git_origin&quot;,</text>
-<text x="28" y="538" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;status&quot;: &quot;ok&quot;</text>
+<text x="28" y="490" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "detail": "https://github.com/fenatodev/lai-harness.git",</text>
+<text x="28" y="514" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "name": "git_origin",</text>
+<text x="28" y="538" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "status": "ok"</text>
 <text x="28" y="562" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    },</text>
 <text x="28" y="586" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    {</text>
-<text x="28" y="610" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;detail&quot;: &quot;OK&quot;,</text>
-<text x="28" y="634" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;name&quot;: &quot;config_dir&quot;,</text>
-<text x="28" y="658" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;status&quot;: &quot;ok&quot;</text>
+<text x="28" y="610" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "detail": "OK",</text>
+<text x="28" y="634" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "name": "config_dir",</text>
+<text x="28" y="658" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "status": "ok"</text>
 <text x="28" y="682" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    },</text>
 <text x="28" y="706" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    {</text>
-<text x="28" y="730" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      &quot;detail&quot;: &quot;OK&quot;,</text>
-<text x="28" y="754" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">...</text>
+<text x="28" y="730" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "detail": "OK",</text>
+<text x="28" y="754" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "name": "api_key_file",</text>
+<text x="28" y="778" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "status": "ok"</text>
+<text x="28" y="802" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    },</text>
+<text x="28" y="826" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    {</text>
+<text x="28" y="850" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "detail": "OK",</text>
+<text x="28" y="874" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "name": "data_dir",</text>
+<text x="28" y="898" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "status": "ok"</text>
+<text x="28" y="922" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    },</text>
+<text x="28" y="946" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    {</text>
+<text x="28" y="970" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "detail": "all standard skills available",</text>
+<text x="28" y="994" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "name": "mode_skills",</text>
+<text x="28" y="1018" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "status": "ok"</text>
+<text x="28" y="1042" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    },</text>
+<text x="28" y="1066" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    {</text>
+<text x="28" y="1090" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "detail": "unauthenticated=401 authenticated=200",</text>
+<text x="28" y="1114" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "name": "server_authentication",</text>
+<text x="28" y="1138" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "status": "ok"</text>
+<text x="28" y="1162" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    },</text>
+<text x="28" y="1186" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    {</text>
+<text x="28" y="1210" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "detail": "none",</text>
+<text x="28" y="1234" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "name": "active_spec",</text>
+<text x="28" y="1258" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">      "status": "ok"</text>
+<text x="28" y="1282" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">    }</text>
+<text x="28" y="1306" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  ],</text>
+<text x="28" y="1330" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  "overall": "ready",</text>
+<text x="28" y="1354" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  "repository": "&lt;checkout&gt;",</text>
+<text x="28" y="1378" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">  "trust": "deterministic readiness only; no model call, release, tag, push or publication was performed"</text>
+<text x="28" y="1402" fill="#e7edf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">}</text>
 </svg>
