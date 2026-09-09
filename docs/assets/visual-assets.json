@@ -4,7 +4,8 @@
   "assets": [
     {
       "path": "core-architecture.png",
-      "purpose": "README and core architecture overview"
+      "purpose": "README and core architecture overview",
+      "source": "core-architecture.svg"
     }
   ]
 }

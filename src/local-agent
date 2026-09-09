@@ -5816,6 +5816,7 @@ DISTRIBUTION_STATE_COMPONENTS = (
     "lai_semantics.py",
     "lai-doctor",
     "lai-server-start",
+    "start-secure.ps1",
     "lai-server-stop",
     "lai-server-restart",
     "lai-uninstall",

@@ -29,7 +29,7 @@ done
 
 for name in \
     lai local-agent lai_semantics.py lai_config.py lai_specs.py lai_sessions.py \
-    lai_mcp.py lai_web.py lai-doctor lai-server-start lai-server-stop \
+    lai_mcp.py lai_web.py lai-doctor lai-server-start start-secure.ps1 lai-server-stop \
     lai-server-restart lai-uninstall; do
     rm -f -- "$bin_dir/$name"
 done

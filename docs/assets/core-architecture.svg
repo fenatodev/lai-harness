@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1672" height="941" viewBox="0 0 1672 941" role="img" aria-labelledby="title desc">
+  <title id="title">LAI Harness core architecture v0.5.0</title>
+  <desc id="desc">Local-first, governed and reproducible coding harness architecture from local model server through policy, validation, repository and GitHub release flow.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07111f"/>
+      <stop offset="0.56" stop-color="#10213a"/>
+      <stop offset="1" stop-color="#07111f"/>
+    </linearGradient>
+    <linearGradient id="core" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#213f77"/>
+      <stop offset="1" stop-color="#162b50"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#12263f"/>
+      <stop offset="1" stop-color="#0d1d33"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="14" flood-color="#000000" flood-opacity="0.38"/>
+    </filter>
+    <marker id="arrow" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L12,7 L2,12 Z" fill="#88a8e8"/>
+    </marker>
+    <style>
+      .title{font-family:Inter,Segoe UI,Arial,sans-serif;font-size:58px;font-weight:800;fill:#f3f7ff;letter-spacing:.2px}
+      .subtitle{font-family:Inter,Segoe UI,Arial,sans-serif;font-size:25px;font-weight:500;fill:#b7c8e8}
+      .label{font-family:Inter,Segoe UI,Arial,sans-serif;font-size:28px;font-weight:800;fill:#f2f6ff}
+      .small{font-family:Inter,Segoe UI,Arial,sans-serif;font-size:19px;font-weight:500;fill:#b7c8e8}
+      .mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:19px;font-weight:600;fill:#91f0aa}
+      .micro{font-family:Inter,Segoe UI,Arial,sans-serif;font-size:16px;font-weight:650;fill:#9fb5d8;letter-spacing:.8px}
+      .card{fill:url(#panel);stroke:#294d80;stroke-width:1.4;rx:24;filter:url(#shadow)}
+      .core{fill:url(#core);stroke:#5d8bec;stroke-width:2;rx:34;filter:url(#shadow)}
+      .pill{fill:#0b182b;stroke:#2c5284;stroke-width:1.2;rx:18}
+      .line{stroke:#88a8e8;stroke-width:4;fill:none;marker-end:url(#arrow);stroke-linecap:round;stroke-linejoin:round}
+      .thin{stroke:#496a9f;stroke-width:2;fill:none;stroke-linecap:round;stroke-dasharray:8 10}
+      .accent{fill:#8fd3ff}
+      .green{fill:#91f0aa}
+      .yellow{fill:#ffd88a}
+    </style>
+  </defs>
+  <rect width="1672" height="941" fill="url(#bg)"/>
+  <circle cx="137" cy="151" r="262" fill="#1e61b7" opacity=".13"/>
+  <circle cx="1511" cy="751" r="308" fill="#2c9b8f" opacity=".10"/>
+  <text x="86" y="96" class="title">LAI Harness</text>
+  <text x="89" y="137" class="subtitle">Local AI. Governed. Reproducible. From code to release.</text>
+  <g transform="translate(86,205)">
+    <rect class="card" width="270" height="154"/>
+    <text x="28" y="51" class="label">Developer</text>
+    <text x="28" y="86" class="small">Human-owned intent,</text>
+    <text x="28" y="113" class="small">approval and review.</text>
+    <text x="28" y="139" class="mono">prompt / inspect</text>
+  </g>
+  <g transform="translate(86,503)">
+    <rect class="card" width="270" height="158"/>
+    <text x="28" y="51" class="label">Local LLM Server</text>
+    <text x="28" y="86" class="small">OpenAI-compatible</text>
+    <text x="28" y="113" class="small">inference endpoint.</text>
+    <text x="28" y="140" class="mono">loopback / auth</text>
+  </g>
+  <g transform="translate(447,180)">
+    <rect class="card" width="264" height="170"/>
+    <text x="28" y="49" class="label">CLI</text>
+    <text x="28" y="84" class="small">Canonical command</text>
+    <text x="28" y="111" class="small">surface for local</text>
+    <text x="28" y="138" class="small">operations.</text>
+    <text x="28" y="160" class="mono">lai / local-agent</text>
+  </g>
+  <g transform="translate(447,548)">
+    <rect class="card" width="264" height="170"/>
+    <text x="28" y="49" class="label">VS Code</text>
+    <text x="28" y="84" class="small">Chat participant and</text>
+    <text x="28" y="111" class="small">workspace-aware UX.</text>
+    <text x="28" y="138" class="mono">@lai</text>
+  </g>
+  <g transform="translate(805,271)">
+    <rect class="core" width="324" height="360"/>
+    <text x="35" y="59" class="label">LAI Harness Core</text>
+    <text x="35" y="100" class="small">Policy, planning,</text>
+    <text x="35" y="127" class="small">tool mediation and</text>
+    <text x="35" y="154" class="small">deterministic checks.</text>
+    <rect class="pill" x="32" y="190" width="260" height="42"/>
+    <text x="52" y="218" class="micro">Policy Engine</text>
+    <rect class="pill" x="32" y="244" width="260" height="42"/>
+    <text x="52" y="272" class="micro">Control Plane</text>
+    <rect class="pill" x="32" y="298" width="260" height="42"/>
+    <text x="52" y="326" class="micro">Validation Matrix</text>
+  </g>
+  <g transform="translate(1210,111)">
+    <rect class="card" width="336" height="142"/>
+    <text x="30" y="47" class="label">Repository Workspace</text>
+    <text x="30" y="82" class="small">Safe workspaces, Git</text>
+    <text x="30" y="109" class="small">metadata and bounded diffs.</text>
+  </g>
+  <g transform="translate(1210,304)">
+    <rect class="card" width="336" height="142"/>
+    <text x="30" y="47" class="label">Tests &amp; Validation</text>
+    <text x="30" y="82" class="small">Ruff, pytest, mypy,</text>
+    <text x="30" y="109" class="small">publication gates.</text>
+  </g>
+  <g transform="translate(1210,497)">
+    <rect class="card" width="336" height="142"/>
+    <text x="30" y="47" class="label">Release Pack</text>
+    <text x="30" y="82" class="small">Release notes, evidence,</text>
+    <text x="30" y="109" class="small">optional VSIX artifact.</text>
+  </g>
+  <g transform="translate(1210,690)">
+    <rect class="card" width="336" height="154"/>
+    <text x="30" y="49" class="label">GitHub / CI</text>
+    <text x="30" y="84" class="small">Protected, reviewed and</text>
+    <text x="30" y="111" class="small">auditable release flow.</text>
+    <text x="30" y="138" class="mono">PR → main → tag</text>
+  </g>
+  <path class="line" d="M356 282 C395 282 403 265 447 265"/>
+  <path class="line" d="M356 583 C395 583 403 632 447 632"/>
+  <path class="line" d="M711 265 C762 265 754 350 805 350"/>
+  <path class="line" d="M711 632 C762 632 754 552 805 552"/>
+  <path class="line" d="M356 583 C525 454 620 451 805 451"/>
+  <path class="line" d="M1129 350 C1168 244 1176 182 1210 182"/>
+  <path class="line" d="M1129 418 C1171 405 1171 375 1210 375"/>
+  <path class="line" d="M1129 508 C1175 537 1172 568 1210 568"/>
+  <path class="line" d="M1378 639 L1378 690"/>
+  <path class="thin" d="M805 647 C660 809 434 799 256 661"/>
+  <g transform="translate(87,786)">
+    <rect class="pill" width="378" height="50"/>
+    <circle cx="33" cy="25" r="8" class="green"/>
+    <text x="55" y="32" class="small">Fail-closed policy and audit trail</text>
+  </g>
+  <g transform="translate(501,786)">
+    <rect class="pill" width="382" height="50"/>
+    <circle cx="33" cy="25" r="8" class="accent"/>
+    <text x="55" y="32" class="small">Fixture-only external effects by default</text>
+  </g>
+  <g transform="translate(919,786)">
+    <rect class="pill" width="338" height="50"/>
+    <circle cx="33" cy="25" r="8" class="yellow"/>
+    <text x="55" y="32" class="small">Human approval for mutation</text>
+  </g>
+  <g transform="translate(1294,786)">
+    <rect class="pill" width="250" height="50"/>
+    <circle cx="33" cy="25" r="8" class="green"/>
+    <text x="55" y="32" class="small">v0.5.0 released</text>
+  </g>
+</svg>
