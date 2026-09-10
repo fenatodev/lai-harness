@@ -5939,6 +5939,16 @@ CONTROL_CREDENTIAL_DEFAULT_TTL_SECONDS = 900
 CONTROL_CREDENTIAL_MAX_TTL_SECONDS = 3600
 CONTROL_CREDENTIAL_RETAIN_LIMIT = 100
 CONTROL_CREDENTIAL_REF_PATTERN = r"sr-[0-9a-f]{16}"
+CONTROL_TRUSTED_HOST_SCHEMA_VERSION = 1
+CONTROL_TRUSTED_HOST_DEFAULT_TTL_SECONDS = 900
+CONTROL_TRUSTED_HOST_MAX_TTL_SECONDS = 3600
+CONTROL_TRUSTED_HOST_RETAIN_LIMIT = 100
+CONTROL_TRUSTED_HOST_GRANT_PATTERN = r"thg-[0-9a-f]{16}"
+CONTROL_TRUSTED_HOST_RECEIPT_PATTERN = r"thr-[0-9a-f]{16}"
+CONTROL_TRUSTED_HOST_ADAPTER = "fixture_linux"
+CONTROL_TRUSTED_HOST_ROOT = "fixture:/workspace"
+CONTROL_TRUSTED_HOST_ALLOWED_OPERATIONS = frozenset({"write_artifact", "process_probe"})
+CONTROL_TRUSTED_HOST_ALLOWED_PROCESSES = frozenset({"fixture-worker"})
 CONTROL_EXTERNAL_ACTION_SCHEMA_VERSION = 1
 CONTROL_EXTERNAL_ACTION_DEFAULT_TTL_SECONDS = 900
 CONTROL_EXTERNAL_ACTION_MAX_TTL_SECONDS = 3600
@@ -5980,6 +5990,10 @@ def control_authority_base():
 
 def control_credential_base():
     return Path(DATA_BASE) / "credential-broker"
+
+
+def control_trusted_host_base():
+    return Path(DATA_BASE) / "trusted-host-fixture"
 
 
 def control_external_action_base():
@@ -8124,6 +8138,11 @@ def control_gateway_contract_payload():
         {"method": "POST", "path": "/v1/authority/intents", "auth_required": True, "purpose": "create a hash-bound ASK approval intent without executing it"},
         {"method": "POST", "path": "/v1/authority/approvals", "auth_required": True, "purpose": "consume one matching approval intent without executing tool payloads"},
         {"method": "DELETE", "path": "/v1/authority/approvals/{approval_intent_id}", "auth_required": True, "purpose": "revoke one unused approval intent"},
+        {"method": "GET", "path": "/v1/trusted-host/status", "auth_required": True, "purpose": "read A10 fixture-only trusted-host status and residual risks"},
+        {"method": "POST", "path": "/v1/trusted-host/grants", "auth_required": True, "purpose": "create one TTL-bound fixture Linux trusted-host grant"},
+        {"method": "POST", "path": "/v1/trusted-host/execute", "auth_required": True, "purpose": "execute one allowed fixture Linux host operation without shell or personal host access"},
+        {"method": "POST", "path": "/v1/trusted-host/stop", "auth_required": True, "purpose": "emergency-stop all active fixture trusted-host grants"},
+        {"method": "DELETE", "path": "/v1/trusted-host/grants/{grant_id}", "auth_required": True, "purpose": "revoke one fixture trusted-host grant"},
         {"method": "GET", "path": "/v1/credentials/status", "auth_required": True, "purpose": "read fake credential-broker status without secrets"},
         {"method": "GET", "path": "/v1/egress/status", "auth_required": True, "purpose": "read governed egress status, destination classes, quota policy, and forbidden exits"},
         {"method": "GET", "path": "/v1/external-actions/status", "auth_required": True, "purpose": "read fake authenticated external-action adapter status without credentials"},
@@ -8233,6 +8252,11 @@ def control_gateway_contract_payload():
             "approved_workspace_promotion": True,
             "scoped_authority_foundation": True,
             "durable_approval_intents": True,
+            "trusted_host_experimental": True,
+            "trusted_host_fixture_linux": True,
+            "trusted_host_real_enabled": False,
+            "trusted_host_personal_host_enabled": False,
+            "trusted_host_shell_execution": False,
             "credential_broker_foundation": True,
             "real_credentials_enabled": False,
             "governed_egress": True,
@@ -8262,6 +8286,8 @@ def control_gateway_contract_payload():
         },
         "forbidden_capabilities": [
             "generic_remote_shell",
+            "trusted_host_personal_desktop_control",
+            "trusted_host_root_shell",
             "direct_source_checkout_write",
             "dependency_installation",
             "host_environment_override",
@@ -8795,6 +8821,376 @@ def control_revoke_authority_intent(server, approval_intent_id):
             record["revoked_at"] = _control_authority_timestamp()
             _control_authority_write(record)
         return _control_authority_public_record(record)
+
+
+class ControlTrustedHostConflict(RuntimeError):
+    pass
+
+
+def _control_trusted_host_timestamp(epoch=None):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch or time.time()))
+
+
+def _control_trusted_host_validate_grant_id(value):
+    if not isinstance(value, str) or not re.fullmatch(CONTROL_TRUSTED_HOST_GRANT_PATTERN, value):
+        raise ValueError("trusted host grant id is invalid")
+    return value
+
+
+def _control_trusted_host_grant_path(grant_id):
+    grant_id = _control_trusted_host_validate_grant_id(grant_id)
+    return control_trusted_host_base() / "grants" / f"{grant_id}.json"
+
+
+def _control_trusted_host_receipt_path(receipt_id):
+    if not isinstance(receipt_id, str) or not re.fullmatch(CONTROL_TRUSTED_HOST_RECEIPT_PATTERN, receipt_id):
+        raise ValueError("trusted host receipt id is invalid")
+    return control_trusted_host_base() / "receipts" / f"{receipt_id}.json"
+
+
+def _control_trusted_host_public_grant(record):
+    return {
+        "schema_version": CONTROL_TRUSTED_HOST_SCHEMA_VERSION,
+        "grant_id": record.get("grant_id"),
+        "status": record.get("status"),
+        "adapter": record.get("adapter"),
+        "principal": record.get("principal"),
+        "created_at": record.get("created_at"),
+        "expires_at": record.get("expires_at"),
+        "revoked_at": record.get("revoked_at"),
+        "allowed_roots": list(record.get("allowed_roots") or []),
+        "allowed_operations": list(record.get("allowed_operations") or []),
+        "allowed_processes": list(record.get("allowed_processes") or []),
+        "fixture_only": True,
+        "personal_host_enabled": False,
+        "secret_material_printed": False,
+        "residual_risks": [
+            "fixture pass does not authorize a personal host",
+            "real OS enforcement remains unavailable in this contract",
+        ],
+    }
+
+
+def _control_trusted_host_load_grant(grant_id):
+    path = _control_trusted_host_grant_path(grant_id)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise KeyError(grant_id) from None
+    except json.JSONDecodeError as exc:
+        raise ControlTrustedHostConflict("trusted host grant state is invalid") from exc
+    if not isinstance(payload, dict):
+        raise ControlTrustedHostConflict("trusted host grant state is invalid")
+    if payload.get("schema_version") != CONTROL_TRUSTED_HOST_SCHEMA_VERSION:
+        raise ControlTrustedHostConflict("trusted host grant schema version is unsupported")
+    if payload.get("grant_id") != grant_id:
+        raise ControlTrustedHostConflict("trusted host grant identity mismatch")
+    return payload
+
+
+def _control_trusted_host_write(record):
+    target = _control_trusted_host_grant_path(record["grant_id"])
+    _control_private_json_write(target, record)
+    return record
+
+
+def _control_trusted_host_receipt_write(receipt):
+    target = _control_trusted_host_receipt_path(receipt["receipt_id"])
+    _control_private_json_write(target, receipt)
+    return receipt
+
+
+def _control_trusted_host_prune():
+    base = control_trusted_host_base()
+    for subdir, pattern in (("grants", "thg-*.json"), ("receipts", "thr-*.json")):
+        root = base / subdir
+        if not root.is_dir():
+            continue
+        files = sorted((item for item in root.glob(pattern) if item.is_file()), key=lambda item: item.stat().st_mtime)
+        for victim in files[:-CONTROL_TRUSTED_HOST_RETAIN_LIMIT]:
+            try:
+                victim.unlink()
+            except OSError:
+                pass
+
+
+def control_trusted_host_status_payload():
+    return {
+        "schema_version": CONTROL_TRUSTED_HOST_SCHEMA_VERSION,
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "repository": str(ROOT),
+        "milestone": "A10",
+        "experimental": True,
+        "adapter": CONTROL_TRUSTED_HOST_ADAPTER,
+        "fixture_available": True,
+        "real_host_enabled": False,
+        "personal_host_enabled": False,
+        "root_execution_enabled": False,
+        "shell_execution_enabled": False,
+        "os_enforced_boundary": False,
+        "profile_available": "fixture_only",
+        "legacy_contract_preserved": True,
+        "default_ttl_seconds": CONTROL_TRUSTED_HOST_DEFAULT_TTL_SECONDS,
+        "max_ttl_seconds": CONTROL_TRUSTED_HOST_MAX_TTL_SECONDS,
+        "allowed_roots": [CONTROL_TRUSTED_HOST_ROOT],
+        "allowed_operations": sorted(CONTROL_TRUSTED_HOST_ALLOWED_OPERATIONS),
+        "allowed_processes": sorted(CONTROL_TRUSTED_HOST_ALLOWED_PROCESSES),
+        "stop_rule": "deny real trusted-host profile until OS-enforced account, roots, processes, broker, egress, and emergency stop are proven",
+        "residual_risks": [
+            "fixture results are synthetic and do not authorize the user's personal desktop",
+            "rollback of real host effects is not guaranteed by this fixture contract",
+        ],
+        "secret_material_printed": False,
+    }
+
+
+def _control_trusted_host_list(value, *, field, allowed):
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{field} must be a non-empty list")
+    result = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError(f"{field} entries must be non-empty strings")
+        item = item.strip()
+        if item not in allowed:
+            raise ValueError(f"{field} contains unsupported entry")
+        if item not in result:
+            result.append(item)
+    return result
+
+
+def control_create_trusted_host_grant(server, request):
+    if not isinstance(request, dict):
+        raise ValueError("JSON object required")
+    unknown = sorted(set(request) - {
+        "adapter", "principal", "ttl_seconds", "allowed_roots",
+        "allowed_operations", "allowed_processes", "risk_acknowledged",
+    })
+    if unknown:
+        raise ValueError("unknown fields: " + ", ".join(unknown))
+    adapter = str(request.get("adapter") or "").strip()
+    if adapter != CONTROL_TRUSTED_HOST_ADAPTER:
+        return {
+            "schema_version": CONTROL_TRUSTED_HOST_SCHEMA_VERSION,
+            "decision": "DENY",
+            "reason_code": "trusted_host_adapter_unavailable",
+            "executed": False,
+            "fixture_only": True,
+            "real_host_enabled": False,
+            "secret_material_printed": False,
+        }
+    principal = request.get("principal", "operator")
+    if not isinstance(principal, str) or not principal.strip():
+        raise ValueError("principal must be a non-empty string")
+    ttl = request.get("ttl_seconds", CONTROL_TRUSTED_HOST_DEFAULT_TTL_SECONDS)
+    if not isinstance(ttl, int) or not 1 <= ttl <= CONTROL_TRUSTED_HOST_MAX_TTL_SECONDS:
+        raise ValueError("ttl_seconds is out of range")
+    if request.get("risk_acknowledged") is not True:
+        return {
+            "schema_version": CONTROL_TRUSTED_HOST_SCHEMA_VERSION,
+            "decision": "DENY",
+            "reason_code": "trusted_host_risk_ack_required",
+            "executed": False,
+            "fixture_only": True,
+            "secret_material_printed": False,
+        }
+    roots = _control_trusted_host_list(
+        request.get("allowed_roots"), field="allowed_roots", allowed={CONTROL_TRUSTED_HOST_ROOT}
+    )
+    operations = _control_trusted_host_list(
+        request.get("allowed_operations"), field="allowed_operations", allowed=CONTROL_TRUSTED_HOST_ALLOWED_OPERATIONS
+    )
+    processes = _control_trusted_host_list(
+        request.get("allowed_processes"), field="allowed_processes", allowed=CONTROL_TRUSTED_HOST_ALLOWED_PROCESSES
+    )
+    now = time.time()
+    record = {
+        "schema_version": CONTROL_TRUSTED_HOST_SCHEMA_VERSION,
+        "grant_id": "thg-" + secrets.token_hex(8),
+        "status": "active",
+        "adapter": adapter,
+        "principal": principal.strip(),
+        "created_at": _control_trusted_host_timestamp(now),
+        "expires_at": _control_trusted_host_timestamp(now + ttl),
+        "expires_at_epoch": now + ttl,
+        "revoked_at": None,
+        "allowed_roots": roots,
+        "allowed_operations": operations,
+        "allowed_processes": processes,
+        "fixture_only": True,
+        "real_host_enabled": False,
+    }
+    with server.control_trusted_host_lock:
+        _control_trusted_host_write(record)
+        _control_trusted_host_prune()
+    return _control_trusted_host_public_grant(record)
+
+
+def control_revoke_trusted_host_grant(server, grant_id):
+    grant_id = _control_trusted_host_validate_grant_id(grant_id)
+    with server.control_trusted_host_lock:
+        record = _control_trusted_host_load_grant(grant_id)
+        if not record.get("revoked_at"):
+            record["status"] = "revoked"
+            record["revoked_at"] = _control_trusted_host_timestamp()
+            _control_trusted_host_write(record)
+        return _control_trusted_host_public_grant(record)
+
+
+def _control_trusted_host_active_grant(server, grant_id):
+    grant_id = _control_trusted_host_validate_grant_id(grant_id)
+    with server.control_trusted_host_lock:
+        record = _control_trusted_host_load_grant(grant_id)
+        if record.get("status") != "active":
+            raise ControlTrustedHostConflict("trusted host grant is not active")
+        if record.get("revoked_at"):
+            raise ControlTrustedHostConflict("trusted host grant is revoked")
+        if time.time() > float(record.get("expires_at_epoch") or 0):
+            record["status"] = "expired"
+            _control_trusted_host_write(record)
+            raise ControlTrustedHostConflict("trusted host grant expired")
+        return record
+
+
+def _control_trusted_host_target(path):
+    if not isinstance(path, str) or not path.startswith(CONTROL_TRUSTED_HOST_ROOT + "/"):
+        return None, "target_outside_grant"
+    rel = path[len(CONTROL_TRUSTED_HOST_ROOT) + 1:]
+    if not rel or rel.startswith("/") or ".." in rel.split("/"):
+        return None, "target_outside_grant"
+    lowered = rel.lower()
+    for marker in ("secret", "credential", "token", "key", ".ssh", ".gnupg", "passwd", "shadow"):
+        if marker in lowered:
+            return None, "protected_path"
+    if rel.endswith("/"):
+        return None, "target_not_regular_file"
+    return rel, None
+
+
+def _control_trusted_host_denial(reason_code):
+    return {
+        "schema_version": CONTROL_TRUSTED_HOST_SCHEMA_VERSION,
+        "decision": "DENY",
+        "reason_code": reason_code,
+        "executed": False,
+        "fixture_only": True,
+        "secret_material_printed": False,
+    }
+
+
+def _control_trusted_host_public_receipt(receipt):
+    return {
+        "schema_version": CONTROL_TRUSTED_HOST_SCHEMA_VERSION,
+        "receipt_id": receipt.get("receipt_id"),
+        "grant_id": receipt.get("grant_id"),
+        "operation": receipt.get("operation"),
+        "decision": receipt.get("decision"),
+        "reason_code": receipt.get("reason_code"),
+        "executed": bool(receipt.get("executed")),
+        "fixture_only": True,
+        "adapter": CONTROL_TRUSTED_HOST_ADAPTER,
+        "target_root": receipt.get("target_root"),
+        "target_name": receipt.get("target_name"),
+        "content_sha256": receipt.get("content_sha256"),
+        "process": receipt.get("process"),
+        "host_pid_included": False,
+        "target_path_included": False,
+        "stdout_included": False,
+        "stderr_included": False,
+        "secret_material_printed": False,
+    }
+
+
+def control_execute_trusted_host_fixture(server, request):
+    if not isinstance(request, dict):
+        raise ValueError("JSON object required")
+    unknown = sorted(set(request) - {"grant_id", "operation", "path", "content", "process"})
+    if unknown:
+        raise ValueError("unknown fields: " + ", ".join(unknown))
+    grant = _control_trusted_host_active_grant(server, request.get("grant_id"))
+    operation = request.get("operation")
+    if operation not in CONTROL_TRUSTED_HOST_ALLOWED_OPERATIONS:
+        raise ValueError("operation is unsupported")
+    if operation not in set(grant.get("allowed_operations") or []):
+        raise ControlTrustedHostConflict("operation is outside trusted host grant")
+    receipt = {
+        "schema_version": CONTROL_TRUSTED_HOST_SCHEMA_VERSION,
+        "receipt_id": "thr-" + secrets.token_hex(8),
+        "grant_id": grant["grant_id"],
+        "operation": operation,
+        "decision": "ALLOW",
+        "reason_code": "fixture_operation_completed",
+        "executed": True,
+        "created_at": _control_trusted_host_timestamp(),
+        "target_root": None,
+        "target_name": None,
+        "content_sha256": None,
+        "process": None,
+    }
+    if operation == "write_artifact":
+        rel, reason = _control_trusted_host_target(request.get("path"))
+        if reason:
+            return _control_trusted_host_denial(reason)
+        content = request.get("content")
+        if not isinstance(content, str) or len(content.encode("utf-8")) > 4096:
+            raise ValueError("content must be a bounded string")
+        target_name = Path(rel).name
+        root = control_trusted_host_base() / "fixture-workspace" / grant["grant_id"]
+        target = (root / rel).resolve()
+        if root.resolve() not in target.parents:
+            return _control_trusted_host_denial("target_outside_grant")
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        target.write_text(content, encoding="utf-8")
+        os.chmod(target, 0o600)
+        receipt["target_root"] = CONTROL_TRUSTED_HOST_ROOT
+        receipt["target_name"] = target_name
+        receipt["content_sha256"] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    elif operation == "process_probe":
+        process = request.get("process")
+        if process not in CONTROL_TRUSTED_HOST_ALLOWED_PROCESSES:
+            raise ControlTrustedHostConflict("process is outside trusted host grant")
+        if process not in set(grant.get("allowed_processes") or []):
+            raise ControlTrustedHostConflict("process is outside trusted host grant")
+        receipt["process"] = process
+        receipt["reason_code"] = "fixture_process_observed"
+    with server.control_trusted_host_lock:
+        _control_trusted_host_receipt_write(receipt)
+        _control_trusted_host_prune()
+    return _control_trusted_host_public_receipt(receipt)
+
+
+def control_trusted_host_stop(server, request):
+    if request not in ({}, None):
+        if not isinstance(request, dict):
+            raise ValueError("JSON object required")
+        unknown = sorted(set(request) - {"reason"})
+        if unknown:
+            raise ValueError("unknown fields: " + ", ".join(unknown))
+    stopped = 0
+    with server.control_trusted_host_lock:
+        root = control_trusted_host_base() / "grants"
+        for path in sorted(root.glob("thg-*.json")) if root.is_dir() else []:
+            try:
+                record = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if record.get("schema_version") != CONTROL_TRUSTED_HOST_SCHEMA_VERSION:
+                continue
+            if record.get("status") == "active" and not record.get("revoked_at"):
+                record["status"] = "revoked"
+                record["revoked_at"] = _control_trusted_host_timestamp()
+                _control_trusted_host_write(record)
+                stopped += 1
+    return {
+        "schema_version": CONTROL_TRUSTED_HOST_SCHEMA_VERSION,
+        "decision": "ALLOW",
+        "reason_code": "emergency_stop_revoked_active_grants",
+        "stopped_grants": stopped,
+        "fixture_only": True,
+        "executed": True,
+        "secret_material_printed": False,
+    }
 
 
 class ControlCredentialConflict(RuntimeError):
@@ -11269,6 +11665,7 @@ def initialize_control_runs(server):
     server.control_session_lock = threading.RLock()
     server.control_authority_lock = threading.RLock()
     server.control_credential_lock = threading.RLock()
+    server.control_trusted_host_lock = threading.RLock()
     server.control_external_action_lock = threading.RLock()
     server.control_delegate_lock = threading.RLock()
     server.control_mcp_execution_lock = threading.RLock()
@@ -11540,6 +11937,9 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/v1/authority/presets":
             self._json(200, control_authority_presets_payload())
             return
+        if parsed.path == "/v1/trusted-host/status":
+            self._json(200, control_trusted_host_status_payload())
+            return
         if parsed.path == "/v1/credentials/status":
             self._json(200, control_credential_status_payload())
             return
@@ -11691,7 +12091,7 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
         browser_download_match = re.fullmatch(r"/v1/browser/sessions/(br-[0-9a-f]{16})/downloads", parsed.path)
         browser_action_match = re.fullmatch(r"/v1/browser/sessions/(br-[0-9a-f]{16})/actions", parsed.path)
         experiment_compare_match = re.fullmatch(r"/v1/experiments/(ex-[0-9a-f]{16})/compare", parsed.path)
-        if parsed.path not in {"/v1/policy-check", "/v1/mcp/policy-check", "/v1/mcp/execution/call", "/v1/runs", "/v1/sessions", "/v1/experiments/forks", "/v1/delegates/waves", "/v1/authority/intents", "/v1/authority/approvals", "/v1/credentials/refs", "/v1/credentials/use", "/v1/external-actions/intents", "/v1/external-actions/execute", "/v1/browser/sessions", "/v1/local-chat/runs"} and not promotion_match and not local_promotion_match and not local_lifecycle_match and not browser_navigate_match and not browser_download_match and not browser_action_match and not experiment_compare_match and not delegate_cancel_match:
+        if parsed.path not in {"/v1/policy-check", "/v1/mcp/policy-check", "/v1/mcp/execution/call", "/v1/runs", "/v1/sessions", "/v1/experiments/forks", "/v1/delegates/waves", "/v1/authority/intents", "/v1/authority/approvals", "/v1/trusted-host/grants", "/v1/trusted-host/execute", "/v1/trusted-host/stop", "/v1/credentials/refs", "/v1/credentials/use", "/v1/external-actions/intents", "/v1/external-actions/execute", "/v1/browser/sessions", "/v1/local-chat/runs"} and not promotion_match and not local_promotion_match and not local_lifecycle_match and not browser_navigate_match and not browser_download_match and not browser_action_match and not experiment_compare_match and not delegate_cancel_match:
             if parsed.path in {"/v1/status", "/v1/readiness"} or parsed.path.startswith("/v1/runs/"):
                 self._json(405, {"error": {"code": "method_not_allowed", "message": "method not allowed"}})
             else:
@@ -11946,6 +12346,47 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
                 "authority": intent,
             })
             return
+        if parsed.path == "/v1/trusted-host/grants":
+            if parsed.query:
+                self._json(400, {"error": {"code": "invalid_request", "message": "trusted host grants endpoint does not accept query parameters"}})
+                return
+            try:
+                grant = control_create_trusted_host_grant(self.server, request)
+            except ValueError as exc:
+                self._json(400, {"error": {"code": "invalid_trusted_host_request", "message": str(exc)}})
+                return
+            status = 201 if grant.get("grant_id") else 422
+            self._json(status, {"product": PRODUCT_NAME, "version": VERSION, "repository": str(ROOT), "trusted_host": grant})
+            return
+        if parsed.path == "/v1/trusted-host/execute":
+            if parsed.query:
+                self._json(400, {"error": {"code": "invalid_request", "message": "trusted host execute endpoint does not accept query parameters"}})
+                return
+            try:
+                receipt = control_execute_trusted_host_fixture(self.server, request)
+            except KeyError:
+                self._json(404, {"error": {"code": "trusted_host_grant_not_found", "message": "trusted host grant not found"}})
+                return
+            except ControlTrustedHostConflict as exc:
+                self._json(409, {"error": {"code": "trusted_host_conflict", "message": str(exc)}})
+                return
+            except ValueError as exc:
+                self._json(400, {"error": {"code": "invalid_trusted_host_request", "message": str(exc)}})
+                return
+            status = 200 if receipt.get("decision") == "ALLOW" else 422
+            self._json(status, {"product": PRODUCT_NAME, "version": VERSION, "repository": str(ROOT), "receipt": receipt})
+            return
+        if parsed.path == "/v1/trusted-host/stop":
+            if parsed.query:
+                self._json(400, {"error": {"code": "invalid_request", "message": "trusted host stop endpoint does not accept query parameters"}})
+                return
+            try:
+                stopped = control_trusted_host_stop(self.server, request)
+            except ValueError as exc:
+                self._json(400, {"error": {"code": "invalid_trusted_host_request", "message": str(exc)}})
+                return
+            self._json(200, {"product": PRODUCT_NAME, "version": VERSION, "repository": str(ROOT), "trusted_host": stopped})
+            return
         if parsed.path == "/v1/credentials/refs":
             if parsed.query:
                 self._json(400, {"error": {"code": "invalid_request", "message": "credential refs endpoint does not accept query parameters"}})
@@ -12157,6 +12598,21 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
                 self._json(409, {"error": {"code": "browser_conflict", "message": str(exc)}})
                 return
             self._json(200, {"product": PRODUCT_NAME, "version": VERSION, "repository": str(ROOT), "browser": payload})
+            return
+        trusted_host_match = re.fullmatch(r"/v1/trusted-host/grants/(thg-[0-9a-f]{16})", parsed.path)
+        if trusted_host_match:
+            try:
+                payload = control_revoke_trusted_host_grant(self.server, trusted_host_match.group(1))
+            except KeyError:
+                self._json(404, {"error": {"code": "trusted_host_grant_not_found", "message": "trusted host grant not found"}})
+                return
+            except ControlTrustedHostConflict as exc:
+                self._json(409, {"error": {"code": "trusted_host_conflict", "message": str(exc)}})
+                return
+            except ValueError as exc:
+                self._json(400, {"error": {"code": "invalid_trusted_host_request", "message": str(exc)}})
+                return
+            self._json(200, {"product": PRODUCT_NAME, "version": VERSION, "repository": str(ROOT), "trusted_host": payload})
             return
         credential_match = re.fullmatch(r"/v1/credentials/refs/(sr-[0-9a-f]{16})", parsed.path)
         if credential_match:

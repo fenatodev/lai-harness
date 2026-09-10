@@ -680,6 +680,10 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertFalse(payload["capabilities"]["mcp_tool_execution"])
         self.assertTrue(payload["capabilities"]["scoped_authority_foundation"])
         self.assertTrue(payload["capabilities"]["durable_approval_intents"])
+        self.assertTrue(payload["capabilities"]["trusted_host_experimental"])
+        self.assertTrue(payload["capabilities"]["trusted_host_fixture_linux"])
+        self.assertFalse(payload["capabilities"]["trusted_host_real_enabled"])
+        self.assertFalse(payload["capabilities"]["trusted_host_shell_execution"])
         self.assertTrue(payload["capabilities"]["credential_broker_foundation"])
         self.assertFalse(payload["capabilities"]["real_credentials_enabled"])
         self.assertTrue(payload["capabilities"]["governed_egress"])
@@ -707,6 +711,11 @@ class ControlPlaneTest(unittest.TestCase):
             ("POST", "/v1/authority/intents"),
             ("POST", "/v1/authority/approvals"),
             ("DELETE", "/v1/authority/approvals/{approval_intent_id}"),
+            ("GET", "/v1/trusted-host/status"),
+            ("POST", "/v1/trusted-host/grants"),
+            ("POST", "/v1/trusted-host/execute"),
+            ("POST", "/v1/trusted-host/stop"),
+            ("DELETE", "/v1/trusted-host/grants/{grant_id}"),
             ("GET", "/v1/credentials/status"),
             ("GET", "/v1/egress/status"),
             ("POST", "/v1/credentials/refs"),
@@ -717,6 +726,200 @@ class ControlPlaneTest(unittest.TestCase):
         shown = json.dumps(payload, sort_keys=True)
         self.assertNotIn("synthetic-control-token", shown)
         self.assertNotIn("llama-api-key", shown)
+
+
+    def test_trusted_host_fixture_grant_execute_revoke_and_secret_free(self):
+        status, unauthorized = self.request("/v1/trusted-host/status")
+        self.assertEqual(status, 401)
+        self.assertNotIn(self.token, json.dumps(unauthorized))
+
+        status, payload = self.request("/v1/trusted-host/status", token=self.token)
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["adapter"], "fixture_linux")
+        self.assertTrue(payload["experimental"])
+        self.assertTrue(payload["fixture_available"])
+        self.assertFalse(payload["real_host_enabled"])
+        self.assertFalse(payload["personal_host_enabled"])
+        self.assertFalse(payload["shell_execution_enabled"])
+        self.assertEqual(payload["profile_available"], "fixture_only")
+
+        status, denied = self.request(
+            "/v1/trusted-host/grants",
+            method="POST",
+            token=self.token,
+            body={"adapter": "real_linux", "principal": "operator"},
+        )
+        self.assertEqual(status, 422)
+        self.assertEqual(denied["trusted_host"]["decision"], "DENY")
+        self.assertEqual(denied["trusted_host"]["reason_code"], "trusted_host_adapter_unavailable")
+
+        status, created = self.request(
+            "/v1/trusted-host/grants",
+            method="POST",
+            token=self.token,
+            body={
+                "adapter": "fixture_linux",
+                "principal": "operator",
+                "ttl_seconds": 60,
+                "allowed_roots": ["fixture:/workspace"],
+                "allowed_operations": ["write_artifact", "process_probe"],
+                "allowed_processes": ["fixture-worker"],
+                "risk_acknowledged": True,
+            },
+        )
+        self.assertEqual(status, 201, created)
+        grant = created["trusted_host"]
+        self.assertRegex(grant["grant_id"], r"^thg-[0-9a-f]{16}$")
+        self.assertEqual(grant["status"], "active")
+        self.assertTrue(grant["fixture_only"])
+        self.assertFalse(grant["personal_host_enabled"])
+        shown = json.dumps(created, sort_keys=True)
+        self.assertNotIn("synthetic-control-token", shown)
+        self.assertNotIn("credential-canary-secret", shown)
+
+        status, written = self.request(
+            "/v1/trusted-host/execute",
+            method="POST",
+            token=self.token,
+            body={
+                "grant_id": grant["grant_id"],
+                "operation": "write_artifact",
+                "path": "fixture:/workspace/out/artifact.txt",
+                "content": "credential-canary-secret\n",
+            },
+        )
+        self.assertEqual(status, 200, written)
+        receipt = written["receipt"]
+        self.assertEqual(receipt["decision"], "ALLOW")
+        self.assertTrue(receipt["executed"])
+        self.assertEqual(receipt["target_root"], "fixture:/workspace")
+        self.assertEqual(receipt["target_name"], "artifact.txt")
+        self.assertFalse(receipt["target_path_included"])
+        self.assertFalse(receipt["stdout_included"])
+        self.assertFalse(receipt["stderr_included"])
+        self.assertNotIn("credential-canary-secret", json.dumps(written, sort_keys=True))
+
+        status, probed = self.request(
+            "/v1/trusted-host/execute",
+            method="POST",
+            token=self.token,
+            body={
+                "grant_id": grant["grant_id"],
+                "operation": "process_probe",
+                "process": "fixture-worker",
+            },
+        )
+        self.assertEqual(status, 200, probed)
+        self.assertEqual(probed["receipt"]["reason_code"], "fixture_process_observed")
+        self.assertFalse(probed["receipt"]["host_pid_included"])
+
+        status, revoked = self.request(
+            f"/v1/trusted-host/grants/{grant['grant_id']}",
+            method="DELETE",
+            token=self.token,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(revoked["trusted_host"]["status"], "revoked")
+
+        status, blocked = self.request(
+            "/v1/trusted-host/execute",
+            method="POST",
+            token=self.token,
+            body={
+                "grant_id": grant["grant_id"],
+                "operation": "process_probe",
+                "process": "fixture-worker",
+            },
+        )
+        self.assertEqual(status, 409)
+        self.assertEqual(blocked["error"]["code"], "trusted_host_conflict")
+
+    def test_trusted_host_blocks_protected_path_process_escape_and_emergency_stop(self):
+        status, missing_ack = self.request(
+            "/v1/trusted-host/grants",
+            method="POST",
+            token=self.token,
+            body={
+                "adapter": "fixture_linux",
+                "principal": "operator",
+                "allowed_roots": ["fixture:/workspace"],
+                "allowed_operations": ["write_artifact"],
+                "allowed_processes": ["fixture-worker"],
+            },
+        )
+        self.assertEqual(status, 422)
+        self.assertEqual(missing_ack["trusted_host"]["reason_code"], "trusted_host_risk_ack_required")
+
+        status, created = self.request(
+            "/v1/trusted-host/grants",
+            method="POST",
+            token=self.token,
+            body={
+                "adapter": "fixture_linux",
+                "principal": "operator",
+                "ttl_seconds": 60,
+                "allowed_roots": ["fixture:/workspace"],
+                "allowed_operations": ["write_artifact", "process_probe"],
+                "allowed_processes": ["fixture-worker"],
+                "risk_acknowledged": True,
+            },
+        )
+        self.assertEqual(status, 201, created)
+        grant_id = created["trusted_host"]["grant_id"]
+
+        status, protected = self.request(
+            "/v1/trusted-host/execute",
+            method="POST",
+            token=self.token,
+            body={
+                "grant_id": grant_id,
+                "operation": "write_artifact",
+                "path": "fixture:/workspace/.ssh/credential.txt",
+                "content": "nope",
+            },
+        )
+        self.assertEqual(status, 422)
+        self.assertEqual(protected["receipt"]["decision"], "DENY")
+        self.assertEqual(protected["receipt"]["reason_code"], "protected_path")
+        self.assertFalse(protected["receipt"]["executed"])
+
+        status, process_escape = self.request(
+            "/v1/trusted-host/execute",
+            method="POST",
+            token=self.token,
+            body={
+                "grant_id": grant_id,
+                "operation": "process_probe",
+                "process": "user-session",
+            },
+        )
+        self.assertEqual(status, 409)
+        self.assertEqual(process_escape["error"]["code"], "trusted_host_conflict")
+
+        status, stopped = self.request(
+            "/v1/trusted-host/stop",
+            method="POST",
+            token=self.token,
+            body={"reason": "test stop"},
+        )
+        self.assertEqual(status, 200)
+        self.assertGreaterEqual(stopped["trusted_host"]["stopped_grants"], 1)
+        self.assertEqual(stopped["trusted_host"]["reason_code"], "emergency_stop_revoked_active_grants")
+
+        status, replay = self.request(
+            "/v1/trusted-host/execute",
+            method="POST",
+            token=self.token,
+            body={
+                "grant_id": grant_id,
+                "operation": "write_artifact",
+                "path": "fixture:/workspace/after-stop.txt",
+                "content": "blocked",
+            },
+        )
+        self.assertEqual(status, 409)
+        self.assertEqual(replay["error"]["code"], "trusted_host_conflict")
 
 
     def test_egress_status_endpoint_is_authenticated_secret_free_and_deny_by_default(self):

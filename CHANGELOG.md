@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Added
+- Add A10 fixture-only trusted-host contract with TTL grants, revocation, emergency stop, protected-path denies, process-scope checks, and secret-free receipts while keeping real host access disabled.
 - Add Cursor subagent definitions for bounded implementation planning and safety review, preserving existing LAI authority and sandbox limits.
 
 ### Fixed

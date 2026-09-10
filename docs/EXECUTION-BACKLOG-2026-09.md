@@ -232,7 +232,7 @@ A7 complete: the implemented surface is a sandboxed `fixture_stdio` MCP executio
 
 | Campo | Contrato |
 | --- | --- |
-| Estado/dono | experimental; Harness + Gateway |
+| Estado/dono | complete; Harness fixture contract; Gateway follow-through via existing contract |
 | Problema | Alguns workflows úteis precisam recursos do host além da sandbox. |
 | Objetivo/motivação | Avaliar Full/Trusted amplo, explícito e aplicável pelo OS. |
 | Arquitetura | Conta/processos/paths autorizados e broker/egress com emergency stop. |
@@ -246,6 +246,8 @@ A7 complete: the implemented surface is a sandboxed `fixture_stdio` MCP executio
 | Rollback | Revogar perfil/leases e voltar Safe; compensação de efeitos é específica. |
 | Non-goals | Root irrestrito, desktop pessoal, Windows nativo ou rollback universal. |
 | Stop rules | Exigir evidência A3/A4/A6; delegates/MCP não são pré-requisitos artificiais de host. |
+
+A10 complete: entregue como contrato experimental `fixture_linux`, com status, grants TTL, revogação, emergency stop, operações/roots/processos allowlisted, protected-path deny e receipts sem segredo. Host pessoal, shell real, root e Windows nativo continuam indisponíveis até existir boundary OS comprovado.
 
 ## A11 — computer-use
 
