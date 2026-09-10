@@ -4,6 +4,7 @@
 - Add Cursor subagent definitions for bounded implementation planning and safety review, preserving existing LAI authority and sandbox limits.
 
 ### Fixed
+- Record explicit sandbox validation commands as workspace validation evidence so remote work-run reviews and handoff state reflect `sandbox_exec` validations consistently.
 - Force sandboxed remote work-runs with an explicit user-provided validation command to use `sandbox_exec` for the post-write validation gate instead of drifting into generic validation profiles.
 - Allow sandboxed remote work-runs to satisfy an explicit user-provided validation command through `sandbox_exec`, including multi-line heredoc validation commands, without falling back to host shell access.
 - Further compact sandboxed work-run prompts and response budgets so remote children have enough headroom for post-write validation on 4k-context local model servers.

@@ -19663,10 +19663,10 @@ def record_workspace_tool(
                     str(changed_path)
                 )
 
-    if name in {"bash", "validate"}:
+    if name in {"bash", "validate", "sandbox_exec"}:
         command = (
             str(args.get("command", ""))
-            if name == "bash"
+            if name in {"bash", "sandbox_exec"}
             else "validate profile=" + str(args.get("profile", ""))
         )[:500]
 
@@ -19678,10 +19678,10 @@ def record_workspace_tool(
                 "result": str(result)[:700],
             }
 
-    if name in {"bash", "validate"} and is_validation:
+    if name in {"bash", "validate", "sandbox_exec"} and is_validation:
         command = (
             str(args.get("command", ""))
-            if name == "bash"
+            if name in {"bash", "sandbox_exec"}
             else "validate profile=" + str(args.get("profile", ""))
         )[:500]
         record_audit_event({
@@ -22652,7 +22652,7 @@ KEEP: 1,3"""
                 is_validation_call = (
                     name == "validate"
                     or (
-                        name == "bash"
+                        name in {"bash", "sandbox_exec"}
                         and command_satisfies_validation(
                             args.get("command", "")
                         )

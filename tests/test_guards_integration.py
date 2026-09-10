@@ -1084,6 +1084,17 @@ class GuardIntegrationTest(unittest.TestCase):
             "VALIDATION REQUIRED" in str(message.get("content", ""))
             for message in final_messages
         ))
+        state_key = hashlib.sha256(str(self.repo).encode("utf-8")).hexdigest()[:16]
+        workspace_state = json.loads((self.data / "state" / f"{state_key}.json").read_text())
+        self.assertEqual(
+            workspace_state["last_validation"]["command"],
+            validation_command[:500],
+        )
+        self.assertIn(
+            "exit_code=0",
+            workspace_state["last_validation"]["result"],
+        )
+
 
     def test_unrequested_cat_does_not_bypass_validation_guard(self):
         responder = SequenceResponder([
