@@ -21063,6 +21063,34 @@ def main():
         subprocess.run([str(CONFIG["server_launcher"])], check=True, env=launch_env)
         host = gateway()
 
+    def task_only_creates_one_explicit_named_smoke_check_file(task_text):
+        task_text = str(task_text or "")
+        file_matches = re.findall(
+            r"(?<![A-Za-z0-9_./-])([A-Za-z0-9_.-]*(?:smoke|check)[A-Za-z0-9_.-]*\.[A-Za-z0-9_.-]+)",
+            task_text,
+            flags=re.IGNORECASE,
+        )
+        unique_files = {match.strip("`'\"") for match in file_matches}
+        if len(unique_files) != 1:
+            return False
+        lower = task_text.lower()
+        create_terms = (
+            "create file",
+            "create only",
+            "crie o arquivo",
+            "crie somente",
+            "criar o arquivo",
+            "criar somente",
+        )
+        return any(term in lower for term in create_terms)
+
+    skip_agents_for_explicit_smoke_create = (
+        remote_work_child
+        and task_only_creates_one_explicit_named_smoke_check_file(task)
+    )
+    if skip_agents_for_explicit_smoke_create:
+        read_paths.add("AGENTS.md")
+
     if remote_work_child:
         system = f"""You are Local Dev, a sandboxed software development agent.
 
@@ -21234,10 +21262,17 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
     if mode in {"fix", "ci-fix", "test", "refactor", "security", "implement", "general"}:
         agents_file = ROOT / "AGENTS.md"
         if agents_file.is_file():
-            system += (
-                "\n\nRepository note: AGENTS.md exists at the repository root. "
-                "Read it first before other repository actions."
-            )
+            if skip_agents_for_explicit_smoke_create:
+                system += (
+                    "\n\nRepository note: AGENTS.md exists at the repository root, "
+                    "but this task only creates one explicitly named smoke/check file. "
+                    "Do not spend a tool call reading AGENTS.md for this smoke/check file."
+                )
+            else:
+                system += (
+                    "\n\nRepository note: AGENTS.md exists at the repository root. "
+                    "Read it first before other repository actions."
+                )
 
     git_review_snapshot = None
 
