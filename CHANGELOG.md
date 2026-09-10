@@ -4,6 +4,7 @@
 - Add Cursor subagent definitions for bounded implementation planning and safety review, preserving existing LAI authority and sandbox limits.
 
 ### Fixed
+- Surface sanitized workspace validation status in local-chat work reviews by collecting sandbox child state from hidden runtime files while excluding those files from diffs and promotion patches.
 - Allow explicitly named remote smoke/check file creations to skip the root `AGENTS.md` read guard, matching the existing sandbox work prompt exception and reducing redundant work-run cycles without changing normal repository-edit policy.
 - Record explicit sandbox validation commands as workspace validation evidence so remote work-run reviews and handoff state reflect `sandbox_exec` validations consistently.
 - Force sandboxed remote work-runs with an explicit user-provided validation command to use `sandbox_exec` for the post-write validation gate instead of drifting into generic validation profiles.
