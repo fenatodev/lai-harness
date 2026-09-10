@@ -543,6 +543,12 @@ class ControlPlaneTest(unittest.TestCase):
             self.assertIn("hello.txt", body["workspace"]["diff_preview"])
             self.assertTrue(body["promotion"]["promotable"], body["promotion"])
             self.assertTrue(body["budget"]["exposed"])
+            self.assertEqual(body["validation"]["last_result"]["source"], "workspace_state")
+            self.assertEqual(body["validation"]["last_result"]["status"], "pass")
+            self.assertEqual(body["validation"]["last_result"]["exit_code"], 0)
+            self.assertFalse(body["validation"]["last_result"]["stdout_included"])
+            self.assertNotIn(".lai", " ".join(body["workspace"]["changed_paths"]))
+            self.assertNotIn(".lai", body["workspace"]["diff_preview"])
             approved = body["promotion"]["patch_sha256"]
 
             status, stale = self.request(

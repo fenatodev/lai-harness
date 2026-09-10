@@ -4118,8 +4118,16 @@ def _remote_sandbox_checked_root(path, label):
     return root
 
 
-def _remote_sandbox_base_argv(*, workspace=None, source_root=None, model_bridge_socket=None):
+def _remote_sandbox_base_argv(*, workspace=None, source_root=None, model_bridge_socket=None, runtime_root=None):
     workspace = _remote_sandbox_checked_root(workspace or ROOT, "workspace")
+    runtime_root = Path(runtime_root or (workspace / ".lai-runtime")).resolve()
+    if runtime_root.is_symlink():
+        raise RuntimeError("remote sandbox runtime root must not be a symlink")
+    if workspace in runtime_root.parents or runtime_root == workspace:
+        # A fallback workspace-local runtime is tolerated for ad-hoc validation,
+        # but control work-runs pass an external per-run runtime root.
+        pass
+    runtime_root.mkdir(mode=0o700, parents=True, exist_ok=True)
     source_root = _remote_sandbox_checked_root(
         source_root
         or os.environ.get(REMOTE_VALIDATION_SOURCE_ROOT_ENV)
@@ -4139,12 +4147,16 @@ def _remote_sandbox_base_argv(*, workspace=None, source_root=None, model_bridge_
         "--env", "HOME=/tmp",
         "--env", "TMPDIR=/tmp",
         "--env", "CI=1",
+        "--env", "LAI_STATE_DIR=/lai-runtime/state",
+        "--env", "LAI_METRICS_DIR=/lai-runtime/metrics",
+        "--env", "LAI_AUDIT_DIR=/lai-runtime/audit",
         "--env", f"{CONTROL_RUN_CHILD_ENV}=1",
         "--env", f"{SANDBOX_EXEC_VERIFIED_ENV}=1",
         "--env", f"{REMOTE_VALIDATION_SOURCE_ROOT_ENV}=/workspace",
         "--env", f"LAI_SKILLS_DIR={REMOTE_SANDBOX_SKILLS_DIR}",
         "--workdir", "/workspace",
         "--mount", f"type=bind,src={workspace},dst=/workspace",
+        "--mount", f"type=bind,src={runtime_root},dst=/lai-runtime",
     ]
     if model_bridge_socket:
         command.extend([
@@ -4166,9 +4178,10 @@ def remote_validation_docker_argv(argv, *, workspace=None, source_root=None):
     return command
 
 
-def remote_project_sandbox_docker_argv(argv, *, workspace=None, source_root=None, model_bridge_socket=None):
+def remote_project_sandbox_docker_argv(argv, *, workspace=None, source_root=None, model_bridge_socket=None, runtime_root=None):
     command = _remote_sandbox_base_argv(
         workspace=workspace, source_root=source_root, model_bridge_socket=model_bridge_socket,
+        runtime_root=runtime_root,
     )
     command.append(remote_validation_sandbox_image())
     command.extend(str(item) for item in argv)
@@ -7481,6 +7494,8 @@ def control_local_chat_run_review_payload(server, control_run_id, query=None):
         trajectory = _control_run_trajectory_locked(record)
         workspace_record = dict(public.get("workspace") or {}) if public.get("workspace") else None
     promotion = control_promotion_proposal(server, control_run_id)
+    promotion_validation = (promotion or {}).get("promotion", {}).get("validation")
+    review_validation = promotion_validation or public.get("workspace_last_validation")
     diff_preview = ""
     diff_truncated = False
     changed_paths = []
@@ -7530,7 +7545,7 @@ def control_local_chat_run_review_payload(server, control_run_id, query=None):
             },
             "validation": {
                 "required_before_promotion": True,
-                "last_result": (promotion or {}).get("promotion", {}).get("validation"),
+                "last_result": review_validation,
             },
         },
     }
@@ -9873,6 +9888,7 @@ def _control_run_public_record_locked(server, record):
         "session_context_chars": int(record.get("session_context_chars") or 0),
         "session_turns_used": int(record.get("session_turns_used") or 0),
         "session_persisted": record.get("session_persisted"),
+        "workspace_last_validation": record.get("workspace_last_validation"),
         "workspace": (
             {
                 "isolated": True,
@@ -10222,6 +10238,7 @@ def control_submit_run(server, request):
             "promotion_path": None,
             "promoted_at": None,
             "promotion_validation": None,
+            "workspace_last_validation": None,
             "trajectory_schema_version": CONTROL_TRAJECTORY_SCHEMA_VERSION,
             "trajectory_next_sequence": 0,
             "trajectory_events": [],
@@ -10359,6 +10376,8 @@ def control_workspace_changed_paths(path, *, max_paths=None):
     values = []
     for rel in [*tracked, *untracked]:
         rel = _safe_control_relpath(path, rel)
+        if _control_workspace_runtime_path(rel):
+            continue
         if rel not in values:
             values.append(rel)
     if max_paths is not None and len(values) > max_paths:
@@ -10384,6 +10403,8 @@ def control_workspace_patch_bytes(path, *, max_bytes=CONTROL_PROMOTION_PATCH_LIM
     untracked = _git_z_paths(path, ["ls-files", "--others", "--exclude-standard", "-z"])
     for rel in untracked:
         rel = _safe_control_relpath(path, rel)
+        if _control_workspace_runtime_path(rel):
+            continue
         target = (path / rel).resolve(strict=False)
         if not target.is_file() or target.is_symlink():
             raise ValueError("promotion only supports regular untracked files")
@@ -10432,6 +10453,11 @@ def control_promotion_worktree_path(control_run_id):
     return target
 
 
+def _control_workspace_runtime_path(rel):
+    rel = str(rel or "").replace("\\", "/").lstrip("./")
+    return rel == ".lai-runtime" or rel.startswith(".lai-runtime/") or rel == ".lai-model-bridge.sock"
+
+
 def control_workspace_status_text(path):
     try:
         proc = subprocess.run(
@@ -10446,7 +10472,52 @@ def control_workspace_status_text(path):
         return "[unavailable]"
     if proc.returncode != 0:
         return "[unavailable]"
-    return proc.stdout.rstrip("\n") or "[clean]"
+    visible = []
+    for line in proc.stdout.splitlines():
+        rel = line[3:].strip() if len(line) >= 3 else line.strip()
+        if not _control_workspace_runtime_path(rel):
+            visible.append(line)
+    return "\n".join(visible) or "[clean]"
+
+
+def control_workspace_last_validation_summary(runtime_root, workspace_root):
+    runtime_root = Path(runtime_root).resolve()
+    workspace_root = Path(workspace_root).resolve()
+    payload = None
+    for root_text in ("/workspace", str(workspace_root)):
+        state_path = (
+            runtime_root / "state" /
+            (hashlib.sha256(root_text.encode("utf-8")).hexdigest()[:16] + ".json")
+        )
+        try:
+            payload = json.loads(state_path.read_text(encoding="utf-8"))
+            break
+        except (OSError, json.JSONDecodeError):
+            continue
+    if payload is None:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    validation = payload.get("last_validation")
+    if not isinstance(validation, dict):
+        return None
+    result = str(validation.get("result") or "")
+    match = re.search(r"(?m)^exit_code=(\-?\d+)\b", result)
+    exit_code = int(match.group(1)) if match else None
+    if exit_code == 0:
+        status = "pass"
+    elif exit_code is None:
+        status = "unknown"
+    else:
+        status = "fail"
+    return {
+        "source": "workspace_state",
+        "status": status,
+        "exit_code": exit_code,
+        "command_included": False,
+        "stdout_included": False,
+        "stderr_included": False,
+    }
 
 
 def collect_control_workspace_result(path):
@@ -10488,6 +10559,8 @@ def collect_control_workspace_result(path):
                 if not raw:
                     continue
                 rel = raw.decode("utf-8", errors="replace")
+                if _control_workspace_runtime_path(rel):
+                    continue
                 target = (path / rel).resolve(strict=False)
                 if path not in target.parents or not target.is_file() or target.is_symlink():
                     continue
@@ -10864,6 +10937,29 @@ def remove_control_work_workspace(path):
         shutil.rmtree(target, ignore_errors=True)
 
 
+def control_run_runtime_path(control_run_id):
+    value = str(control_run_id or "")
+    if not re.fullmatch(r"cr-[0-9a-f]{16}", value):
+        raise ValueError("invalid control run id")
+    target = (Path(DATA_BASE) / "control-run-runtime" / value).resolve()
+    try:
+        target.relative_to(Path(ROOT).resolve())
+    except ValueError:
+        return target
+    raise ValueError("control run runtime must be outside source checkout")
+
+
+def remove_control_run_runtime(path):
+    if not path:
+        return
+    try:
+        target = Path(path).resolve()
+        target.relative_to((Path(DATA_BASE) / "control-run-runtime").resolve())
+    except Exception:
+        return
+    shutil.rmtree(target, ignore_errors=True)
+
+
 def _control_run_worker(server):
     while True:
         with server.control_run_condition:
@@ -10906,6 +11002,7 @@ def _control_run_worker(server):
         effective_task = task
         session_id = record.get("session_id")
         model_bridge_close = None
+        runtime_path = None
         try:
             if session_id:
                 with server.control_session_lock:
@@ -10929,6 +11026,8 @@ def _control_run_worker(server):
             if mode in CONTROL_RUN_WORK_MODES:
                 workspace = create_control_work_workspace(control_run_id)
                 workspace_path = Path(workspace["path"]).resolve()
+                runtime_path = control_run_runtime_path(control_run_id)
+                runtime_path.mkdir(mode=0o700, parents=True, exist_ok=True)
                 with server.control_run_condition:
                     record["workspace_path"] = str(workspace_path)
                     record["workspace_prepared_at"] = control_run_now()
@@ -10946,6 +11045,9 @@ def _control_run_worker(server):
             child_env = control_run_child_env(source_root=ROOT)
             child_command = control_run_command(mode, effective_task)
             if mode in CONTROL_RUN_WORK_MODES:
+                child_env["LAI_STATE_DIR"] = str(runtime_path / "state")
+                child_env["LAI_METRICS_DIR"] = str(runtime_path / "metrics")
+                child_env["LAI_AUDIT_DIR"] = str(runtime_path / "audit")
                 model_bridge_host = child_env.get("LAI_HOST") or gateway()
                 try:
                     model_bridge_port = int(child_env.get("LAI_PORT") or LLAMA_PORT)
@@ -10965,6 +11067,7 @@ def _control_run_worker(server):
                     workspace=workspace_path,
                     source_root=ROOT,
                     model_bridge_socket=CONTROL_MODEL_BRIDGE_CONTAINER_SOCKET,
+                    runtime_root=runtime_path,
                 )
                 with server.control_run_condition:
                     record["sandbox_executor"] = remote_sandbox_public_contract(ready=True)
@@ -11036,6 +11139,7 @@ def _control_run_worker(server):
                     record["workspace_diff"] = workspace_result["diff"]
                     record["workspace_diff_truncated"] = workspace_result["diff_truncated"]
                     record["workspace_result_collected_at"] = workspace_result_collected_at
+                    record["workspace_last_validation"] = control_workspace_last_validation_summary(runtime_path, workspace_path)
                 record["stdout"] = stdout_text
                 record["stderr"] = stderr_text
                 record["stdout_truncated"] = stdout_truncated
@@ -11150,6 +11254,7 @@ def _control_run_worker(server):
         finally:
             if model_bridge_close is not None:
                 model_bridge_close()
+            remove_control_run_runtime(runtime_path)
             stdout_handle.close()
             stderr_handle.close()
             with server.control_run_condition:
