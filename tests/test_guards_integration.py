@@ -1069,6 +1069,11 @@ class GuardIntegrationTest(unittest.TestCase):
             "hello beta4\n",
         )
         self.assertGreaterEqual(len(responder.payloads), 3)
+        validation_tool_names = {
+            tool["function"]["name"]
+            for tool in responder.payloads[1]["tools"]
+        }
+        self.assertEqual(validation_tool_names, {"sandbox_exec"})
         self.assertIn(
             "TOOL RESULTS",
             str(responder.payloads[2]["messages"]),
