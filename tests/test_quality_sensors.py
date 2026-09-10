@@ -121,6 +121,27 @@ class QualitySensorsTest(unittest.TestCase):
         self.assertIn("MCP call-tool: `DENY`, `executed=false`", evidence)
         self.assertNotIn("MCP execution is enabled", design)
 
+    def test_cursor_subagents_are_named_described_and_policy_bounded(self):
+        agents_dir = ROOT / ".cursor" / "agents"
+        agents = sorted(agents_dir.glob("*.md"))
+        self.assertGreaterEqual(len(agents), 2)
+
+        for path in agents:
+            text = path.read_text()
+            self.assertTrue(text.startswith("---\n"), path)
+            header = text.split("---", 2)[1]
+            self.assertRegex(header, r"(?m)^name: [a-z0-9-]+$")
+            self.assertRegex(header, r"(?m)^description: .{20,}$")
+            self.assertIn("Do not", text)
+            self.assertNotIn("token", header.lower())
+
+        combined = "\n".join(path.read_text() for path in agents)
+        self.assertIn("implementation-planner", combined)
+        self.assertIn("safety-reviewer", combined)
+        self.assertIn("AGENTS.md", combined)
+        self.assertIn("sandbox", combined.lower())
+
+
     def test_runtime_installer_does_not_install_python_dependencies(self):
         installer = (ROOT / "scripts" / "install-local.sh").read_text()
         self.assertNotIn("pip install", installer)
