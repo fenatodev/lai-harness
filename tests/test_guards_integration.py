@@ -1021,6 +1021,65 @@ class GuardIntegrationTest(unittest.TestCase):
             "hello alpha3\n",
         )
 
+    def test_remote_smoke_file_create_skips_agents_read_guard(self):
+        (self.repo / "AGENTS.md").write_text(
+            "Root instructions for normal repository edits.\n",
+            encoding="utf-8",
+        )
+        validation_command = (
+            "python3 - <<'PYV'\n"
+            "from pathlib import Path\n"
+            "assert Path('REMOTE_SMOKE_CHECK.txt').read_text() == 'smoke check ok\\n'\n"
+            "PYV"
+        )
+        responder = SequenceResponder([
+            tool_call(
+                "create",
+                "create",
+                {
+                    "path": "REMOTE_SMOKE_CHECK.txt",
+                    "content": "smoke check ok\n",
+                },
+            ),
+            tool_call(
+                "verify",
+                "sandbox_exec",
+                {"command": validation_command, "timeout_seconds": 5},
+            ),
+            completion("smoke created and validated"),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--implement",
+                (
+                    "Create file REMOTE_SMOKE_CHECK.txt containing exactly "
+                    "one line: smoke check ok. Validate only with: "
+                    + validation_command
+                ),
+                extra_env={
+                    "LAI_CONTROL_RUN_CHILD": "1",
+                    "LAI_SANDBOX_EXECUTOR_VERIFIED": "1",
+                },
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "smoke created and validated")
+        self.assertEqual(
+            (self.repo / "REMOTE_SMOKE_CHECK.txt").read_text(),
+            "smoke check ok\n",
+        )
+        joined_payloads = str(responder.payloads)
+        self.assertIn(
+            "Do not spend a tool call reading AGENTS.md for this smoke/check file",
+            joined_payloads,
+        )
+        self.assertNotIn(
+            "Read AGENTS.md before creating repository files",
+            joined_payloads,
+        )
+
     def test_remote_explicit_user_validation_command_can_use_sandbox_exec(self):
         validation_command = (
             "python3 - <<'PYV'\n"
