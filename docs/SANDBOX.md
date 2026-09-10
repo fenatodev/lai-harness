@@ -36,7 +36,7 @@ This is not generic egress. `sandbox_exec` and project commands still run with `
 
 Remote work children use a tiny prompt envelope and a smaller completion budget than interactive local CLI runs. This keeps installed sandbox runs usable with small local model contexts while relying on explicit tool inspection for task-specific evidence.
 
-When a user explicitly provides a validation command, such as `Validate only with: ...`, a remote work child may run that command through `sandbox_exec` to satisfy the post-write validation gate. The command still runs inside the verified no-network sandbox and remains subject to the `sandbox_exec` policy.
+When a user explicitly provides a validation command, such as `Validate only with: ...`, a remote work child may run that command through `sandbox_exec` to satisfy the post-write validation gate. During that post-write gate, the remote child is constrained to the explicit sandbox command rather than generic validation profiles. The command still runs inside the verified no-network sandbox and remains subject to the `sandbox_exec` policy.
 
 ## `sandbox_exec`
 

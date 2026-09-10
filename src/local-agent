@@ -21609,22 +21609,31 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
     def normalize_validation_command(value):
         return " ".join(str(value).strip().strip("`").split())
 
-    def task_explicitly_requests_validation_command(task_text, command):
-        single_line_patterns = (
-            r"(?im)\bvalide\s+(?:apenas|somente)\s+com\s*:\s*([^\r\n]+)",
-            r"(?im)\bvalidate\s+only\s+with\s*:\s*([^\r\n]+)",
-        )
-        multiline_patterns = (
-            r"(?is)\bvalide\s+(?:apenas|somente)\s+com\s*:\s*(.+)\s*\Z",
-            r"(?is)\bvalidate\s+only\s+with\s*:\s*(.+)\s*\Z",
+    explicit_validation_single_line_patterns = (
+        r"(?im)\bvalide\s+(?:apenas|somente)\s+com\s*:\s*([^\r\n]+)",
+        r"(?im)\bvalidate\s+only\s+with\s*:\s*([^\r\n]+)",
+    )
+    explicit_validation_multiline_patterns = (
+        r"(?is)\bvalide\s+(?:apenas|somente)\s+com\s*:\s*(.+)\s*\Z",
+        r"(?is)\bvalidate\s+only\s+with\s*:\s*(.+)\s*\Z",
+    )
+
+    def task_has_explicit_validation_command(task_text):
+        return any(
+            re.search(pattern, task_text)
+            for pattern in (
+                *explicit_validation_single_line_patterns,
+                *explicit_validation_multiline_patterns,
+            )
         )
 
+    def task_explicitly_requests_validation_command(task_text, command):
         actual = normalize_validation_command(command)
 
         if not actual:
             return False
 
-        for pattern in single_line_patterns:
+        for pattern in explicit_validation_single_line_patterns:
             for match in re.finditer(pattern, task_text):
                 requested = normalize_validation_command(
                     match.group(1)
@@ -21633,7 +21642,7 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
                 if requested == actual:
                     return True
 
-        for pattern in multiline_patterns:
+        for pattern in explicit_validation_multiline_patterns:
             for match in re.finditer(pattern, task_text):
                 requested = normalize_validation_command(
                     match.group(1)
@@ -21669,15 +21678,23 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
             )
         )
 
+        explicit_remote_validation = (
+            remote_control_child
+            and task_has_explicit_validation_command(task)
+        )
+        validation_tools = (
+            {"sandbox_exec"}
+            if explicit_remote_validation
+            else {"bash", "validate"}
+        )
+        if remote_control_child and not explicit_remote_validation:
+            validation_tools.add("sandbox_exec")
+
         if last_validation_failure or patch_sanity_issue:
             return (
                 "repair",
-                set(WRITE_TOOLS) | {"bash", "validate"},
+                set(WRITE_TOOLS) | validation_tools,
             )
-
-        validation_tools = {"bash", "validate"}
-        if remote_control_child:
-            validation_tools.add("sandbox_exec")
 
         if needs_validation and required_test_change_pending:
             return (
