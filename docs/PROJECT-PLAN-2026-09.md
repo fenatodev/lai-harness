@@ -1,6 +1,6 @@
 # lai harness plano de transformação, setembro de 2026
 
-Estado pós-A12: plano histórico aprovado e executado para todos os marcos não-experimentais. A0–A9 e A12 estão completos; A10/A11 permanecem drafts experimentais. Este arquivo preserva o racional original; use [docs/README.md](README.md), [Architecture](ARCHITECTURE.md) e [Roadmap](../ROADMAP.md) para claims públicos atuais.
+Estado pós-A12: plano histórico aprovado e executado para todos os marcos não-experimentais. A0–A9 e A12 estão completos; A10/A11 foram entregues apenas como contratos fixture experimentais. Este arquivo preserva o racional original; use [docs/README.md](README.md), [Architecture](ARCHITECTURE.md) e [Roadmap](../ROADMAP.md) para claims públicos atuais.
 Cada capability continua dependendo de código, testes e contrato verificável; planejamento sozinho não ativa comportamento.
 
 ## Objetivo e escopo

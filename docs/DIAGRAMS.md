@@ -1,6 +1,6 @@
 # Architecture diagrams
 
-These diagrams describe implemented post-A12 behavior. They intentionally exclude A10 trusted-host and A11 computer-use drafts.
+These diagrams describe implemented post-A12 behavior. They intentionally exclude A10 trusted-host and A11 computer-use fixture contracts from the normal runtime path.
 
 ## System overview
 

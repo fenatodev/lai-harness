@@ -24,7 +24,7 @@ It is not a general-purpose agent platform, a hosted service, or a security sand
 
 ## Current implementation status
 
-Post-A12, every non-experimental autonomy milestone in the September 2026 replan is complete locally and validated by `make milestone-gate`. A10 and A11 remain explicit experimental drafts.
+Post-A12, every non-experimental autonomy milestone in the September 2026 replan is complete locally and validated by `make milestone-gate`. A10 and A11 are implemented only as explicit experimental fixture contracts.
 
 | Area | Status | Notes |
 | --- | --- | --- |
@@ -42,7 +42,7 @@ Post-A12, every non-experimental autonomy milestone in the September 2026 replan
 | Capability-declared skills | Implemented | Skill metadata is diagnostic only and cannot grant authority or add tools. |
 | Session forks and delegates | Implemented as bounded fixtures | Fork comparison remains inconclusive by default; delegates are fixture-only, serial by default, bounded and ownership-checked. |
 | Distribution and validation | Implemented | `lai distribution status` and `lai validation matrix`; no autoupdate, release, tag or publication. |
-| Trusted host / computer use | Experimental draft | Specs 077 and 078 are not implemented and are out of scope for normal use. |
+| Trusted host / computer use | Experimental fixture contracts | Specs 077 and 078 are implemented only as fixture contracts; real host or desktop control remains out of scope for normal use. |
 
 ## Architecture at a glance
 
@@ -66,7 +66,7 @@ More current post-A12 diagrams are maintained as SVG/Mermaid in [docs/DIAGRAMS.m
 - **Work-runs** use safe workspaces plus the verified sandbox executor. They can produce patches and local commits inside the sandboxed workspace, then require hash-bound review/promotion.
 - **Authority gates** classify sensitive operations as ALLOW, ASK or DENY. Critical ambiguity fails closed.
 - **External effects** are either disabled, fake-adapter-only, fixture-only, or explicit receipt-producing flows. Real GitHub push/PR/merge/release, real credentials, real browser profiles and real MCP servers are not enabled by this package.
-- **Experimental A10/A11** trusted-host and desktop computer-use profiles remain drafts and are not documented as current capability.
+- **Experimental A10/A11** trusted-host and desktop computer-use profiles are fixture-only contracts and are not documented as real host or personal desktop capability.
 
 See [Security model](docs/SECURITY-MODEL.md), [Threat model](docs/AUTONOMY-THREAT-MODEL.md), [Authority and approvals](docs/AUTHORITY-APPROVALS.md), [Sandbox](docs/SANDBOX.md), and [Safe workspaces](docs/SAFE-WORKSPACES.md).
 

@@ -1,6 +1,6 @@
 ## lai harness v0.5.0 — post-A12 autonomy and public repository graduation
 
-`v0.5.0` marks the post-A12 public graduation of lai harness. It packages the completed A0-A9 and A12 work, preserves A10/A11 as experimental drafts, and publishes the refreshed GitHub-facing documentation set. The release keeps the product local-first and conservative: fixture-only browser/MCP/external-action surfaces remain fixtures, real credentials and real account effects remain disabled, and publication does not enable autoupdate or remote administration.
+`v0.5.0` marks the post-A12 public graduation of lai harness. It packages the completed A0-A9 and A12 work, records A10/A11 only as experimental fixture contracts, and publishes the refreshed GitHub-facing documentation set. The release keeps the product local-first and conservative: fixture-only browser/MCP/external-action/trusted-host/computer-use surfaces remain fixtures, real credentials and real account effects remain disabled, and publication does not enable autoupdate or remote administration.
 
 ### Highlights
 
