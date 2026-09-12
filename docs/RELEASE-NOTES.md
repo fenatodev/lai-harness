@@ -12,6 +12,10 @@
 - Distribution status diagnostics, uninstall preservation behavior and risk-proportional validation matrix.
 - Public README refresh, documentation portal, architecture diagrams, sanitized CLI screenshots, contribution guidance and known limitations.
 
+### Maintenance
+
+- Enforced the public 180s control-run timeout in the async worker, reporting `timed_out`, `timeout_seconds`, and a `control_run_timeout` trajectory event when a child process exceeds the deadline.
+
 ### Validation
 
 Local release gate before tagging:

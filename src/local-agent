@@ -5901,6 +5901,7 @@ CONTROL_RUN_QUEUE_LIMIT = 4
 CONTROL_RUN_RETAIN_LIMIT = 20
 CONTROL_RUN_OUTPUT_LIMIT_BYTES = 64 * 1024
 CONTROL_RUN_DIFF_LIMIT_BYTES = 32 * 1024
+CONTROL_RUN_TIMEOUT_SECONDS = VALIDATION_TIMEOUT_SECONDS
 GATEWAY_CONTRACT_SCHEMA_VERSION = 1
 CONTROL_TRAJECTORY_SCHEMA_VERSION = 1
 CONTROL_TRAJECTORY_MAX_EVENTS = 80
@@ -5921,6 +5922,8 @@ CONTROL_TRAJECTORY_METADATA_KEYS = frozenset({
     "source_clean",
     "status",
     "task_chars",
+    "timed_out",
+    "timeout_seconds",
     "tool_profile",
 })
 CONTROL_PROMOTION_PATCH_LIMIT_BYTES = 512 * 1024
@@ -10569,6 +10572,8 @@ def _control_run_public_record_locked(server, record):
         "stdout_truncated": bool(record.get("stdout_truncated")),
         "stderr_truncated": bool(record.get("stderr_truncated")),
         "cancel_requested": bool(record.get("cancel_requested")),
+        "timed_out": bool(record.get("timed_out")),
+        "timeout_seconds": record.get("timeout_seconds", CONTROL_RUN_TIMEOUT_SECONDS),
         "tool_profile": record.get("tool_profile", CONTROL_RUN_TOOL_PROFILE),
         "sandbox_executor": record.get("sandbox_executor"),
         "session_id": record.get("session_id"),
@@ -11690,6 +11695,7 @@ def _control_run_worker(server):
         session_id = record.get("session_id")
         model_bridge_close = None
         runtime_path = None
+        timed_out = False
         try:
             if session_id:
                 with server.control_session_lock:
@@ -11791,11 +11797,14 @@ def _control_run_worker(server):
                 if server.control_run_active_id == control_run_id:
                     server.control_run_process = process
 
+            deadline = time.monotonic() + CONTROL_RUN_TIMEOUT_SECONDS
             terminate_at = None
+            timeout_recorded = False
             while True:
                 exit_code = process.poll()
                 if exit_code is not None:
                     break
+                now_monotonic = time.monotonic()
                 with server.control_run_lock:
                     cancel_requested = bool(record.get("cancel_requested")) or bool(
                         server.control_run_shutdown
@@ -11803,13 +11812,37 @@ def _control_run_worker(server):
                 if cancel_requested:
                     if terminate_at is None:
                         control_terminate_process(process, force=False)
-                        terminate_at = time.monotonic()
-                    elif time.monotonic() - terminate_at >= CONTROL_RUN_CANCEL_GRACE_SECONDS:
+                        terminate_at = now_monotonic
+                    elif now_monotonic - terminate_at >= CONTROL_RUN_CANCEL_GRACE_SECONDS:
+                        control_terminate_process(process, force=True)
+                elif now_monotonic >= deadline:
+                    timed_out = True
+                    if not timeout_recorded:
+                        timeout_recorded = True
+                        with server.control_run_condition:
+                            record["timed_out"] = True
+                            record["timeout_seconds"] = CONTROL_RUN_TIMEOUT_SECONDS
+                            record["timeout_requested_at"] = control_run_now()
+                            _control_trajectory_append_locked(
+                                record,
+                                "control_run_timeout",
+                                "running",
+                                at=record["timeout_requested_at"],
+                                reason_code="timeout_seconds_exceeded",
+                                timed_out=True,
+                                timeout_seconds=CONTROL_RUN_TIMEOUT_SECONDS,
+                            )
+                    if terminate_at is None:
+                        control_terminate_process(process, force=False)
+                        terminate_at = now_monotonic
+                    elif now_monotonic - terminate_at >= CONTROL_RUN_CANCEL_GRACE_SECONDS:
                         control_terminate_process(process, force=True)
                 time.sleep(CONTROL_RUN_POLL_SECONDS)
             exit_code = process.wait()
             stdout_text, stdout_truncated = _read_bounded_control_output(stdout_handle)
             stderr_text, stderr_truncated = _read_bounded_control_output(stderr_handle)
+            if timed_out and not stderr_text.strip():
+                stderr_text = f"control run timed out after {CONTROL_RUN_TIMEOUT_SECONDS:g} seconds"
             output_captured_at = control_run_now()
             workspace_result = (
                 collect_control_workspace_result(workspace_path)
@@ -11819,6 +11852,9 @@ def _control_run_worker(server):
             workspace_result_collected_at = control_run_now() if workspace_result is not None else None
             with server.control_run_condition:
                 record["exit_code"] = exit_code
+                if timed_out:
+                    record["timed_out"] = True
+                    record["timeout_seconds"] = CONTROL_RUN_TIMEOUT_SECONDS
                 record["output_captured_at"] = output_captured_at
                 if workspace_result is not None:
                     record["workspace_git_status"] = workspace_result["git_status"]
@@ -11852,6 +11888,8 @@ def _control_run_worker(server):
                 record["finished_at"] = control_run_now()
                 if record.get("cancel_requested") or server.control_run_shutdown:
                     terminal_status = "cancelled"
+                elif timed_out:
+                    terminal_status = "failed"
                 elif exit_code == 0:
                     terminal_status = "succeeded"
                 else:
@@ -11908,6 +11946,8 @@ def _control_run_worker(server):
                     reason_code=(
                         "cancel_requested"
                         if terminal_status == "cancelled"
+                        else "control_run_timeout"
+                        if timed_out
                         else "exit_code_0"
                         if exit_code == 0
                         else "exit_code_nonzero"
@@ -11915,6 +11955,8 @@ def _control_run_worker(server):
                     exit_code=exit_code,
                     output_truncated=bool(record.get("stdout_truncated") or record.get("stderr_truncated")),
                     session_persisted=record.get("session_persisted"),
+                    timed_out=timed_out,
+                    timeout_seconds=CONTROL_RUN_TIMEOUT_SECONDS if timed_out else None,
                 )
         except BaseException as exc:
             with server.control_run_condition:

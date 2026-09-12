@@ -2753,6 +2753,57 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertIsInstance(kwargs["env"], dict)
         self.assertEqual(kwargs["env"][agent.CONTROL_RUN_CHILD_ENV], "1")
 
+
+    def test_control_run_timeout_is_enforced_and_reported(self):
+        events = []
+
+        class HangingProcess:
+            def __init__(self, argv, **kwargs):
+                events.append(("start", list(argv)))
+                self.returncode = None
+                self.done = threading.Event()
+                kwargs["stdout"].write(b"")
+                kwargs["stderr"].write(b"")
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                self.done.wait(timeout)
+                return self.returncode
+
+            def terminate(self):
+                events.append(("terminate", None))
+
+            def kill(self):
+                events.append(("kill", None))
+                self.returncode = -9
+                self.done.set()
+
+        with mock.patch.object(agent, "CONTROL_RUN_TIMEOUT_SECONDS", 0.05), \
+                mock.patch.object(agent, "CONTROL_RUN_CANCEL_GRACE_SECONDS", 0.01), \
+                mock.patch.object(agent.subprocess, "Popen", HangingProcess):
+            status, payload = self.request(
+                "/v1/runs", method="POST", token=self.token,
+                body={"mode": "plan", "task": "hang until timeout"},
+            )
+            self.assertEqual(status, 202)
+            final = self.wait_run(payload["run"]["control_run_id"], "failed", timeout=2)
+            status, events_payload = self.request(
+                f"/v1/runs/{payload['run']['control_run_id']}/events", token=self.token,
+            )
+
+        self.assertEqual(status, 200)
+        self.assertTrue(final["timed_out"])
+        self.assertEqual(final["timeout_seconds"], 0.05)
+        self.assertEqual(final["exit_code"], -9)
+        self.assertIn("timed out", final["stderr"])
+        self.assertIn(("terminate", None), events)
+        self.assertIn(("kill", None), events)
+        reason_codes = [item["reason_code"] for item in events_payload["trajectory"]]
+        self.assertIn("timeout_seconds_exceeded", reason_codes)
+        self.assertIn("control_run_timeout", reason_codes)
+
     def test_async_run_real_subprocess_completes_against_fake_llama(self):
         key_file = self.base / "llama-key"
         key_file.write_text("synthetic-test-key", encoding="utf-8")
