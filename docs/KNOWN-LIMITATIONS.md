@@ -11,7 +11,7 @@ This document lists current limitations after A12. It is deliberately conservati
 
 ## Autonomy
 
-- A10 trusted-host and A11 computer-use specs remain draft/experimental.
+- A10 trusted-host and A11 computer-use are fixture-only experimental contracts, not real host, app, or personal desktop automation.
 - The harness does not provide arbitrary host shell execution through the remote control profile.
 - The sandbox executor does not run if the required digest-pinned image is missing; it does not pull automatically.
 - Local CLI use is not a complete OS security sandbox.
