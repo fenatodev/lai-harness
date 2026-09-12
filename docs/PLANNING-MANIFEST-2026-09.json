@@ -117,7 +117,7 @@
       "id": "077",
       "milestone": "A10",
       "path": ".specs/077-trusted-host-profile.md",
-      "status": "draft"
+      "status": "complete"
     },
     {
       "id": "078",
@@ -463,10 +463,7 @@
       "stop_rule": "Pode graduar chat antes de A10/A11; freeze completo uma vez, sem gates repetidos por spec."
     }
   ],
-  "next_action": {
-    "requires": "review consolidated A0-A12 diff; do not open A10/A11 experimental without explicit risk decision",
-    "status": "all_non_experimental_specs_complete"
-  },
+  "next_action": "Implement A11 isolated computer-use as fixture-only desktop/GUI contract after A10 trusted-host fixture completion.",
   "planning_window": "2026-09",
   "platform_deferred": [
     "native Windows",

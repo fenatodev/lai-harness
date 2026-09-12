@@ -3,7 +3,7 @@
 ## Metadata
 
 - Mode: `full`
-- Status: `draft`
+- Status: `complete`
 - Milestone: `A10`
 - Planning revision: `2026-09-08`
 
@@ -41,7 +41,7 @@ Conta/ambiente host fixture valida roots, processos e revogação; tentativa de 
 
 ## Context and Constraints
 
-Proposta sem implementação. Depende dos gates de A10 no [backlog](../docs/EXECUTION-BACKLOG-2026-09.md). [Arquitetura-alvo](../docs/TARGET-ARCHITECTURE.md) e [threat model](../docs/AUTONOMY-THREAT-MODEL.md) orientam o desenho; policy/AGENTS vigentes continuam aplicáveis. Exatamente uma spec pode ser ativa durante uma implementação por repositório; esta permanece draft até aprovação do plano e ativação da fatia.
+Implementado como backend experimental `fixture_linux`, sem habilitar host pessoal ou shell real. Depende dos gates de A10 no [backlog](../docs/EXECUTION-BACKLOG-2026-09.md). [Arquitetura-alvo](../docs/TARGET-ARCHITECTURE.md) e [threat model](../docs/AUTONOMY-THREAT-MODEL.md) orientam o desenho; policy/AGENTS vigentes continuam aplicáveis. Exatamente uma spec pode ser ativa durante uma implementação por repositório; esta permanece draft até aprovação do plano e ativação da fatia.
 
 ## Non-Goals
 
@@ -53,7 +53,7 @@ Root irrestrito, Windows nativo, controle do desktop pessoal ou garantia univers
 
 Fixtures e testes: Fixtures de OS em ambiente descartável, grants e stop; review crítico do threat model antes de dogfood no host pessoal.
 
-UX, observabilidade, rollback e stop rules específicos estão no contrato de A10 do backlog. Done requer todos os REQs, evidência registrada e nenhuma alegação de capability ainda não entregue. Se o escopo exceder esta fatia, separar follow-up draft antes de implementar.
+UX, observabilidade, rollback e stop rules específicos estão no contrato de A10 do backlog. Done requer todos os REQs, evidência registrada e nenhuma alegação de capability ainda não entregue. Entrega atual: `/v1/trusted-host/status`, grants TTL/revogação, execução fixture de artefato/processo, protected-path deny, emergency stop e contrato legado preservado. Se o escopo exceder esta fatia, separar follow-up draft antes de implementar.
 
 ## Traceability
 
