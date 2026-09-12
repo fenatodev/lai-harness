@@ -14,6 +14,7 @@
 
 ### Maintenance
 
+- Count child-run modified/recent paths with workspace-local sanitization so telemetry summaries do not drop valid workspace writes or count runtime paths.
 - Enforced the public 180s control-run timeout in the async worker, reporting `timed_out`, `timeout_seconds`, and a `control_run_timeout` trajectory event when a child process exceeds the deadline.
 - Persisted sanitized child-run telemetry from isolated workspaces so timed-out work-runs expose tool counts, last tool, validation status and path counts without command text, task text, stdout, stderr or raw diffs.
 
