@@ -2775,8 +2775,18 @@ class ControlPlaneTest(unittest.TestCase):
                         "last_phase": "validation_completed",
                         "tool_counts": {"create": 1, "inspect": 1, "sandbox_exec": 2},
                     },
-                    "modified_files": [],
-                    "recent_files": [],
+                    "modified_files": [
+                        "docs/child-summary.md",
+                        "./docs/child-summary.md",
+                        "/workspace/ignored-absolute.md",
+                        "../escape.md",
+                        ".lai-runtime/private.json",
+                    ],
+                    "recent_files": [
+                        "AGENTS.md",
+                        "docs/child-summary.md",
+                        "../escape.md",
+                    ],
                     "last_validation": {
                         "command": "make check && echo secret-token",
                         "result": "exit_code=127\n/bin/sh: make: not found\nsecret-token",
@@ -2799,6 +2809,8 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertEqual(summary["last_validation_status"], "fail")
         self.assertEqual(summary["last_validation_exit_code"], 127)
         self.assertEqual(summary["tool_counts"], {"create": 1, "inspect": 1, "sandbox_exec": 2})
+        self.assertEqual(summary["modified_path_count"], 1)
+        self.assertEqual(summary["recent_path_count"], 2)
         self.assertFalse(summary["command_included"])
         self.assertFalse(summary["stdout_included"])
         self.assertFalse(summary["stderr_included"])

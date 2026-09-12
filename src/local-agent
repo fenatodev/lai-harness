@@ -11150,7 +11150,9 @@ def control_promotion_worktree_path(control_run_id):
 
 
 def _control_workspace_runtime_path(rel):
-    rel = str(rel or "").replace("\\", "/").lstrip("./")
+    rel = str(rel or "").replace("\\", "/").strip()
+    while rel.startswith("./"):
+        rel = rel[2:]
     return rel == ".lai-runtime" or rel.startswith(".lai-runtime/") or rel == ".lai-model-bridge.sock"
 
 
@@ -11191,6 +11193,33 @@ def _control_workspace_state_payload(runtime_root, workspace_root):
         if isinstance(payload, dict):
             return payload
     return None
+
+
+def _control_workspace_state_path_count(items, workspace_root):
+    workspace_root = Path(workspace_root).resolve()
+    count = 0
+    seen = set()
+    for raw_path in items or []:
+        rel = str(raw_path or "").replace("\\", "/").strip()
+        while rel.startswith("./"):
+            rel = rel[2:]
+        if not rel or rel in {".", "./"} or rel.startswith("/"):
+            continue
+        if any(part in {"", ".", ".."} for part in rel.split("/")):
+            continue
+        if _control_workspace_runtime_path(rel):
+            continue
+        if not re.fullmatch(r"[A-Za-z0-9._/@+-]{1,240}", rel):
+            continue
+        candidate = (workspace_root / rel).resolve(strict=False)
+        try:
+            candidate.relative_to(workspace_root)
+        except ValueError:
+            continue
+        if rel not in seen:
+            seen.add(rel)
+            count += 1
+    return count
 
 
 def _control_validation_status_from_payload(payload):
@@ -11235,8 +11264,14 @@ def control_workspace_child_summary(runtime_root, workspace_root):
             if count > 0:
                 tool_counts[str(key)] = min(count, 1000)
 
-    modified = normalize_workspace_state_paths(payload.get("modified_files") or [])
-    recent = normalize_workspace_state_paths(payload.get("recent_files") or [])
+    modified_count = _control_workspace_state_path_count(
+        payload.get("modified_files") or [],
+        workspace_root,
+    )
+    recent_count = _control_workspace_state_path_count(
+        payload.get("recent_files") or [],
+        workspace_root,
+    )
     return {
         "source": "workspace_state",
         "tool_call_count": min(int(telemetry.get("tool_call_count") or 0), 1000),
@@ -11247,8 +11282,8 @@ def control_workspace_child_summary(runtime_root, workspace_root):
         "last_phase": str(telemetry.get("last_phase") or "")[:80] or None,
         "last_validation_status": validation_status,
         "last_validation_exit_code": validation_exit_code,
-        "modified_path_count": len(modified),
-        "recent_path_count": len(recent),
+        "modified_path_count": modified_count,
+        "recent_path_count": recent_count,
         "tool_counts": tool_counts,
         "command_included": False,
         "stdout_included": False,
