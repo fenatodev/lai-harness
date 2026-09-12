@@ -5949,6 +5949,15 @@ CONTROL_TRUSTED_HOST_ADAPTER = "fixture_linux"
 CONTROL_TRUSTED_HOST_ROOT = "fixture:/workspace"
 CONTROL_TRUSTED_HOST_ALLOWED_OPERATIONS = frozenset({"write_artifact", "process_probe"})
 CONTROL_TRUSTED_HOST_ALLOWED_PROCESSES = frozenset({"fixture-worker"})
+CONTROL_COMPUTER_USE_SCHEMA_VERSION = 1
+CONTROL_COMPUTER_USE_ADAPTER = "fixture_desktop"
+CONTROL_COMPUTER_USE_SESSION_PATTERN = r"cu-[0-9a-f]{16}"
+CONTROL_COMPUTER_USE_RECEIPT_PATTERN = r"cur-[0-9a-f]{16}"
+CONTROL_COMPUTER_USE_RETAIN_LIMIT = 100
+CONTROL_COMPUTER_USE_ALLOWED_APPS = frozenset({"fixture-notes"})
+CONTROL_COMPUTER_USE_ALLOWED_WINDOWS = frozenset({"notes-main"})
+CONTROL_COMPUTER_USE_ALLOWED_ACTIONS = frozenset({"type_text", "click_button", "screenshot"})
+CONTROL_COMPUTER_USE_CRITICAL_KEYS = frozenset({"enter", "ctrl+enter", "cmd+enter", "alt+f4", "delete"})
 CONTROL_EXTERNAL_ACTION_SCHEMA_VERSION = 1
 CONTROL_EXTERNAL_ACTION_DEFAULT_TTL_SECONDS = 900
 CONTROL_EXTERNAL_ACTION_MAX_TTL_SECONDS = 3600
@@ -5998,6 +6007,10 @@ def control_trusted_host_base():
 
 def control_external_action_base():
     return Path(DATA_BASE) / "external-actions"
+
+
+def control_computer_use_base():
+    return Path(DATA_BASE) / "computer-use-fixture"
 
 
 def control_browser_base():
@@ -8143,6 +8156,12 @@ def control_gateway_contract_payload():
         {"method": "POST", "path": "/v1/trusted-host/execute", "auth_required": True, "purpose": "execute one allowed fixture Linux host operation without shell or personal host access"},
         {"method": "POST", "path": "/v1/trusted-host/stop", "auth_required": True, "purpose": "emergency-stop all active fixture trusted-host grants"},
         {"method": "DELETE", "path": "/v1/trusted-host/grants/{grant_id}", "auth_required": True, "purpose": "revoke one fixture trusted-host grant"},
+        {"method": "GET", "path": "/v1/computer-use/status", "auth_required": True, "purpose": "read A11 fixture-only isolated computer-use status and residual risks"},
+        {"method": "POST", "path": "/v1/computer-use/sessions", "auth_required": True, "purpose": "create one dedicated fixture desktop session with scoped app/window"},
+        {"method": "GET", "path": "/v1/computer-use/sessions/{computer_session_id}/screenshot", "auth_required": True, "purpose": "read one bounded sanitized fixture desktop screenshot"},
+        {"method": "POST", "path": "/v1/computer-use/sessions/{computer_session_id}/actions", "auth_required": True, "purpose": "perform or deny one fixture desktop action after drift and critical-intent checks"},
+        {"method": "POST", "path": "/v1/computer-use/sessions/{computer_session_id}/cancel", "auth_required": True, "purpose": "cancel one fixture desktop session outside model control"},
+        {"method": "DELETE", "path": "/v1/computer-use/sessions/{computer_session_id}", "auth_required": True, "purpose": "close one fixture desktop session"},
         {"method": "GET", "path": "/v1/credentials/status", "auth_required": True, "purpose": "read fake credential-broker status without secrets"},
         {"method": "GET", "path": "/v1/egress/status", "auth_required": True, "purpose": "read governed egress status, destination classes, quota policy, and forbidden exits"},
         {"method": "GET", "path": "/v1/external-actions/status", "auth_required": True, "purpose": "read fake authenticated external-action adapter status without credentials"},
@@ -8257,6 +8276,12 @@ def control_gateway_contract_payload():
             "trusted_host_real_enabled": False,
             "trusted_host_personal_host_enabled": False,
             "trusted_host_shell_execution": False,
+            "isolated_computer_use_experimental": True,
+            "computer_use_fixture_desktop": True,
+            "real_desktop_control_enabled": False,
+            "personal_desktop_control_enabled": False,
+            "computer_use_critical_actions_require_intent": True,
+            "computer_use_screenshot_sanitized": True,
             "credential_broker_foundation": True,
             "real_credentials_enabled": False,
             "governed_egress": True,
@@ -8288,6 +8313,8 @@ def control_gateway_contract_payload():
             "generic_remote_shell",
             "trusted_host_personal_desktop_control",
             "trusted_host_root_shell",
+            "computer_use_personal_desktop_control",
+            "computer_use_unverified_critical_clicks",
             "direct_source_checkout_write",
             "dependency_installation",
             "host_environment_override",
@@ -9191,6 +9218,270 @@ def control_trusted_host_stop(server, request):
         "executed": True,
         "secret_material_printed": False,
     }
+
+
+class ControlComputerUseConflict(RuntimeError):
+    pass
+
+
+def _control_computer_use_timestamp(epoch=None):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch or time.time()))
+
+
+def _control_computer_use_validate_session_id(value):
+    if not isinstance(value, str) or not re.fullmatch(CONTROL_COMPUTER_USE_SESSION_PATTERN, value):
+        raise ValueError("computer use session id is invalid")
+    return value
+
+
+def _control_computer_use_session_path(session_id):
+    checked = _control_computer_use_validate_session_id(session_id)
+    return control_computer_use_base() / "sessions" / f"{checked}.json"
+
+
+def _control_computer_use_receipt_path(receipt_id):
+    if not isinstance(receipt_id, str) or not re.fullmatch(CONTROL_COMPUTER_USE_RECEIPT_PATTERN, receipt_id):
+        raise ValueError("computer use receipt id is invalid")
+    return control_computer_use_base() / "receipts" / f"{receipt_id}.json"
+
+
+def _control_computer_use_prune():
+    base = control_computer_use_base()
+    for subdir, pattern in (("sessions", "cu-*.json"), ("receipts", "cur-*.json")):
+        root = base / subdir
+        if not root.is_dir():
+            continue
+        files = sorted((item for item in root.glob(pattern) if item.is_file()), key=lambda item: item.stat().st_mtime)
+        for victim in files[:-CONTROL_COMPUTER_USE_RETAIN_LIMIT]:
+            try:
+                victim.unlink()
+            except OSError:
+                pass
+
+
+def _control_computer_use_public_session(record):
+    return {
+        "schema_version": CONTROL_COMPUTER_USE_SCHEMA_VERSION,
+        "computer_session_id": record.get("computer_session_id"),
+        "status": record.get("status"),
+        "adapter": record.get("adapter"),
+        "app": record.get("app"),
+        "window_id": record.get("window_id"),
+        "expected_window_hash": record.get("expected_window_hash"),
+        "created_at": record.get("created_at"),
+        "closed_at": record.get("closed_at"),
+        "cancelled_at": record.get("cancelled_at"),
+        "fixture_only": True,
+        "dedicated_desktop": True,
+        "personal_profile_enabled": False,
+        "real_desktop_enabled": False,
+        "secret_material_printed": False,
+    }
+
+
+def _control_computer_use_load(session_id):
+    path = _control_computer_use_session_path(session_id)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise KeyError(session_id) from None
+    except json.JSONDecodeError as exc:
+        raise ControlComputerUseConflict("computer use session state is invalid") from exc
+    if not isinstance(payload, dict):
+        raise ControlComputerUseConflict("computer use session state is invalid")
+    if payload.get("schema_version") != CONTROL_COMPUTER_USE_SCHEMA_VERSION:
+        raise ControlComputerUseConflict("computer use session schema version is unsupported")
+    if payload.get("computer_session_id") != session_id:
+        raise ControlComputerUseConflict("computer use session identity mismatch")
+    return payload
+
+
+def _control_computer_use_write(record):
+    _control_private_json_write(_control_computer_use_session_path(record["computer_session_id"]), record)
+    return record
+
+
+def _control_computer_use_receipt_write(receipt):
+    _control_private_json_write(_control_computer_use_receipt_path(receipt["receipt_id"]), receipt)
+    return receipt
+
+
+def control_computer_use_status_payload():
+    return {
+        "schema_version": CONTROL_COMPUTER_USE_SCHEMA_VERSION,
+        "product": PRODUCT_NAME,
+        "version": VERSION,
+        "repository": str(ROOT),
+        "milestone": "A11",
+        "experimental": True,
+        "adapter": CONTROL_COMPUTER_USE_ADAPTER,
+        "fixture_available": True,
+        "dedicated_desktop_required": True,
+        "real_desktop_enabled": False,
+        "personal_desktop_enabled": False,
+        "personal_profile_enabled": False,
+        "critical_actions_enabled": False,
+        "window_drift_blocks_action": True,
+        "sensitive_capture_blocks_action": True,
+        "cancel_is_external_to_model": True,
+        "legacy_contract_preserved": True,
+        "allowed_apps": sorted(CONTROL_COMPUTER_USE_ALLOWED_APPS),
+        "allowed_windows": sorted(CONTROL_COMPUTER_USE_ALLOWED_WINDOWS),
+        "allowed_actions": sorted(CONTROL_COMPUTER_USE_ALLOWED_ACTIONS),
+        "stop_rule": "deny personal desktop control until a dedicated OS-enforced desktop, sanitized capture, drift detection, and external stop are proven",
+        "residual_risks": [
+            "fixture screenshots are synthetic and do not authorize controlling the user's personal desktop",
+            "real GUI side effects need app-specific reconciliation and cannot be rolled back generically",
+        ],
+        "secret_material_printed": False,
+    }
+
+
+def control_create_computer_use_session(server, request):
+    if not isinstance(request, dict):
+        raise ValueError("JSON object required")
+    unknown = sorted(set(request) - {"adapter", "app", "window_id", "risk_acknowledged"})
+    if unknown:
+        raise ValueError("unknown fields: " + ", ".join(unknown))
+    if request.get("adapter") != CONTROL_COMPUTER_USE_ADAPTER:
+        return {"schema_version": CONTROL_COMPUTER_USE_SCHEMA_VERSION, "decision": "DENY", "reason_code": "computer_use_adapter_unavailable", "executed": False, "fixture_only": True, "secret_material_printed": False}
+    if request.get("risk_acknowledged") is not True:
+        return {"schema_version": CONTROL_COMPUTER_USE_SCHEMA_VERSION, "decision": "DENY", "reason_code": "computer_use_risk_ack_required", "executed": False, "fixture_only": True, "secret_material_printed": False}
+    app = request.get("app") or "fixture-notes"
+    window_id = request.get("window_id") or "notes-main"
+    if app not in CONTROL_COMPUTER_USE_ALLOWED_APPS:
+        raise ValueError("app is unsupported")
+    if window_id not in CONTROL_COMPUTER_USE_ALLOWED_WINDOWS:
+        raise ValueError("window_id is unsupported")
+    window_hash = hashlib.sha256(f"{app}:{window_id}:fixture-desktop".encode("utf-8")).hexdigest()
+    now = _control_computer_use_timestamp()
+    record = {
+        "schema_version": CONTROL_COMPUTER_USE_SCHEMA_VERSION,
+        "computer_session_id": "cu-" + secrets.token_hex(8),
+        "status": "active",
+        "adapter": CONTROL_COMPUTER_USE_ADAPTER,
+        "app": app,
+        "window_id": window_id,
+        "expected_window_hash": window_hash,
+        "created_at": now,
+        "closed_at": None,
+        "cancelled_at": None,
+        "action_count": 0,
+        "text_sha256": None,
+        "fixture_only": True,
+    }
+    with server.control_computer_use_lock:
+        _control_computer_use_write(record)
+        _control_computer_use_prune()
+    return _control_computer_use_public_session(record)
+
+
+def _control_computer_use_active_session(server, session_id):
+    session_id = _control_computer_use_validate_session_id(session_id)
+    with server.control_computer_use_lock:
+        record = _control_computer_use_load(session_id)
+        if record.get("status") != "active":
+            raise ControlComputerUseConflict("computer use session is not active")
+        return record
+
+
+def control_computer_use_screenshot_payload(server, session_id):
+    record = _control_computer_use_active_session(server, session_id)
+    return {
+        "schema_version": CONTROL_COMPUTER_USE_SCHEMA_VERSION,
+        "computer_session_id": record["computer_session_id"],
+        "decision": "ALLOW",
+        "reason_code": "sanitized_screenshot_captured",
+        "adapter": CONTROL_COMPUTER_USE_ADAPTER,
+        "fixture_only": True,
+        "app": record["app"],
+        "window_id": record["window_id"],
+        "window_hash": record["expected_window_hash"],
+        "screenshot": "[fixture screenshot: notes-main title=Fixture Notes body=<redacted>]",
+        "sensitive_regions_redacted": True,
+        "secret_material_printed": False,
+    }
+
+
+def _control_computer_use_denial(session_id, reason_code):
+    return {"schema_version": CONTROL_COMPUTER_USE_SCHEMA_VERSION, "computer_session_id": session_id, "decision": "DENY", "reason_code": reason_code, "executed": False, "fixture_only": True, "secret_material_printed": False}
+
+
+def control_computer_use_action(server, session_id, request):
+    if not isinstance(request, dict):
+        raise ValueError("JSON object required")
+    unknown = sorted(set(request) - {"action", "expected_window_hash", "text", "target", "key", "sensitive_capture", "intent_verified"})
+    if unknown:
+        raise ValueError("unknown fields: " + ", ".join(unknown))
+    with server.control_computer_use_lock:
+        record = _control_computer_use_active_session(server, session_id)
+        if request.get("sensitive_capture") is True:
+            return _control_computer_use_denial(session_id, "sensitive_capture_blocked")
+        if request.get("expected_window_hash") != record.get("expected_window_hash"):
+            return _control_computer_use_denial(session_id, "window_drift_detected")
+        action = request.get("action")
+        if action not in CONTROL_COMPUTER_USE_ALLOWED_ACTIONS:
+            raise ValueError("action is unsupported")
+        key = str(request.get("key") or "").lower()
+        if key in CONTROL_COMPUTER_USE_CRITICAL_KEYS and request.get("intent_verified") is not True:
+            return _control_computer_use_denial(session_id, "critical_intent_required")
+        receipt = {
+            "schema_version": CONTROL_COMPUTER_USE_SCHEMA_VERSION,
+            "receipt_id": "cur-" + secrets.token_hex(8),
+            "computer_session_id": session_id,
+            "action": action,
+            "decision": "ALLOW",
+            "reason_code": "fixture_gui_action_recorded",
+            "executed": True,
+            "created_at": _control_computer_use_timestamp(),
+            "app": record["app"],
+            "window_id": record["window_id"],
+            "target": request.get("target") if isinstance(request.get("target"), str) else None,
+            "text_sha256": None,
+            "sensitive_regions_redacted": True,
+            "fixture_only": True,
+        }
+        if action == "type_text":
+            text_value = request.get("text")
+            if not isinstance(text_value, str) or len(text_value.encode("utf-8")) > 2048:
+                raise ValueError("text must be a bounded string")
+            receipt["text_sha256"] = hashlib.sha256(text_value.encode("utf-8")).hexdigest()
+            record["text_sha256"] = receipt["text_sha256"]
+        record["action_count"] = int(record.get("action_count") or 0) + 1
+        _control_computer_use_write(record)
+        _control_computer_use_receipt_write(receipt)
+        _control_computer_use_prune()
+    public = dict(receipt)
+    public["secret_material_printed"] = False
+    public["raw_text_included"] = False
+    public["coordinates_included"] = False
+    return public
+
+
+def control_computer_use_cancel(server, session_id, request):
+    if request not in ({}, None):
+        if not isinstance(request, dict):
+            raise ValueError("JSON object required")
+        unknown = sorted(set(request) - {"reason"})
+        if unknown:
+            raise ValueError("unknown fields: " + ", ".join(unknown))
+    with server.control_computer_use_lock:
+        record = _control_computer_use_load(session_id)
+        if record.get("status") == "active":
+            record["status"] = "cancelled"
+            record["cancelled_at"] = _control_computer_use_timestamp()
+            _control_computer_use_write(record)
+    return {"schema_version": CONTROL_COMPUTER_USE_SCHEMA_VERSION, "computer_session_id": session_id, "decision": "ALLOW", "reason_code": "external_cancel_recorded", "executed": True, "fixture_only": True, "secret_material_printed": False}
+
+
+def control_close_computer_use_session(server, session_id):
+    with server.control_computer_use_lock:
+        record = _control_computer_use_load(session_id)
+        if record.get("status") == "active":
+            record["status"] = "closed"
+            record["closed_at"] = _control_computer_use_timestamp()
+            _control_computer_use_write(record)
+        return _control_computer_use_public_session(record)
 
 
 class ControlCredentialConflict(RuntimeError):
@@ -11666,6 +11957,7 @@ def initialize_control_runs(server):
     server.control_authority_lock = threading.RLock()
     server.control_credential_lock = threading.RLock()
     server.control_trusted_host_lock = threading.RLock()
+    server.control_computer_use_lock = threading.RLock()
     server.control_external_action_lock = threading.RLock()
     server.control_delegate_lock = threading.RLock()
     server.control_mcp_execution_lock = threading.RLock()
@@ -11943,6 +12235,9 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/v1/credentials/status":
             self._json(200, control_credential_status_payload())
             return
+        if parsed.path == "/v1/computer-use/status":
+            self._json(200, control_computer_use_status_payload())
+            return
         if parsed.path == "/v1/experiments/status":
             self._json(200, control_experiments_status_payload())
             return
@@ -11993,6 +12288,15 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
                 self._json(404, {"error": {"code": "browser_session_not_found", "message": "browser session not found"}})
             except ControlBrowserConflict as exc:
                 self._json(409, {"error": {"code": "browser_conflict", "message": str(exc)}})
+            return
+        computer_screenshot_match = re.fullmatch(r"/v1/computer-use/sessions/(cu-[0-9a-f]{16})/screenshot", parsed.path)
+        if computer_screenshot_match and not parsed.query:
+            try:
+                self._json(200, control_computer_use_screenshot_payload(self.server, computer_screenshot_match.group(1)))
+            except KeyError:
+                self._json(404, {"error": {"code": "computer_use_session_not_found", "message": "computer use session not found"}})
+            except ControlComputerUseConflict as exc:
+                self._json(409, {"error": {"code": "computer_use_conflict", "message": str(exc)}})
             return
         if parsed.path == "/v1/mcp/status":
             self._json(200, mcp_status_payload())
@@ -12090,8 +12394,10 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
         browser_navigate_match = re.fullmatch(r"/v1/browser/sessions/(br-[0-9a-f]{16})/navigate", parsed.path)
         browser_download_match = re.fullmatch(r"/v1/browser/sessions/(br-[0-9a-f]{16})/downloads", parsed.path)
         browser_action_match = re.fullmatch(r"/v1/browser/sessions/(br-[0-9a-f]{16})/actions", parsed.path)
+        computer_action_match = re.fullmatch(r"/v1/computer-use/sessions/(cu-[0-9a-f]{16})/actions", parsed.path)
+        computer_cancel_match = re.fullmatch(r"/v1/computer-use/sessions/(cu-[0-9a-f]{16})/cancel", parsed.path)
         experiment_compare_match = re.fullmatch(r"/v1/experiments/(ex-[0-9a-f]{16})/compare", parsed.path)
-        if parsed.path not in {"/v1/policy-check", "/v1/mcp/policy-check", "/v1/mcp/execution/call", "/v1/runs", "/v1/sessions", "/v1/experiments/forks", "/v1/delegates/waves", "/v1/authority/intents", "/v1/authority/approvals", "/v1/trusted-host/grants", "/v1/trusted-host/execute", "/v1/trusted-host/stop", "/v1/credentials/refs", "/v1/credentials/use", "/v1/external-actions/intents", "/v1/external-actions/execute", "/v1/browser/sessions", "/v1/local-chat/runs"} and not promotion_match and not local_promotion_match and not local_lifecycle_match and not browser_navigate_match and not browser_download_match and not browser_action_match and not experiment_compare_match and not delegate_cancel_match:
+        if parsed.path not in {"/v1/policy-check", "/v1/mcp/policy-check", "/v1/mcp/execution/call", "/v1/runs", "/v1/sessions", "/v1/experiments/forks", "/v1/delegates/waves", "/v1/authority/intents", "/v1/authority/approvals", "/v1/trusted-host/grants", "/v1/trusted-host/execute", "/v1/trusted-host/stop", "/v1/computer-use/sessions", "/v1/credentials/refs", "/v1/credentials/use", "/v1/external-actions/intents", "/v1/external-actions/execute", "/v1/browser/sessions", "/v1/local-chat/runs"} and not promotion_match and not local_promotion_match and not local_lifecycle_match and not browser_navigate_match and not browser_download_match and not browser_action_match and not computer_action_match and not computer_cancel_match and not experiment_compare_match and not delegate_cancel_match:
             if parsed.path in {"/v1/status", "/v1/readiness"} or parsed.path.startswith("/v1/runs/"):
                 self._json(405, {"error": {"code": "method_not_allowed", "message": "method not allowed"}})
             else:
@@ -12176,6 +12482,49 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
                 self._json(400, {"error": {"code": "invalid_browser_request", "message": str(exc)}})
                 return
             self._json(200, {"product": PRODUCT_NAME, "version": VERSION, "repository": str(ROOT), "browser_action": result})
+            return
+        if parsed.path == "/v1/computer-use/sessions":
+            if parsed.query:
+                self._json(400, {"error": {"code": "invalid_request", "message": "computer use sessions endpoint does not accept query parameters"}})
+                return
+            try:
+                session = control_create_computer_use_session(self.server, request)
+            except ValueError as exc:
+                self._json(400, {"error": {"code": "invalid_computer_use_request", "message": str(exc)}})
+                return
+            status = 201 if session.get("computer_session_id") else 422
+            self._json(status, {"product": PRODUCT_NAME, "version": VERSION, "repository": str(ROOT), "computer_use": session})
+            return
+        if computer_action_match:
+            if parsed.query:
+                self._json(400, {"error": {"code": "invalid_request", "message": "computer use action endpoint does not accept query parameters"}})
+                return
+            try:
+                result = control_computer_use_action(self.server, computer_action_match.group(1), request)
+            except KeyError:
+                self._json(404, {"error": {"code": "computer_use_session_not_found", "message": "computer use session not found"}})
+                return
+            except ControlComputerUseConflict as exc:
+                self._json(409, {"error": {"code": "computer_use_conflict", "message": str(exc)}})
+                return
+            except ValueError as exc:
+                self._json(400, {"error": {"code": "invalid_computer_use_request", "message": str(exc)}})
+                return
+            self._json(200 if result.get("decision") == "ALLOW" else 422, {"product": PRODUCT_NAME, "version": VERSION, "repository": str(ROOT), "computer_action": result})
+            return
+        if computer_cancel_match:
+            if parsed.query:
+                self._json(400, {"error": {"code": "invalid_request", "message": "computer use cancel endpoint does not accept query parameters"}})
+                return
+            try:
+                result = control_computer_use_cancel(self.server, computer_cancel_match.group(1), request)
+            except KeyError:
+                self._json(404, {"error": {"code": "computer_use_session_not_found", "message": "computer use session not found"}})
+                return
+            except ValueError as exc:
+                self._json(400, {"error": {"code": "invalid_computer_use_request", "message": str(exc)}})
+                return
+            self._json(200, {"product": PRODUCT_NAME, "version": VERSION, "repository": str(ROOT), "computer_use": result})
             return
         if parsed.path == "/v1/local-chat/runs":
             if parsed.query:
@@ -12588,6 +12937,7 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlsplit(self.path)
         session_match = re.fullmatch(r"/v1/sessions/(cs-[0-9a-f]{16})", parsed.path)
         browser_match = re.fullmatch(r"/v1/browser/sessions/(br-[0-9a-f]{16})", parsed.path)
+        computer_match = re.fullmatch(r"/v1/computer-use/sessions/(cu-[0-9a-f]{16})", parsed.path)
         if browser_match:
             try:
                 payload = control_delete_browser_session(self.server, browser_match.group(1))
@@ -12598,6 +12948,17 @@ class LaiControlRequestHandler(BaseHTTPRequestHandler):
                 self._json(409, {"error": {"code": "browser_conflict", "message": str(exc)}})
                 return
             self._json(200, {"product": PRODUCT_NAME, "version": VERSION, "repository": str(ROOT), "browser": payload})
+            return
+        if computer_match and not parsed.query:
+            try:
+                session = control_close_computer_use_session(self.server, computer_match.group(1))
+            except KeyError:
+                self._json(404, {"error": {"code": "computer_use_session_not_found", "message": "computer use session not found"}})
+                return
+            except ControlComputerUseConflict as exc:
+                self._json(409, {"error": {"code": "computer_use_conflict", "message": str(exc)}})
+                return
+            self._json(200, {"product": PRODUCT_NAME, "version": VERSION, "repository": str(ROOT), "computer_use": session})
             return
         trusted_host_match = re.fullmatch(r"/v1/trusted-host/grants/(thg-[0-9a-f]{16})", parsed.path)
         if trusted_host_match:
@@ -12929,12 +13290,12 @@ def start_control_model_bridge(socket_path, host, port=None, api_key_file=None):
     return close
 
 
-def doctor_status(host):
+def doctor_status(host, timeout=3):
     url = f"http://{host}:{LLAMA_PORT}/props"
 
     def request_status(request):
         try:
-            with urllib.request.urlopen(request, timeout=3) as response:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 return response.status
         except urllib.error.HTTPError as exc:
             return exc.code
@@ -14884,7 +15245,7 @@ def collect_readiness_status():
         server_detail = str(exc)[:300]
     else:
         try:
-            unauthenticated, authenticated = doctor_status(host)
+            unauthenticated, authenticated = doctor_status(host, timeout=1)
             server_detail = f"unauthenticated={unauthenticated or '000'} authenticated={authenticated or '000'}"
         except Exception as exc:
             unauthenticated = 0

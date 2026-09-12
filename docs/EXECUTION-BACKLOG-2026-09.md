@@ -1,6 +1,6 @@
 # lai harness execution backlog, setembro de 2026
 
-Estado pós-A12: backlog histórico reconciliado. A0–A9 e A12 estão completos; A10/A11 permanecem experimentais. [Plano](PROJECT-PLAN-2026-09.md) · [Arquitetura atual](ARCHITECTURE.md) · [Threat model](AUTONOMY-THREAT-MODEL.md) · [Manifest](PLANNING-MANIFEST-2026-09.json).
+Estado pós-A12: backlog histórico reconciliado. A0–A9 e A12 estão completos; A10/A11 permanecem experimentais fixture-only. [Plano](PROJECT-PLAN-2026-09.md) · [Arquitetura atual](ARCHITECTURE.md) · [Threat model](AUTONOMY-THREAT-MODEL.md) · [Manifest](PLANNING-MANIFEST-2026-09.json).
 
 ## Baseline e histórico preservado
 
@@ -31,7 +31,7 @@ Cada contrato abaixo explicita problema, objetivo/motivação, arquitetura, requ
 | A8 | model-profiles-and-skills | A1, A2 | 73, 74 | complete |
 | A9 | fork-and-delegates | A1, A2, A3, A4 | 75, 76 | complete |
 | A10 | trusted-host | A1, A2, A3, A4, A6 | 77 | experimental |
-| A11 | computer-use | A10 | 78 | experimental |
+| A11 | computer-use | A10 | 78 | experimental fixture |
 | A12 | distribution-and-validation | A4 | 79, 80 | complete |
 
 ## A0 — baseline-and-replan
@@ -253,7 +253,7 @@ A10 complete: entregue como contrato experimental `fixture_linux`, com status, g
 
 | Campo | Contrato |
 | --- | --- |
-| Estado/dono | experimental; Harness + Gateway |
+| Estado/dono | complete; Harness fixture contract; Gateway follow-through via existing contract |
 | Problema | GUI cobre aplicações sem API, com efeitos difíceis de verificar. |
 | Objetivo/motivação | Pilotar automação visual em desktop dedicado antes do desktop pessoal. |
 | Arquitetura | Adapter de janela/input/captura dentro de VM/desktop de automação e grant. |
@@ -262,11 +262,13 @@ A10 complete: entregue como contrato experimental `fixture_linux`, com status, g
 | Segurança | Threat model aplicável, grants não derivados do modelo e capability indisponível se fronteira essencial falhar |
 | UX | Preview bounded, alvo da ação e stop acessível; handoff para ato crítico ambíguo. |
 | Aceite/done | Todos os REQs das specs ligadas comprovados, contratos legados preservados e evidência registrada, respeitando stop abaixo |
-| Fixtures/testes | App fixture, mudança de janela, screenshot sensível, injection e cancel sem modelo. |
+| Fixtures/testes | App local sintético `fixture-notes`, troca de janela, captura sensível, tecla crítica sem intenção, cancel externo, screenshot sanitizado e canário secreto. |
 | Observabilidade | Action/window IDs, captura limitada, estado parcial e unknown externo. |
 | Rollback | Fechar sessão/VM; não prometer desfazer aplicação/conta externa. |
 | Non-goals | Automação universal, apps pessoais ou novo cliente desktop LAI. |
 | Stop rules | Se intenção e alvo crítico não puderem ser vinculados, handoff; concluir piloto 078 sem ampliar escopo. |
+
+A11 complete: entregue como contrato experimental `fixture_desktop`, com status, sessão dedicada sintética, screenshot sanitizado, receipts sem segredo, bloqueios de drift/captura sensível/tecla crítica e cancelamento externo. Desktop pessoal, apps reais, perfil pessoal e GUI crítica real continuam indisponíveis até existir boundary OS comprovado.
 
 ## A12 — distribution-and-validation
 
