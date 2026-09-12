@@ -19,12 +19,12 @@ All non-experimental September 2026 replan milestones are complete in the local 
 | A8 | model profiles and skills | complete | 073, 074 |
 | A9 | forks and delegates | complete | 075, 076 |
 | A10 | trusted host | experimental draft | 077 |
-| A11 | isolated computer use | experimental draft | 078 |
+| A11 | isolated computer use | experimental fixture | 078 |
 | A12 | distribution and validation | complete | 079, 080 |
 
 ## Public capability line
 
-The current public line should document A0-A9 and A12 as implemented. A10 and A11 must remain explicitly experimental until a maintainer makes a separate risk decision, implements the specs, and validates them.
+The current public line should document A0-A9 and A12 as implemented. A10 and A11 are implemented only as experimental fixture contracts; real trusted-host or personal desktop control remains unavailable until a maintainer makes a separate risk decision and validates OS-enforced boundaries.
 
 ## Near-term maintenance priorities
 
@@ -46,3 +46,5 @@ The current public line should document A0-A9 and A12 as implemented. A10 and A1
 ## Historical planning
 
 Detailed planning records remain in `docs/PROJECT-PLAN-2026-09.md`, `docs/EXECUTION-BACKLOG-2026-09.md`, `docs/PLANNING-MANIFEST-2026-09.json`, `docs/DECISION-LOG-2026-09.md` and the `.specs/` directory. Prefer the current README and documentation portal for public capability claims.
+
+A11 complete: entregue como contrato experimental `fixture_desktop`, com sessão dedicada sintética, screenshot sanitizado, receipts sem segredo, bloqueio de drift/captura sensível/ação crítica e cancelamento externo. Desktop pessoal, apps reais, perfil pessoal e ações críticas reais continuam indisponíveis.

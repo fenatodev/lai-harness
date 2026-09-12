@@ -684,6 +684,10 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertTrue(payload["capabilities"]["trusted_host_fixture_linux"])
         self.assertFalse(payload["capabilities"]["trusted_host_real_enabled"])
         self.assertFalse(payload["capabilities"]["trusted_host_shell_execution"])
+        self.assertTrue(payload["capabilities"]["isolated_computer_use_experimental"])
+        self.assertTrue(payload["capabilities"]["computer_use_fixture_desktop"])
+        self.assertFalse(payload["capabilities"]["real_desktop_control_enabled"])
+        self.assertFalse(payload["capabilities"]["personal_desktop_control_enabled"])
         self.assertTrue(payload["capabilities"]["credential_broker_foundation"])
         self.assertFalse(payload["capabilities"]["real_credentials_enabled"])
         self.assertTrue(payload["capabilities"]["governed_egress"])
@@ -716,6 +720,12 @@ class ControlPlaneTest(unittest.TestCase):
             ("POST", "/v1/trusted-host/execute"),
             ("POST", "/v1/trusted-host/stop"),
             ("DELETE", "/v1/trusted-host/grants/{grant_id}"),
+            ("GET", "/v1/computer-use/status"),
+            ("POST", "/v1/computer-use/sessions"),
+            ("GET", "/v1/computer-use/sessions/{computer_session_id}/screenshot"),
+            ("POST", "/v1/computer-use/sessions/{computer_session_id}/actions"),
+            ("POST", "/v1/computer-use/sessions/{computer_session_id}/cancel"),
+            ("DELETE", "/v1/computer-use/sessions/{computer_session_id}"),
             ("GET", "/v1/credentials/status"),
             ("GET", "/v1/egress/status"),
             ("POST", "/v1/credentials/refs"),
@@ -920,6 +930,155 @@ class ControlPlaneTest(unittest.TestCase):
         )
         self.assertEqual(status, 409)
         self.assertEqual(replay["error"]["code"], "trusted_host_conflict")
+
+
+    def test_computer_use_fixture_session_action_screenshot_and_close_are_secret_free(self):
+        status, unauthorized = self.request("/v1/computer-use/status")
+        self.assertEqual(status, 401)
+        self.assertNotIn(self.token, json.dumps(unauthorized))
+
+        status, payload = self.request("/v1/computer-use/status", token=self.token)
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["adapter"], "fixture_desktop")
+        self.assertTrue(payload["experimental"])
+        self.assertTrue(payload["fixture_available"])
+        self.assertTrue(payload["dedicated_desktop_required"])
+        self.assertFalse(payload["real_desktop_enabled"])
+        self.assertFalse(payload["personal_desktop_enabled"])
+        self.assertTrue(payload["window_drift_blocks_action"])
+        self.assertTrue(payload["sensitive_capture_blocks_action"])
+
+        status, denied = self.request(
+            "/v1/computer-use/sessions",
+            method="POST",
+            token=self.token,
+            body={"adapter": "real_desktop", "risk_acknowledged": True},
+        )
+        self.assertEqual(status, 422)
+        self.assertEqual(denied["computer_use"]["reason_code"], "computer_use_adapter_unavailable")
+
+        status, missing_ack = self.request(
+            "/v1/computer-use/sessions",
+            method="POST",
+            token=self.token,
+            body={"adapter": "fixture_desktop"},
+        )
+        self.assertEqual(status, 422)
+        self.assertEqual(missing_ack["computer_use"]["reason_code"], "computer_use_risk_ack_required")
+
+        status, created = self.request(
+            "/v1/computer-use/sessions",
+            method="POST",
+            token=self.token,
+            body={
+                "adapter": "fixture_desktop",
+                "app": "fixture-notes",
+                "window_id": "notes-main",
+                "risk_acknowledged": True,
+            },
+        )
+        self.assertEqual(status, 201, created)
+        session = created["computer_use"]
+        self.assertRegex(session["computer_session_id"], r"^cu-[0-9a-f]{16}$")
+        self.assertEqual(session["status"], "active")
+        self.assertTrue(session["dedicated_desktop"])
+        self.assertFalse(session["personal_profile_enabled"])
+        self.assertNotIn("credential-canary-secret", json.dumps(created, sort_keys=True))
+
+        status, shot = self.request(
+            f"/v1/computer-use/sessions/{session['computer_session_id']}/screenshot",
+            token=self.token,
+        )
+        self.assertEqual(status, 200, shot)
+        self.assertEqual(shot["reason_code"], "sanitized_screenshot_captured")
+        self.assertTrue(shot["sensitive_regions_redacted"])
+        self.assertNotIn("credential-canary-secret", json.dumps(shot, sort_keys=True))
+
+        status, typed = self.request(
+            f"/v1/computer-use/sessions/{session['computer_session_id']}/actions",
+            method="POST",
+            token=self.token,
+            body={
+                "action": "type_text",
+                "expected_window_hash": session["expected_window_hash"],
+                "target": "notes.body",
+                "text": "credential-canary-secret",
+            },
+        )
+        self.assertEqual(status, 200, typed)
+        action = typed["computer_action"]
+        self.assertEqual(action["decision"], "ALLOW")
+        self.assertEqual(action["reason_code"], "fixture_gui_action_recorded")
+        self.assertTrue(action["executed"])
+        self.assertFalse(action["raw_text_included"])
+        self.assertFalse(action["coordinates_included"])
+        self.assertNotIn("credential-canary-secret", json.dumps(typed, sort_keys=True))
+
+        status, closed = self.request(
+            f"/v1/computer-use/sessions/{session['computer_session_id']}",
+            method="DELETE",
+            token=self.token,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(closed["computer_use"]["status"], "closed")
+
+    def test_computer_use_blocks_drift_sensitive_capture_critical_key_and_cancel(self):
+        status, created = self.request(
+            "/v1/computer-use/sessions",
+            method="POST",
+            token=self.token,
+            body={"adapter": "fixture_desktop", "risk_acknowledged": True},
+        )
+        self.assertEqual(status, 201, created)
+        session = created["computer_use"]
+        session_id = session["computer_session_id"]
+
+        status, drift = self.request(
+            f"/v1/computer-use/sessions/{session_id}/actions",
+            method="POST",
+            token=self.token,
+            body={"action": "click_button", "expected_window_hash": "0" * 64, "target": "save"},
+        )
+        self.assertEqual(status, 422)
+        self.assertEqual(drift["computer_action"]["decision"], "DENY")
+        self.assertEqual(drift["computer_action"]["reason_code"], "window_drift_detected")
+
+        status, sensitive = self.request(
+            f"/v1/computer-use/sessions/{session_id}/actions",
+            method="POST",
+            token=self.token,
+            body={"action": "screenshot", "expected_window_hash": session["expected_window_hash"], "sensitive_capture": True},
+        )
+        self.assertEqual(status, 422)
+        self.assertEqual(sensitive["computer_action"]["reason_code"], "sensitive_capture_blocked")
+
+        status, critical = self.request(
+            f"/v1/computer-use/sessions/{session_id}/actions",
+            method="POST",
+            token=self.token,
+            body={"action": "click_button", "expected_window_hash": session["expected_window_hash"], "key": "enter", "target": "submit"},
+        )
+        self.assertEqual(status, 422)
+        self.assertEqual(critical["computer_action"]["reason_code"], "critical_intent_required")
+
+        status, cancelled = self.request(
+            f"/v1/computer-use/sessions/{session_id}/cancel",
+            method="POST",
+            token=self.token,
+            body={"reason": "operator stop"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(cancelled["computer_use"]["reason_code"], "external_cancel_recorded")
+
+        status, replay = self.request(
+            f"/v1/computer-use/sessions/{session_id}/actions",
+            method="POST",
+            token=self.token,
+            body={"action": "click_button", "expected_window_hash": session["expected_window_hash"], "target": "save"},
+        )
+        self.assertEqual(status, 409)
+        self.assertEqual(replay["error"]["code"], "computer_use_conflict")
 
 
     def test_egress_status_endpoint_is_authenticated_secret_free_and_deny_by_default(self):

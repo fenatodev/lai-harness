@@ -123,7 +123,7 @@
       "id": "078",
       "milestone": "A11",
       "path": ".specs/078-isolated-computer-use.md",
-      "status": "draft"
+      "status": "complete"
     },
     {
       "id": "079",
@@ -446,8 +446,9 @@
       "specs": [
         ".specs/078-isolated-computer-use.md"
       ],
-      "status": "experimental",
-      "stop_rule": "Se intenção e alvo crítico não puderem ser vinculados, handoff; concluir piloto 078 sem ampliar escopo."
+      "status": "experimental_fixture",
+      "stop_rule": "Se intenção e alvo crítico não puderem ser vinculados, handoff; concluir piloto 078 sem ampliar escopo.",
+      "summary": "Fixture-only isolated computer-use contract: dedicated synthetic desktop session, sanitized screenshot, scoped action receipts, drift/sensitive/critical/cancel blocks."
     },
     {
       "depends_on": [
@@ -463,7 +464,7 @@
       "stop_rule": "Pode graduar chat antes de A10/A11; freeze completo uma vez, sem gates repetidos por spec."
     }
   ],
-  "next_action": "Implement A11 isolated computer-use as fixture-only desktop/GUI contract after A10 trusted-host fixture completion.",
+  "next_action": "Review and merge A11 fixture-only computer-use PR, then keep real personal desktop control deferred until OS-enforced boundary evidence exists.",
   "planning_window": "2026-09",
   "platform_deferred": [
     "native Windows",
