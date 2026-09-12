@@ -2754,6 +2754,61 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertEqual(kwargs["env"][agent.CONTROL_RUN_CHILD_ENV], "1")
 
 
+    def test_control_workspace_child_summary_is_sanitized_and_persistable(self):
+        runtime = self.base / "runtime-summary"
+        workspace = self.root
+        state_dir = runtime / "state"
+        state_dir.mkdir(parents=True)
+        for root_text in ("/workspace", str(workspace.resolve())):
+            state_path = state_dir / (
+                agent.hashlib.sha256(root_text.encode("utf-8")).hexdigest()[:16] + ".json"
+            )
+            state_path.write_text(
+                json.dumps({
+                    "root": root_text,
+                    "telemetry": {
+                        "tool_call_count": 4,
+                        "validation_call_count": 1,
+                        "write_call_count": 1,
+                        "last_tool": "sandbox_exec",
+                        "last_tool_result_kind": "exit_nonzero",
+                        "last_phase": "validation_completed",
+                        "tool_counts": {"create": 1, "inspect": 1, "sandbox_exec": 2},
+                    },
+                    "modified_files": [],
+                    "recent_files": [],
+                    "last_validation": {
+                        "command": "make check && echo secret-token",
+                        "result": "exit_code=127\n/bin/sh: make: not found\nsecret-token",
+                    },
+                    "last_task": "private task text",
+                    "last_answer": "private answer text",
+                }),
+                encoding="utf-8",
+            )
+            break
+
+        summary = agent.control_workspace_child_summary(runtime, workspace)
+        validation = agent.control_workspace_last_validation_summary(runtime, workspace)
+
+        self.assertEqual(summary["tool_call_count"], 4)
+        self.assertEqual(summary["validation_call_count"], 1)
+        self.assertEqual(summary["write_call_count"], 1)
+        self.assertEqual(summary["last_tool"], "sandbox_exec")
+        self.assertEqual(summary["last_tool_result_kind"], "exit_nonzero")
+        self.assertEqual(summary["last_validation_status"], "fail")
+        self.assertEqual(summary["last_validation_exit_code"], 127)
+        self.assertEqual(summary["tool_counts"], {"create": 1, "inspect": 1, "sandbox_exec": 2})
+        self.assertFalse(summary["command_included"])
+        self.assertFalse(summary["stdout_included"])
+        self.assertFalse(summary["stderr_included"])
+        self.assertFalse(summary["task_included"])
+        self.assertNotIn("secret-token", json.dumps(summary, sort_keys=True))
+        self.assertNotIn("private task", json.dumps(summary, sort_keys=True))
+        self.assertEqual(validation["status"], "fail")
+        self.assertEqual(validation["exit_code"], 127)
+        self.assertFalse(validation["command_included"])
+
     def test_control_run_timeout_is_enforced_and_reported(self):
         events = []
 

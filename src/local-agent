@@ -5907,6 +5907,9 @@ CONTROL_TRAJECTORY_SCHEMA_VERSION = 1
 CONTROL_TRAJECTORY_MAX_EVENTS = 80
 CONTROL_TRAJECTORY_METADATA_KEYS = frozenset({
     "changed_path_count",
+    "child_last_tool",
+    "child_tool_calls",
+    "child_validation_status",
     "diff_truncated",
     "exit_code",
     "mode",
@@ -10581,6 +10584,7 @@ def _control_run_public_record_locked(server, record):
         "session_turns_used": int(record.get("session_turns_used") or 0),
         "session_persisted": record.get("session_persisted"),
         "workspace_last_validation": record.get("workspace_last_validation"),
+        "workspace_child_summary": record.get("workspace_child_summary"),
         "workspace": (
             {
                 "isolated": True,
@@ -11172,10 +11176,9 @@ def control_workspace_status_text(path):
     return "\n".join(visible) or "[clean]"
 
 
-def control_workspace_last_validation_summary(runtime_root, workspace_root):
+def _control_workspace_state_payload(runtime_root, workspace_root):
     runtime_root = Path(runtime_root).resolve()
     workspace_root = Path(workspace_root).resolve()
-    payload = None
     for root_text in ("/workspace", str(workspace_root)):
         state_path = (
             runtime_root / "state" /
@@ -11183,16 +11186,19 @@ def control_workspace_last_validation_summary(runtime_root, workspace_root):
         )
         try:
             payload = json.loads(state_path.read_text(encoding="utf-8"))
-            break
         except (OSError, json.JSONDecodeError):
             continue
-    if payload is None:
-        return None
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
+def _control_validation_status_from_payload(payload):
     if not isinstance(payload, dict):
-        return None
+        return None, None
     validation = payload.get("last_validation")
     if not isinstance(validation, dict):
-        return None
+        return None, None
     result = str(validation.get("result") or "")
     match = re.search(r"(?m)^exit_code=(\-?\d+)\b", result)
     exit_code = int(match.group(1)) if match else None
@@ -11202,6 +11208,62 @@ def control_workspace_last_validation_summary(runtime_root, workspace_root):
         status = "unknown"
     else:
         status = "fail"
+    return status, exit_code
+
+
+def control_workspace_child_summary(runtime_root, workspace_root):
+    payload = _control_workspace_state_payload(runtime_root, workspace_root)
+    if not isinstance(payload, dict):
+        return None
+
+    telemetry = payload.get("telemetry")
+    if not isinstance(telemetry, dict):
+        telemetry = {}
+
+    validation_status, validation_exit_code = _control_validation_status_from_payload(payload)
+
+    tool_counts_raw = telemetry.get("tool_counts")
+    tool_counts = {}
+    if isinstance(tool_counts_raw, dict):
+        for key, value in sorted(tool_counts_raw.items()):
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", str(key)):
+                continue
+            try:
+                count = int(value)
+            except (TypeError, ValueError):
+                continue
+            if count > 0:
+                tool_counts[str(key)] = min(count, 1000)
+
+    modified = normalize_workspace_state_paths(payload.get("modified_files") or [])
+    recent = normalize_workspace_state_paths(payload.get("recent_files") or [])
+    return {
+        "source": "workspace_state",
+        "tool_call_count": min(int(telemetry.get("tool_call_count") or 0), 1000),
+        "validation_call_count": min(int(telemetry.get("validation_call_count") or 0), 1000),
+        "write_call_count": min(int(telemetry.get("write_call_count") or 0), 1000),
+        "last_tool": str(telemetry.get("last_tool") or "")[:40] or None,
+        "last_tool_result_kind": str(telemetry.get("last_tool_result_kind") or "")[:40] or None,
+        "last_phase": str(telemetry.get("last_phase") or "")[:80] or None,
+        "last_validation_status": validation_status,
+        "last_validation_exit_code": validation_exit_code,
+        "modified_path_count": len(modified),
+        "recent_path_count": len(recent),
+        "tool_counts": tool_counts,
+        "command_included": False,
+        "stdout_included": False,
+        "stderr_included": False,
+        "task_included": False,
+    }
+
+
+def control_workspace_last_validation_summary(runtime_root, workspace_root):
+    payload = _control_workspace_state_payload(runtime_root, workspace_root)
+    if not isinstance(payload, dict):
+        return None
+    status, exit_code = _control_validation_status_from_payload(payload)
+    if status is None:
+        return None
     return {
         "source": "workspace_state",
         "status": status,
@@ -11863,6 +11925,7 @@ def _control_run_worker(server):
                     record["workspace_diff_truncated"] = workspace_result["diff_truncated"]
                     record["workspace_result_collected_at"] = workspace_result_collected_at
                     record["workspace_last_validation"] = control_workspace_last_validation_summary(runtime_path, workspace_path)
+                    record["workspace_child_summary"] = control_workspace_child_summary(runtime_path, workspace_path)
                 record["stdout"] = stdout_text
                 record["stderr"] = stderr_text
                 record["stdout_truncated"] = stdout_truncated
@@ -11876,6 +11939,7 @@ def _control_run_worker(server):
                     output_truncated=bool(stdout_truncated or stderr_truncated),
                 )
                 if workspace_result is not None:
+                    child_summary = record.get("workspace_child_summary") or {}
                     _control_trajectory_append_locked(
                         record,
                         "workspace_result_collected",
@@ -11884,6 +11948,9 @@ def _control_run_worker(server):
                         reason_code="workspace_result_collected",
                         changed_path_count=len(record.get("workspace_changed_paths") or []),
                         diff_truncated=bool(record.get("workspace_diff_truncated")),
+                        child_tool_calls=child_summary.get("tool_call_count"),
+                        child_last_tool=child_summary.get("last_tool"),
+                        child_validation_status=child_summary.get("last_validation_status"),
                     )
                 record["finished_at"] = control_run_now()
                 if record.get("cancel_requested") or server.control_run_shutdown:
@@ -20568,6 +20635,31 @@ def record_workspace_tool(
     is_validation=False,
 ):
     path = args.get("path")
+    telemetry = state.setdefault("telemetry", {})
+    tool_counts = telemetry.setdefault("tool_counts", {})
+    tool_name = str(name)[:40]
+    tool_counts[tool_name] = int(tool_counts.get(tool_name, 0) or 0) + 1
+    telemetry["tool_call_count"] = int(telemetry.get("tool_call_count", 0) or 0) + 1
+    telemetry["last_tool"] = tool_name
+    if result.startswith("OK:"):
+        telemetry["last_tool_result_kind"] = "ok"
+    elif result.startswith("exit_code=0"):
+        telemetry["last_tool_result_kind"] = "exit_0"
+    elif result.startswith("exit_code="):
+        telemetry["last_tool_result_kind"] = "exit_nonzero"
+    elif result.startswith("ERROR:"):
+        telemetry["last_tool_result_kind"] = "error"
+    elif result.startswith("BLOCKED:"):
+        telemetry["last_tool_result_kind"] = "blocked"
+    else:
+        telemetry["last_tool_result_kind"] = "other"
+    if name in WRITE_TOOLS:
+        telemetry["write_call_count"] = int(telemetry.get("write_call_count", 0) or 0) + 1
+    if is_validation:
+        telemetry["validation_call_count"] = int(telemetry.get("validation_call_count", 0) or 0) + 1
+        telemetry["last_phase"] = "validation_completed"
+    else:
+        telemetry["last_phase"] = "tool_completed"
 
     if (
         path
