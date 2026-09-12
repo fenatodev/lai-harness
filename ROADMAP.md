@@ -18,7 +18,7 @@ All non-experimental September 2026 replan milestones are complete in the local 
 | A7 | sandboxed MCP execution | complete | 072 |
 | A8 | model profiles and skills | complete | 073, 074 |
 | A9 | forks and delegates | complete | 075, 076 |
-| A10 | trusted host | experimental draft | 077 |
+| A10 | trusted host | experimental fixture | 077 |
 | A11 | isolated computer use | experimental fixture | 078 |
 | A12 | distribution and validation | complete | 079, 080 |
 
