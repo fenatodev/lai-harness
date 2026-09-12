@@ -40,7 +40,7 @@
       "package": "harness-score",
       "current_detector": "harness-score-pin",
       "security_source": "none",
-      "current_version": "1.6.4"
+      "current_version": "1.6.5"
     },
     {
       "id": "llama-cpp",

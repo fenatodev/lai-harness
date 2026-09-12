@@ -32,7 +32,7 @@ Python >=3.11 has a technical basis: `src/lai_config.py` uses stdlib `tomllib`. 
 
 ## Maturity, CI and release boundaries
 
-`harness-score` 1.6.4 is pinned and requires L4. It measures repository maturity, not sandbox security or operational autonomy. Do not add MCP/delegates/metadata merely to improve a score; their product contracts are A7/A9 of the new plan.
+`harness-score` 1.6.5 is pinned and requires L4. It measures repository maturity, not sandbox security or operational autonomy. Do not add MCP/delegates/metadata merely to improve a score; their product contracts are A7/A9 of the new plan.
 
 The current required-check set is `Python 3.11`, `Python 3.12`, `Publication gates`, `Harness Score L4`. `.github/workflows/ci.yml`, `harness-score.yml`, runtime release-governance expectations and tests must remain aligned. Remote protection changes are a separate authorized action, never a side effect of revising docs or shortening CI.
 

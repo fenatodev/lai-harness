@@ -241,7 +241,7 @@ class UpdateIntelligenceTest(unittest.TestCase):
         self.assertEqual(by_id["mypy"]["current_version"], "2.3.1")
         self.assertEqual(by_id["pytest"]["current_version"], "9.1.1")
         self.assertEqual(by_id["ruff"]["current_version"], "0.16.6")
-        self.assertEqual(by_id["harness-score"]["current_version"], "1.6.4")
+        self.assertEqual(by_id["harness-score"]["current_version"], "1.6.5")
 
     def test_http_helper_sends_no_public_feed_credentials_and_bounds_body(self):
         class CapturingOpener(FakeOpener):
@@ -274,15 +274,15 @@ class UpdateIntelligenceTest(unittest.TestCase):
         development = (ROOT / "docs" / "DEVELOPMENT-HARNESS.md").read_text()
         manifest = json.loads((ROOT / "updates" / "sources-v1.json").read_text())
         by_id = {item["id"]: item for item in manifest["sources"]}
-        self.assertEqual(makefile.count("harness-score@1.6.4"), 2)
+        self.assertEqual(makefile.count("harness-score@1.6.5"), 2)
         self.assertIn(
-            "paladini/harness-score@d37e35060a77ba7665157125c809b826ce3b41ce",
+            "paladini/harness-score@af38c3235e2266485b1de7e1225ea58ac592b38c",
             workflow,
         )
-        self.assertIn("harness-score 1.6.4 default", workflow)
-        self.assertIn("harness-score@1.6.4", verify)
-        self.assertIn("`harness-score` 1.6.4", development)
-        self.assertEqual(by_id["harness-score"]["current_version"], "1.6.4")
+        self.assertIn("harness-score 1.6.5 default", workflow)
+        self.assertIn("harness-score@1.6.5", verify)
+        self.assertIn("`harness-score` 1.6.5", development)
+        self.assertEqual(by_id["harness-score"]["current_version"], "1.6.5")
 
     def test_update_change_scope_distinguishes_semver_risk(self):
         self.assertEqual(agent.update_change_scope("1.6.3", "1.6.4"), "patch")
