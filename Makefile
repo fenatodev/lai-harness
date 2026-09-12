@@ -42,7 +42,7 @@ validate:
 milestone-gate: lint test-dev harness-score-gate validate
 
 harness-score:
-	npx --yes harness-score@1.6.4 .
+	npx --yes harness-score@1.6.5 .
 
 harness-score-gate:
-	npx --yes harness-score@1.6.4 . --min-level 4
+	npx --yes harness-score@1.6.5 . --min-level 4

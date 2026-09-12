@@ -457,7 +457,7 @@ This beta turns the beta.21 maintenance radar into deterministic local triage. L
 - Comparable numeric versions are classified as patch, minor, major, revision, or unchanged; incompatible schemes remain manual review.
 - Release-note text is explicitly excluded from triage decisions and from the triage payload.
 - Updated Harness Score from 1.6.3 to 1.6.4 after a same-repository equivalence run preserved L4 / 100/108 (93%) and exit 0.
-- Pinned the Harness Score GitHub Action to exact v1.6.4 commit `d37e35060a77ba7665157125c809b826ce3b41ce` rather than a floating major tag.
+- Pinned the Harness Score GitHub Action to exact v1.6.4 commit `d37e35060a77ba7665157125c809b826ce3b41ce` rather than a floating major tag. Later maintenance updates this pin to exact v1.6.5 commit `af38c3235e2266485b1de7e1225ea58ac592b38c` with synchronized local harness-score commands.
 
 ### Safety boundary
 
