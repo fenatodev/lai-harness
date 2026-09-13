@@ -2,6 +2,35 @@
 set -euo pipefail
 
 script_dir="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+load_lai_model_defaults() {
+    local defaults_file="${LAI_MODEL_DEFAULTS_FILE:-$HOME/.config/lai/model.env}"
+    [[ -f "$defaults_file" ]] || return 0
+
+    local line key value first last
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"
+        [[ -z "$line" || "${line:0:1}" == "#" || "$line" != *"="* ]] && continue
+        key="${line%%=*}"
+        value="${line#*=}"
+        case "$key" in
+            LAI_MODEL|LAI_CHAT_TEMPLATE|LAI_LOG_DIR|LAI_CTX_SIZE|LAI_GPU_LAYERS|LAI_PARALLEL|LAI_LLAMA_SERVER|LAI_WINDOWS_LAUNCHER|LAI_API_KEY_FILE_WINDOWS)
+                if [[ -z "${!key:-}" ]]; then
+                    if [[ ${#value} -ge 2 ]]; then
+                        first="${value:0:1}"
+                        last="${value: -1}"
+                        if { [[ "$first" == "'" ]] && [[ "$last" == "'" ]]; } || { [[ "$first" == '"' ]] && [[ "$last" == '"' ]]; }; then
+                            value="${value:1:${#value}-2}"
+                        fi
+                    fi
+                    export "$key=$value"
+                fi
+                ;;
+        esac
+    done < "$defaults_file"
+}
+
+load_lai_model_defaults
 key_file="${LAI_API_KEY_FILE:-$HOME/.config/lai/llama-api-key}"
 host="${LAI_HOST:-$(ip route | awk '/default/ {print $3; exit}')}"
 port="${LAI_PORT:-8080}"
