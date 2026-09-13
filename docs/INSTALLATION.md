@@ -64,6 +64,7 @@ Supported settings include:
 | `LAI_GPU_LAYERS` | `0` in `start-secure.ps1` | GPU layer count passed to Windows `llama-server` |
 | `LAI_PARALLEL` | `1` in `start-secure.ps1` | Parallel slot count passed to Windows `llama-server` |
 | `LAI_CHAT_TEMPLATE` | unset | User-supplied authorized template |
+| `LAI_MODEL_DEFAULTS_FILE` | `~/.config/lai/model.env` | Optional local defaults file read by `lai-server-start`; only allowlisted `LAI_*` model launcher keys are imported and caller-provided environment variables win |
 
 ## llama.cpp on Windows with WSL
 
