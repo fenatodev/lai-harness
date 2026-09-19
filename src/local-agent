@@ -22566,6 +22566,7 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
         mode in {"fix", "ci-fix", "refactor", "implement"}
     )
     exploration_event_recorded = False
+    pre_write_no_progress_count = 0
     budget = RunBudgetController(
         mode,
         limits=run_budget_default_limits(
@@ -22724,6 +22725,7 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
             r"(^|\s)bun\s+(test|run\s+(test|lint|build|check))(\s|$)",
             r"(^|\s)(mvn|mvnw)\s+.*\btest\b",
             r"(^|\s)(gradle|gradlew)\s+.*\b(test|check|build)\b",
+            r"(^|[;&|]\s*)make\s+(test|check|lint|build)(\s|$)",
             r"(^|\s)(ruff|flake8|mypy|pyright|eslint)(\s|$)",
             r"(^|\s)(tsc|npx\s+tsc)(\s|$)",
             r"(^|\s)python3?\s+-m\s+py_compile(\s|$)",
@@ -22977,6 +22979,9 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
         message = choice["message"]
         tool_calls = message.get("tool_calls") or []
 
+        if tool_calls:
+            pre_write_no_progress_count = 0
+
         messages.append(message)
 
         if not tool_calls:
@@ -22984,7 +22989,6 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
 
             if (
                 mode in {"fix", "ci-fix", "refactor", "implement"}
-                and exploration_guard.exhausted
                 and not exploration_guard.write_succeeded
             ):
                 impossibility_prefix = "IMPLEMENTATION_IMPOSSIBLE:"
@@ -23006,13 +23010,36 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
                     print(content)
                     return
 
+                pre_write_no_progress_count += 1
+
+                if pre_write_no_progress_count >= 2:
+                    event = {
+                        "type": "agent_limit",
+                        "reason": "pre_write_no_progress",
+                    }
+                    record_metric_event(event)
+                    record_audit_event(event)
+                    record_trajectory_event(
+                        "agent_limit",
+                        "failed",
+                        reason_code="pre_write_no_progress",
+                    )
+                    print(
+                        "Agent stopped: pre-write no progress after "
+                        "two consecutive responses without a tool call.",
+                        file=sys.stderr,
+                    )
+                    raise SystemExit(2)
+
                 messages.append({
                     "role": "user",
                     "content": (
-                        "PHASE-SHIFT RESPONSE REJECTED: no successful write "
-                        "was recorded. Use edit/create/patch/rewrite now, or reply with "
-                        "the exact prefix IMPLEMENTATION_IMPOSSIBLE: followed "
-                        "by the reason. Do not claim implementation success."
+                        "PRE-WRITE PROGRESS REQUIRED: no successful write "
+                        "was recorded. Use a write tool now "
+                        "(edit/create/patch/rewrite), or reply with the exact "
+                        "prefix IMPLEMENTATION_IMPOSSIBLE: followed by the "
+                        "reason. Do not continue analysis or claim "
+                        "implementation success."
                     ),
                 })
                 continue
@@ -23451,6 +23478,8 @@ KEEP: 1,3"""
 
         for call in tool_calls:
             name = call["function"]["name"]
+            sandbox_exec_git_before = None
+            sandbox_exec_repo_changed = False
 
             try:
                 args = json.loads(call["function"]["arguments"])
@@ -23574,7 +23603,28 @@ KEEP: 1,3"""
                                 RUN_ID,
                                 write_paths_for_call(name, args),
                             )
+
+                        if name == "sandbox_exec":
+                            sandbox_exec_git_before = (
+                                workspace_git_head(),
+                                control_workspace_status_text(ROOT),
+                            )
+
                         tool_result = run_tool(name, args)
+
+                        if (
+                            name == "sandbox_exec"
+                            and sandbox_exec_git_before is not None
+                            and tool_result.startswith("exit_code=0")
+                        ):
+                            sandbox_exec_repo_changed = (
+                                (
+                                    workspace_git_head(),
+                                    control_workspace_status_text(ROOT),
+                                )
+                                != sandbox_exec_git_before
+                            )
+
                         budget.consume(tool_reservation)
                         if validation_reservation is not None:
                             budget.consume(validation_reservation)
@@ -23601,12 +23651,21 @@ KEEP: 1,3"""
                     print(tool_result)
                     return
 
-                if (
+                successful_write = (
                     mode in {"fix", "ci-fix", "refactor", "implement"}
                     and name in WRITE_TOOLS
-                    and tool_result.startswith("OK:")
-                ):
+                    and (
+                        tool_result.startswith("OK:")
+                        or (
+                            name == "sandbox_exec"
+                            and sandbox_exec_repo_changed
+                        )
+                    )
+                )
+
+                if successful_write:
                     exploration_guard.note_successful_write()
+                    pre_write_no_progress_count = 0
                     needs_validation = True
 
                     if assertion_test_write_guard:
@@ -23639,7 +23698,7 @@ KEEP: 1,3"""
                                 str(changed_path)
                             )
 
-                elif (
+                if (
                     mode in {"fix", "ci-fix", "refactor", "implement"}
                     and needs_validation
                     and tool_result.startswith("exit_code=")
