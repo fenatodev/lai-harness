@@ -3363,7 +3363,7 @@ class LocalAgentTest(unittest.TestCase):
 
         system = captured["messages"][0]["content"]
         self.assertEqual(captured["host"], "model-bridge")
-        self.assertEqual(captured["max_tokens"], agent.REMOTE_WORK_MAX_TOKENS)
+        self.assertEqual(captured["max_tokens"], agent.PRE_WRITE_EXPLORATION_MAX_TOKENS)
         self.assertIn("sandboxed software development agent", system)
         self.assertIn("ACTIVE SKILL", system)
         self.assertIn("synthetic implement skill", system)

@@ -286,6 +286,9 @@ MAX_ROUNDS = 8
 MAX_TOOL_OUTPUT = 24000
 PRELOADED_AGENTS_MAX_CHARS = 2200
 PRE_WRITE_EXPLORATION_BUDGET = 6
+PRE_WRITE_EXPLORATION_MAX_TOKENS = 512
+PRE_WRITE_ACTION_MAX_TOKENS = 1536
+PRE_WRITE_ACTION_RETRY_MAX_TOKENS = 2048
 
 SANDBOX_EXEC_TIMEOUT_SECONDS = 30
 SANDBOX_EXEC_OUTPUT_LIMIT_BYTES = 12000
@@ -293,6 +296,30 @@ SANDBOX_EXEC_VERIFIED_ENV = "LAI_SANDBOX_EXECUTOR_VERIFIED"
 SANDBOX_EXEC_ALLOWED_INSTALL_ROOTS = ("fixtures/", "tests/fixtures/")
 
 WRITE_TOOLS = {"edit", "create", "patch", "rewrite", "sandbox_exec"}
+
+PRE_WRITE_IMPOSSIBLE_TOOL_NAME = "implementation_impossible"
+PRE_WRITE_IMPOSSIBLE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": PRE_WRITE_IMPOSSIBLE_TOOL_NAME,
+        "description": (
+            "Conclude that the requested implementation cannot proceed "
+            "from the collected evidence without performing a write."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 600,
+                },
+            },
+            "required": ["reason"],
+            "additionalProperties": False,
+        },
+    },
+}
 PROTECTED_WRITE_BRANCHES = {"main", "master"}
 PROTECTED_WRITE_BRANCH_PREFIXES = ("release/",)
 PROTECTED_WRITE_OVERRIDE_ENV = "LAI_ALLOW_PROTECTED_BRANCH_WRITES"
@@ -392,13 +419,15 @@ class PreWriteExplorationGuard:
             "PRE-WRITE EXPLORATION ENDED: the deterministic exploration "
             f"budget is exhausted ({self.calls}/{self.budget}; "
             f"trigger={self.trigger}). Do not request read-only or diagnostic "
-            "tools. Your next action must be an edit/create/patch operation, "
-            "or an explicit impossibility conclusion using exactly this prefix: "
-            "IMPLEMENTATION_IMPOSSIBLE: followed by the reason. Any unmarked "
+            "tools except bounded inspection of missing write prerequisites. "
+            "Your next action must be a write or structured implementation_impossible "
+            "conclusion (legacy remote prefix: "
+            "IMPLEMENTATION_IMPOSSIBLE: followed by the reason). Any unmarked "
             "text response will be rejected."
         )
 
 TOOLS = [
+    PRE_WRITE_IMPOSSIBLE_TOOL,
     {
         "type": "function",
         "function": {
@@ -3866,6 +3895,10 @@ def tool_edit(args):
     text = p.read_text(errors="replace")
     old = args["old"]
     new = args["new"]
+
+    if old == new:
+        return "NO_CHANGE: edit replacement is identical"
+
     count = text.count(old)
 
     if count == 0:
@@ -3898,8 +3931,8 @@ REMOTE_VALIDATION_SANDBOX_IMAGE = REMOTE_VALIDATION_SANDBOX_IMAGE_DEFAULT
 REMOTE_VALIDATION_SANDBOX_IMAGE_ENV = "LAI_REMOTE_SANDBOX_IMAGE"
 REMOTE_SANDBOX_CONTAINER_PYTHON_ENV = "LAI_REMOTE_SANDBOX_PYTHON"
 REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT = "python3"
-REMOTE_SANDBOX_WORKSPACE_ENTRYPOINT = "/workspace/src/local-agent"
-REMOTE_SANDBOX_SKILLS_DIR = "/workspace/skills"
+REMOTE_SANDBOX_WORKSPACE_ENTRYPOINT = "/lai-harness/local-agent"
+REMOTE_SANDBOX_SKILLS_DIR = "/lai-skills"
 CONTROL_MODEL_BRIDGE_SOCKET_ENV = "LAI_CONTROL_MODEL_BRIDGE_SOCKET"
 CONTROL_MODEL_BRIDGE_CONTAINER_SOCKET = "/workspace/.lai-model-bridge.sock"
 CONTROL_MODEL_BRIDGE_SCHEMA_VERSION = 1
@@ -4158,6 +4191,17 @@ def _remote_sandbox_base_argv(*, workspace=None, source_root=None, model_bridge_
         "--mount", f"type=bind,src={workspace},dst=/workspace",
         "--mount", f"type=bind,src={runtime_root},dst=/lai-runtime",
     ]
+    # The executor belongs to the serving Harness, never the target checkout.
+    runtime_source = Path(__file__).resolve().parent
+    for runtime_name in ("local-agent", "lai_config.py", "lai_specs.py", "lai_sessions.py",
+                         "lai_mcp.py", "lai_web.py", "lai_semantics.py"):
+        runtime_file = runtime_source / runtime_name
+        if not runtime_file.is_file() or runtime_file.is_symlink():
+            raise RuntimeError("trusted Harness runtime is unavailable")
+        command.extend(["--mount", f"type=bind,src={runtime_file},dst=/lai-harness/{runtime_name},readonly"])
+    runtime_skills = runtime_source.parent / "skills"
+    if runtime_skills.is_dir():
+        command.extend(["--mount", f"type=bind,src={runtime_skills},dst={REMOTE_SANDBOX_SKILLS_DIR},readonly"])
     if model_bridge_socket:
         command.extend([
             "--env",
@@ -5449,6 +5493,7 @@ def tool_patch(args):
     root_real = ROOT.resolve()
 
     buffers = {}
+    original_buffers = {}
     real_paths = {}
 
     applied = 0
@@ -5535,6 +5580,7 @@ def tool_patch(args):
                 )
 
             buffers[rel] = text
+            original_buffers[rel] = text
             real_paths[rel] = candidate
 
         text = buffers[rel]
@@ -5573,16 +5619,28 @@ def tool_patch(args):
                 "must be unique."
             )
 
+    changed_buffers = {rel: text for rel, text in buffers.items()
+                       if text != original_buffers[rel]}
+    if not changed_buffers:
+        return f"NO_CHANGE: patch leaves repository content unchanged; already_applied={already_applied}"
+
     # Atomic at logical batch level:
     # no file is touched until every replacement
     # has been validated in memory.
     try:
-        for rel, text in buffers.items():
+        for rel, text in changed_buffers.items():
             real_paths[rel].write_text(text)
     except Exception as exc:
         return (
             "ERROR: patch write failed: "
             f"{type(exc).__name__}: {exc}"
+        )
+
+    if applied == 0:
+        return (
+            f"NO_CHANGE: patch applied=0, "
+            f"already_applied={already_applied}; "
+            f"files={', '.join(buffers)}"
         )
 
     return (
@@ -5689,6 +5747,9 @@ def tool_rewrite(args):
         )
 
     encoded = content.encode("utf-8")
+
+    if encoded == current_bytes:
+        return "NO_CHANGE: rewrite content is identical"
 
     if len(encoded) > 500_000:
         return "ERROR: rewrite content too large: " + rel
@@ -5902,6 +5963,7 @@ CONTROL_RUN_RETAIN_LIMIT = 20
 CONTROL_RUN_OUTPUT_LIMIT_BYTES = 64 * 1024
 CONTROL_RUN_DIFF_LIMIT_BYTES = 32 * 1024
 CONTROL_RUN_TIMEOUT_SECONDS = VALIDATION_TIMEOUT_SECONDS
+CONTROL_WORK_RUN_TIMEOUT_SECONDS = 900
 GATEWAY_CONTRACT_SCHEMA_VERSION = 1
 CONTROL_TRAJECTORY_SCHEMA_VERSION = 1
 CONTROL_TRAJECTORY_MAX_EVENTS = 80
@@ -11894,7 +11956,9 @@ def _control_run_worker(server):
                 if server.control_run_active_id == control_run_id:
                     server.control_run_process = process
 
-            deadline = time.monotonic() + CONTROL_RUN_TIMEOUT_SECONDS
+            run_timeout = (CONTROL_WORK_RUN_TIMEOUT_SECONDS
+                           if mode in CONTROL_RUN_WORK_MODES else CONTROL_RUN_TIMEOUT_SECONDS)
+            deadline = time.monotonic() + run_timeout
             terminate_at = None
             timeout_recorded = False
             while True:
@@ -11918,7 +11982,7 @@ def _control_run_worker(server):
                         timeout_recorded = True
                         with server.control_run_condition:
                             record["timed_out"] = True
-                            record["timeout_seconds"] = CONTROL_RUN_TIMEOUT_SECONDS
+                            record["timeout_seconds"] = run_timeout
                             record["timeout_requested_at"] = control_run_now()
                             _control_trajectory_append_locked(
                                 record,
@@ -11927,7 +11991,7 @@ def _control_run_worker(server):
                                 at=record["timeout_requested_at"],
                                 reason_code="timeout_seconds_exceeded",
                                 timed_out=True,
-                                timeout_seconds=CONTROL_RUN_TIMEOUT_SECONDS,
+                                timeout_seconds=run_timeout,
                             )
                     if terminate_at is None:
                         control_terminate_process(process, force=False)
@@ -11939,7 +12003,7 @@ def _control_run_worker(server):
             stdout_text, stdout_truncated = _read_bounded_control_output(stdout_handle)
             stderr_text, stderr_truncated = _read_bounded_control_output(stderr_handle)
             if timed_out and not stderr_text.strip():
-                stderr_text = f"control run timed out after {CONTROL_RUN_TIMEOUT_SECONDS:g} seconds"
+                stderr_text = f"control run timed out after {run_timeout:g} seconds"
             output_captured_at = control_run_now()
             workspace_result = (
                 collect_control_workspace_result(workspace_path)
@@ -11951,7 +12015,7 @@ def _control_run_worker(server):
                 record["exit_code"] = exit_code
                 if timed_out:
                     record["timed_out"] = True
-                    record["timeout_seconds"] = CONTROL_RUN_TIMEOUT_SECONDS
+                    record["timeout_seconds"] = run_timeout
                 record["output_captured_at"] = output_captured_at
                 if workspace_result is not None:
                     record["workspace_git_status"] = workspace_result["git_status"]
@@ -12058,7 +12122,7 @@ def _control_run_worker(server):
                     output_truncated=bool(record.get("stdout_truncated") or record.get("stderr_truncated")),
                     session_persisted=record.get("session_persisted"),
                     timed_out=timed_out,
-                    timeout_seconds=CONTROL_RUN_TIMEOUT_SECONDS if timed_out else None,
+                    timeout_seconds=run_timeout if timed_out else None,
                 )
         except BaseException as exc:
             with server.control_run_condition:
@@ -16945,6 +17009,19 @@ def render_release_governance(args=None):
     return "\n".join(lines)
 
 
+def tool_implementation_impossible(args):
+    reason = str(args.get("reason") or "").strip()
+    reason = " ".join(reason.split())
+
+    if not reason:
+        return "ERROR: implementation_impossible reason is required"
+
+    if len(reason) > 600:
+        return "ERROR: implementation_impossible reason exceeds 600 characters"
+
+    return "IMPLEMENTATION_IMPOSSIBLE: " + reason
+
+
 def run_tool(name, args):
     print(
         f"\n[{name}] "
@@ -17055,6 +17132,8 @@ def run_tool(name, args):
             result = tool_sandbox_exec(args)
         elif name == "bash":
             result = tool_bash(args)
+        elif name == PRE_WRITE_IMPOSSIBLE_TOOL_NAME:
+            result = tool_implementation_impossible(args)
         else:
             result = f"ERROR: unknown tool: {name}"
     except Exception as e:
@@ -17208,6 +17287,7 @@ def api_call(
     use_tools=True,
     max_tokens=2048,
     tools=None,
+    tool_choice="auto",
 ):
     payload = {
         "model": MODEL,
@@ -17223,8 +17303,10 @@ def api_call(
     )
 
     if use_tools and selected_tools:
+        if tool_choice not in {"auto", "required"}:
+            raise ValueError("tool_choice must be auto or required")
         payload["tools"] = selected_tools
-        payload["tool_choice"] = "auto"
+        payload["tool_choice"] = tool_choice
 
     bridge_socket = _model_bridge_socket_path()
     key = None
@@ -17388,7 +17470,7 @@ CONTEXT_INTELLIGENCE_MODES = {"plan", "debug", "diagnose", "fix", "ci-fix", "rel
 CONTEXT_RENDER_LIMIT = 1800
 REMOTE_WORK_CONTEXT_RENDER_LIMIT = 0
 REMOTE_WORK_CONTEXT_RESULT_LIMIT = 0
-REMOTE_WORK_MAX_TOKENS = 96
+REMOTE_WORK_MAX_TOKENS = 2048
 CONTEXT_SAMPLE_BYTES = 32768
 CONTEXT_GRAPH_SCHEMA_VERSION = 1
 CONTEXT_GRAPH_PARSER_VERSION = "python-ast-v1"
@@ -22579,6 +22661,10 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
     )
     exploration_event_recorded = False
     pre_write_no_progress_count = 0
+    pre_write_correction_required = False
+    prerequisite_reads_remaining = 3
+    failed_tool_signatures = set()
+    repeated_failed_calls = 0
     budget = RunBudgetController(
         mode,
         limits=run_budget_default_limits(
@@ -22804,7 +22890,7 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
 
     def progress_phase():
         if (
-            mode not in {"fix", "refactor", "implement"}
+            mode not in {"fix", "ci-fix", "refactor", "implement"}
             or not exploration_guard.write_succeeded
         ):
             return None, None
@@ -22833,7 +22919,7 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
         if last_validation_failure or patch_sanity_issue:
             return (
                 "repair",
-                set(WRITE_TOOLS) | validation_tools,
+                set(WRITE_TOOLS) | validation_tools | ({"inspect", "read"} if prerequisite_reads_remaining > 0 else set()),
             )
 
         if needs_validation and required_test_change_pending:
@@ -22854,6 +22940,17 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
         return "finish", set()
 
 
+    def pre_write_action_tools():
+        # A write may require AGENTS or an exact stale target. Keep a bounded
+        # inspection escape hatch, using only tools already in this mode profile.
+        allowed = set(WRITE_TOOLS)
+        if prerequisite_reads_remaining > 0:
+            allowed.update({"inspect", "read"})
+        tools = [tool for tool in mode_tools if tool["function"]["name"] in allowed]
+        if not remote_control_child:
+            tools.append(PRE_WRITE_IMPOSSIBLE_TOOL)
+        return tools
+
     for _ in range(max_rounds_by_mode.get(mode, MAX_ROUNDS)):
         round_reservation = budget.reserve(
             "rounds",
@@ -22863,33 +22960,38 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
             stop_for_budget_exhaustion("rounds")
         budget.consume(round_reservation)
 
-        active_tools = mode_tools
+        active_tools = list(mode_tools)
+        if mode in {"fix", "ci-fix", "refactor", "implement"} and not exploration_guard.write_succeeded and not remote_control_child:
+            active_tools.append(PRE_WRITE_IMPOSSIBLE_TOOL)
         round_max_tokens = mode_max_tokens
+        round_tool_choice = "auto"
 
-        if exploration_guard.exhausted and not exploration_guard.write_succeeded:
-            active_tools = [
-                tool
-                for tool in mode_tools
-                if tool["function"]["name"] in WRITE_TOOLS
-            ]
-            round_max_tokens = max(
-                round_max_tokens,
-                2048,
-            )
+        if (
+            mode in {"fix", "ci-fix", "refactor", "implement"}
+            and not exploration_guard.write_succeeded
+        ):
+            # Governed pre-write turns must make structured progress and remain
+            # compact while exploration is still allowed.
+            round_tool_choice = "required"
 
-        progress_phase_name, progress_allowed_tools = (
-            progress_phase()
-        )
-
-        if progress_allowed_tools is not None:
-            active_tools = [
-                tool
-                for tool in active_tools
-                if (
-                    tool["function"]["name"]
-                    in progress_allowed_tools
+            if (
+                not pre_write_correction_required
+                and not exploration_guard.exhausted
+            ):
+                round_max_tokens = min(
+                    round_max_tokens,
+                    PRE_WRITE_EXPLORATION_MAX_TOKENS,
                 )
-            ]
+
+        if (exploration_guard.exhausted or pre_write_correction_required) and not exploration_guard.write_succeeded:
+            active_tools = pre_write_action_tools()
+            round_tool_choice = "required"
+            round_max_tokens = PRE_WRITE_ACTION_MAX_TOKENS
+
+        progress_phase_name, progress_allowed_tools = progress_phase()
+        if progress_allowed_tools is not None:
+            active_tools = [tool for tool in active_tools
+                            if tool["function"]["name"] in progress_allowed_tools]
 
         truncation_retry_used = False
         call_max_tokens = round_max_tokens
@@ -22906,6 +23008,7 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
                 messages,
                 tools=active_tools,
                 max_tokens=call_max_tokens,
+                tool_choice=round_tool_choice,
             )
             budget.consume(model_reservation)
             usage = result.get("usage") or {}
@@ -22934,13 +23037,44 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
             if finish_reason != "length":
                 break
 
-            retry_max_tokens = min(
-                4096,
-                max(
-                    call_max_tokens * 2,
-                    call_max_tokens + 256,
-                ),
+            local_pre_write = (
+                mode in {"fix", "ci-fix", "refactor", "implement"}
+                and not exploration_guard.write_succeeded
             )
+
+            promote_pre_write_to_action = (
+                local_pre_write
+                and not pre_write_correction_required
+                and not exploration_guard.exhausted
+                and call_max_tokens <= PRE_WRITE_EXPLORATION_MAX_TOKENS
+            )
+
+            if promote_pre_write_to_action:
+                # A truncated exploration response produced no usable
+                # structured evidence. End exploration immediately and retry
+                # as a governed write/impossible action.
+                pre_write_correction_required = True
+                active_tools = pre_write_action_tools()
+                round_tool_choice = "required"
+                retry_max_tokens = PRE_WRITE_ACTION_MAX_TOKENS
+            elif local_pre_write:
+                # Before the first successful write, never escalate to the
+                # global 4096-token retry ceiling.
+                retry_max_tokens = min(
+                    PRE_WRITE_ACTION_RETRY_MAX_TOKENS,
+                    max(
+                        call_max_tokens * 2,
+                        call_max_tokens + 256,
+                    ),
+                )
+            else:
+                retry_max_tokens = min(
+                    4096,
+                    max(
+                        call_max_tokens * 2,
+                        call_max_tokens + 256,
+                    ),
+                )
 
             truncation_event = {
                 "type": "agent_limit",
@@ -22978,11 +23112,22 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
             messages.append({
                 "role": "user",
                 "content": (
-                    "RESPONSE TRUNCATED: the previous assistant generation "
-                    "hit the token limit and was discarded. Retry now with "
-                    "a concise response. If a tool is needed, return exactly "
-                    "one complete tool call with minimal arguments. Do not "
-                    "repeat analysis."
+                    (
+                        "PRE-WRITE EXPLORATION TRUNCATED: the discarded "
+                        "response consumed the compact exploration budget "
+                        "without completing a usable action. Exploration is "
+                        "over. Use one offered write tool now, or call "
+                        "implementation_impossible with a concise reason. "
+                        "Do not continue analysis."
+                    )
+                    if promote_pre_write_to_action
+                    else (
+                        "RESPONSE TRUNCATED: the previous assistant generation "
+                        "hit the token limit and was discarded. Retry now with "
+                        "a concise response. If a tool is needed, return exactly "
+                        "one complete tool call with minimal arguments. Do not "
+                        "repeat analysis."
+                    )
                 ),
             })
 
@@ -22990,9 +23135,6 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
 
         message = choice["message"]
         tool_calls = message.get("tool_calls") or []
-
-        if tool_calls:
-            pre_write_no_progress_count = 0
 
         messages.append(message)
 
@@ -23010,7 +23152,7 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
                     else ""
                 )
 
-                if impossibility_reason:
+                if impossibility_reason and remote_control_child:
                     outcome = {
                         "type": "run_outcome",
                         "outcome": "implementation_impossible",
@@ -23043,15 +23185,17 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
                     )
                     raise SystemExit(2)
 
+                pre_write_correction_required = True
+
                 messages.append({
                     "role": "user",
                     "content": (
                         "PRE-WRITE PROGRESS REQUIRED: no successful write "
-                        "was recorded. Use a write tool now "
-                        "(edit/create/patch/rewrite), or reply with the exact "
-                        "prefix IMPLEMENTATION_IMPOSSIBLE: followed by the "
-                        "reason. Do not continue analysis or claim "
-                        "implementation success."
+                        "was recorded. The next response is a required "
+                        "structured tool decision. Use an offered write tool "
+                        "now after any missing prerequisite inspection, or call implementation_impossible with a concise "
+                        "reason. Do not continue analysis or return free-form "
+                        "assistant text."
                     ),
                 })
                 continue
@@ -23495,7 +23639,9 @@ KEEP: 1,3"""
 
             try:
                 args = json.loads(call["function"]["arguments"])
-            except json.JSONDecodeError as e:
+                if not isinstance(args, dict):
+                    raise TypeError("tool arguments must be an object")
+            except (json.JSONDecodeError, TypeError) as e:
                 tool_result = f"ERROR: invalid tool arguments: {e}"
             else:
                 current_phase, current_allowed_tools = progress_phase()
@@ -23525,10 +23671,26 @@ KEEP: 1,3"""
                     record_metric_event(progress_event)
                     record_audit_event(progress_event)
 
-                blocked_result = (
-                    progress_blocked_result
-                    or exploration_guard.check(name, args)
-                )
+                offered = {tool["function"]["name"] for tool in active_tools}
+                forced_pre_write = (pre_write_correction_required or exploration_guard.exhausted) and not exploration_guard.write_succeeded
+                prerequisite_read = name in {"inspect", "read"} and (forced_pre_write or current_phase == "repair")
+                signature = tool_signature_hash(name, args)
+                blocked_result = progress_blocked_result
+                if name not in offered and not blocked_result:
+                    blocked_result = "BLOCKED: tool was not offered in this phase; choose an offered tool."
+                elif signature in failed_tool_signatures:
+                    repeated_failed_calls += 1
+                    blocked_result = "BLOCKED: repeated failed/no-change call; inspect the prerequisite or change arguments."
+                    if repeated_failed_calls >= 2:
+                        print("Agent stopped: repeated failed tool call without progress.", file=sys.stderr)
+                        raise SystemExit(2)
+                elif prerequisite_read:
+                    if prerequisite_reads_remaining <= 0:
+                        blocked_result = "BLOCKED: prerequisite inspection budget exhausted; write or conclude impossible."
+                    else:
+                        prerequisite_reads_remaining -= 1
+                elif not blocked_result:
+                    blocked_result = exploration_guard.check(name, args)
 
                 if blocked_result is not None:
                     tool_result = blocked_result
@@ -23641,7 +23803,27 @@ KEEP: 1,3"""
                         if validation_reservation is not None:
                             budget.consume(validation_reservation)
 
+                if (tool_result.startswith(("ERROR:", "BLOCKED:", "NO_CHANGE:", "POLICY DENY:"))
+                        or (tool_result.startswith("exit_code=") and not tool_result.startswith("exit_code=0"))):
+                    failed_tool_signatures.add(signature)
+                    tool_result += "\nRECOVERY: use offered inspection for missing/stale prerequisites, correct arguments, or conclude impossible. Do not repeat this call."
+
                 record_exploration_exhaustion()
+
+                if (
+                    name == PRE_WRITE_IMPOSSIBLE_TOOL_NAME
+                    and tool_result.startswith("IMPLEMENTATION_IMPOSSIBLE:")
+                ):
+                    outcome = {
+                        "type": "run_outcome",
+                        "outcome": "implementation_impossible",
+                    }
+                    record_metric_event(outcome)
+                    record_audit_event(outcome)
+                    workspace_state["last_answer"] = tool_result[:1800]
+                    save_workspace_state(workspace_state)
+                    print(tool_result)
+                    raise SystemExit(2)
 
                 if tool_result.startswith("POLICY ASK:"):
                     policy = evaluate_tool_policy(name, args, mode=mode)
@@ -23678,6 +23860,9 @@ KEEP: 1,3"""
                 if successful_write:
                     exploration_guard.note_successful_write()
                     pre_write_no_progress_count = 0
+                    pre_write_correction_required = False
+                    failed_tool_signatures.clear()
+                    repeated_failed_calls = 0
                     needs_validation = True
 
                     if assertion_test_write_guard:

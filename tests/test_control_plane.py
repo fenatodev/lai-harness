@@ -442,7 +442,7 @@ class ControlPlaneTest(unittest.TestCase):
             "[ \"$#\" -gt 0 ] || exit 2\n"
             "shift\n"
             "export LAI_SANDBOX_EXECUTOR_VERIFIED=1\n"
-            "if [ \"$2\" = \"/workspace/src/local-agent\" ]; then py=\"$1\"; shift 2; set -- \"$py\" \"$FAKE_CONTAINER_ENTRYPOINT\" \"$@\"; fi\n"
+            "if [ \"$2\" = \"/lai-harness/local-agent\" ]; then py=\"$1\"; shift 2; set -- \"$py\" \"$FAKE_CONTAINER_ENTRYPOINT\" \"$@\"; fi\n"
             "exec \"$@\"\n",
             encoding="utf-8",
         )
@@ -2470,7 +2470,7 @@ class ControlPlaneTest(unittest.TestCase):
             )
         self.assertEqual(argv[-3:], [configured, "make", "test"])
 
-    def test_remote_work_child_uses_workspace_entrypoint_not_installed_host_path(self):
+    def test_remote_work_child_uses_trusted_harness_not_target_entrypoint(self):
         self.assertEqual(
             agent.remote_control_run_command("implement", "task"),
             [
@@ -3564,7 +3564,7 @@ class ControlPlaneTest(unittest.TestCase):
             "[ \"$#\" -gt 0 ] || exit 2\n"
             "shift\n"
             "export LAI_SANDBOX_EXECUTOR_VERIFIED=1\n"
-            "if [ \"$2\" = \"/workspace/src/local-agent\" ]; then py=\"$1\"; shift 2; set -- \"$py\" \"$FAKE_CONTAINER_ENTRYPOINT\" \"$@\"; fi\n"
+            "if [ \"$2\" = \"/lai-harness/local-agent\" ]; then py=\"$1\"; shift 2; set -- \"$py\" \"$FAKE_CONTAINER_ENTRYPOINT\" \"$@\"; fi\n"
             "exec \"$@\"\n",
             encoding="utf-8",
         )
@@ -3684,7 +3684,7 @@ class ControlPlaneTest(unittest.TestCase):
             "while [ \"$#\" -gt 0 ] && [ \"$1\" != \"$FAKE_SANDBOX_IMAGE\" ]; do shift; done\n"
             "[ \"$#\" -gt 0 ] || exit 2\n"
             "shift\n"
-            "if [ \"$2\" = \"/workspace/src/local-agent\" ]; then py=\"$1\"; shift 2; set -- \"$py\" \"$FAKE_CONTAINER_ENTRYPOINT\" \"$@\"; fi\n"
+            "if [ \"$2\" = \"/lai-harness/local-agent\" ]; then py=\"$1\"; shift 2; set -- \"$py\" \"$FAKE_CONTAINER_ENTRYPOINT\" \"$@\"; fi\n"
             "exec \"$@\"\n",
             encoding="utf-8",
         )
