@@ -124,6 +124,9 @@ class GuardIntegrationTest(unittest.TestCase):
                 {"path": "blocked.py", "content": "VALUE = 1\n"},
             ),
             completion("blocked by protected branch guard"),
+            completion(
+                "IMPLEMENTATION_IMPOSSIBLE: write blocked by protected branch policy."
+            ),
         ])
 
         with FakeLlamaServer(responder=responder) as server:
@@ -136,10 +139,17 @@ class GuardIntegrationTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0)
         self.assertFalse((self.repo / "blocked.py").exists())
-        self.assertEqual(result.stdout.strip(), "blocked by protected branch guard")
+        self.assertEqual(
+            result.stdout.strip(),
+            "IMPLEMENTATION_IMPOSSIBLE: write blocked by protected branch policy.",
+        )
         self.assertIn(
             "protected branch main",
             responder.payloads[1]["messages"][-1]["content"],
+        )
+        self.assertIn(
+            "PRE-WRITE PROGRESS REQUIRED",
+            responder.payloads[2]["messages"][-1]["content"],
         )
 
     def test_policy_ask_stops_run_and_records_user_action_outcome(self):
@@ -1205,8 +1215,6 @@ class GuardIntegrationTest(unittest.TestCase):
             tool_call("inspect-1", "inspect", repeated),
             tool_call("inspect-2", "inspect", repeated),
             completion("implemented successfully"),
-            completion("IMPLEMENTATION_IMPOSSIBLE:"),
-            completion("IMPLEMENTATION_IMPOSSIBLE:   "),
             completion("IMPLEMENTATION_IMPOSSIBLE: the target file is absent."),
         ])
         with FakeLlamaServer(responder=responder) as server:
@@ -1232,21 +1240,74 @@ class GuardIntegrationTest(unittest.TestCase):
         }
         self.assertEqual(offered, {"patch", "create", "rewrite"})
         self.assertIn(
-            "PHASE-SHIFT RESPONSE REJECTED",
+            "PRE-WRITE PROGRESS REQUIRED",
             responder.payloads[3]["messages"][-1]["content"],
-        )
-        self.assertIn(
-            "PHASE-SHIFT RESPONSE REJECTED",
-            responder.payloads[4]["messages"][-1]["content"],
-        )
-        self.assertIn(
-            "PHASE-SHIFT RESPONSE REJECTED",
-            responder.payloads[5]["messages"][-1]["content"],
         )
         self.assertEqual(
             result.stdout.strip(),
             "IMPLEMENTATION_IMPOSSIBLE: the target file is absent.",
         )
+
+    def test_pre_write_no_progress_stops_before_test_acceptance_loop(self):
+        responder = SequenceResponder([
+            completion("I need more context before making a change.")
+            for _ in range(16)
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--implement",
+                "add a test and minimal module",
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(len(responder.payloads), 2)
+
+        corrective_prompt = responder.payloads[1]["messages"][-1]["content"]
+        self.assertIn("IMPLEMENTATION_IMPOSSIBLE:", corrective_prompt)
+        self.assertTrue(
+            "write" in corrective_prompt.lower()
+            or "edit/create/patch" in corrective_prompt.lower()
+        )
+
+        events = [
+            json.loads(line)
+            for line in (self.data / "metrics" / "events.jsonl").read_text().splitlines()
+            if json.loads(line).get("type") == "agent_limit"
+        ]
+        reasons = [event.get("reason") for event in events]
+
+        self.assertIn("pre_write_no_progress", reasons)
+        self.assertNotIn("overall_round_limit_reached", reasons)
+
+        audit_events = [
+            json.loads(line)
+            for line in (self.data / "audit" / "events.jsonl").read_text().splitlines()
+        ]
+
+        audit_limits = [
+            event
+            for event in audit_events
+            if event.get("type") == "agent_limit"
+        ]
+        self.assertIn(
+            "pre_write_no_progress",
+            [event.get("reason") for event in audit_limits],
+        )
+
+        trajectory_events = [
+            event.get("trajectory", {})
+            for event in audit_events
+            if event.get("type") == "trajectory"
+        ]
+        self.assertTrue(any(
+            event.get("event_type") == "agent_limit"
+            and event.get("status") == "failed"
+            and event.get("reason_code") == "pre_write_no_progress"
+            for event in trajectory_events
+        ))
 
     def test_distinct_read_only_calls_work_within_budget(self):
         (self.repo / "one.py").write_text("ONE = 1\n")
@@ -1255,12 +1316,23 @@ class GuardIntegrationTest(unittest.TestCase):
             tool_call("inspect-1", "inspect", {"paths": ["one.py"]}),
             tool_call("inspect-2", "inspect", {"paths": ["two.py"]}),
             completion("No change is needed."),
+            completion(
+                "IMPLEMENTATION_IMPOSSIBLE: inspection found no required change."
+            ),
         ])
         with FakeLlamaServer(responder=responder) as server:
             result = self.run_agent(server, "--implement", "inspect both files")
 
         self.assertEqual(result.stderr.count("\n[inspect] "), 2)
         self.assertNotIn("PRE-WRITE EXPLORATION ENDED", str(responder.payloads))
+        self.assertIn(
+            "PRE-WRITE PROGRESS REQUIRED",
+            responder.payloads[3]["messages"][-1]["content"],
+        )
+        self.assertEqual(
+            result.stdout.strip(),
+            "IMPLEMENTATION_IMPOSSIBLE: inspection found no required change.",
+        )
 
     def test_post_write_phase_forces_validation_before_exploration(self):
         target = self.repo / "result.py"
