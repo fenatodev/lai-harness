@@ -233,11 +233,44 @@ class GuardIntegrationTest(unittest.TestCase):
         self.assertEqual(final_checkpoint["resumed_from"], "prior-run")
         self.assertNotEqual(final_checkpoint["run_id"], "prior-run")
 
+    def test_write_modes_use_expanded_initial_response_budgets(self):
+        expected = {
+            "--implement": 2048,
+            "--fix": 2048,
+            "--refactor": 1536,
+            "--ci-fix": 1536,
+        }
+
+        for command, max_tokens in expected.items():
+            with self.subTest(command=command):
+                responder = SequenceResponder([
+                    completion(
+                        "IMPLEMENTATION_IMPOSSIBLE: synthetic budget probe."
+                    ),
+                ])
+
+                with FakeLlamaServer(responder=responder) as server:
+                    result = self.run_agent(
+                        server,
+                        command,
+                        "Synthetic write-mode response budget probe.",
+                    )
+
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(
+                    responder.payloads[0]["max_tokens"],
+                    max_tokens,
+                )
+                self.assertIn(
+                    "WRITE-MODE RESPONSE DISCIPLINE",
+                    responder.payloads[0]["messages"][0]["content"],
+                )
+
     def test_truncated_response_is_discarded_and_retried_once(self):
         partial = "PARTIAL_OUTPUT_MUST_NOT_ENTER_HISTORY"
 
         responder = SequenceResponder([
-            truncated_completion(partial, tokens=640),
+            truncated_completion(partial, tokens=2048),
             tool_call(
                 "create",
                 "create",
@@ -272,11 +305,11 @@ class GuardIntegrationTest(unittest.TestCase):
 
         self.assertEqual(
             responder.payloads[0]["max_tokens"],
-            640,
+            2048,
         )
         self.assertEqual(
             responder.payloads[1]["max_tokens"],
-            1280,
+            4096,
         )
 
         retry_messages = responder.payloads[1]["messages"]
@@ -447,7 +480,7 @@ class GuardIntegrationTest(unittest.TestCase):
 
     def test_separate_rounds_each_get_one_truncation_retry(self):
         responder = SequenceResponder([
-            truncated_completion("partial create", tokens=640),
+            truncated_completion("partial create", tokens=2048),
             tool_call(
                 "create",
                 "create",
@@ -456,7 +489,7 @@ class GuardIntegrationTest(unittest.TestCase):
                     "content": "value = 1\n",
                 },
             ),
-            truncated_completion("partial validation", tokens=640),
+            truncated_completion("partial validation", tokens=2048),
             tool_call(
                 "validate",
                 "bash",
@@ -482,7 +515,7 @@ class GuardIntegrationTest(unittest.TestCase):
 
         self.assertEqual(
             [payload["max_tokens"] for payload in responder.payloads],
-            [640, 1280, 640, 1280, 640],
+            [2048, 4096, 2048, 4096, 2048],
         )
 
     def test_forced_write_phase_gets_larger_token_budget(self):
@@ -591,8 +624,8 @@ class GuardIntegrationTest(unittest.TestCase):
 
     def test_second_truncation_fails_cleanly(self):
         responder = SequenceResponder([
-            truncated_completion("first partial", tokens=640),
-            truncated_completion("second partial", tokens=1280),
+            truncated_completion("first partial", tokens=2048),
+            truncated_completion("second partial", tokens=4096),
         ])
 
         with FakeLlamaServer(responder=responder) as server:
@@ -629,12 +662,12 @@ class GuardIntegrationTest(unittest.TestCase):
         self.assertEqual(len(truncations), 2)
         self.assertTrue(truncations[0]["retry"])
         self.assertFalse(truncations[1]["retry"])
-        self.assertEqual(truncations[0]["max_tokens"], 640)
+        self.assertEqual(truncations[0]["max_tokens"], 2048)
         self.assertEqual(
             truncations[0]["retry_max_tokens"],
-            1280,
+            4096,
         )
-        self.assertEqual(truncations[1]["max_tokens"], 1280)
+        self.assertEqual(truncations[1]["max_tokens"], 4096)
 
     def test_assertion_failure_blocks_test_weakening_until_source_repair(self):
         responder = SequenceResponder([

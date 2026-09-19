@@ -22254,22 +22254,34 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
 
     max_tokens_by_mode = {
         "general": 1536,
-        "fix": 768,
+        "fix": 2048,
         "test": 512,
         "review": 128,
         "debug": 192,
         "diagnose": 384,
-        "refactor": 384,
+        "refactor": 1536,
         "security": 512,
         "plan": 256,
         "release": 512,
-        "ci-fix": 640,
-        "implement": 640,
+        "ci-fix": 1536,
+        "implement": 2048,
     }
 
     mode_max_tokens = max_tokens_by_mode.get(mode, 1024)
     if remote_work_child:
         mode_max_tokens = min(mode_max_tokens, REMOTE_WORK_MAX_TOKENS)
+
+    if (
+        mode in {"fix", "ci-fix", "refactor", "implement"}
+        and not remote_work_child
+    ):
+        system += (
+            "\n\nWRITE-MODE RESPONSE DISCIPLINE: "
+            "Keep analysis brief. When a repository action is needed, "
+            "prefer one complete tool call immediately instead of narrating "
+            "a long plan. Keep non-tool assistant text concise. "
+            "Never sacrifice tool-call completeness to explanation."
+        )
 
     context_modes = {
         "general",
