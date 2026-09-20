@@ -578,11 +578,23 @@ class IsolatedInstallSmokeTest(unittest.TestCase):
             rollback_target = rollback_repo / "result.py"
             rollback_target.write_text("value = 0\n", encoding="utf-8")
             rollback_responder = InstalledSequenceResponder([
-                installed_tool_call("read", "read", {"path": "result.py"}),
                 installed_tool_call(
-                    "edit",
-                    "edit",
-                    {"path": "result.py", "old": "value = 0", "new": "value = 1"},
+                    "inspect",
+                    "inspect",
+                    {"paths": ["result.py"]},
+                ),
+                installed_tool_call(
+                    "patch",
+                    "patch",
+                    {
+                        "changes": [
+                            {
+                                "path": "result.py",
+                                "old": "value = 0",
+                                "new": "value = 1",
+                            }
+                        ]
+                    },
                 ),
                 installed_tool_call(
                     "validate",

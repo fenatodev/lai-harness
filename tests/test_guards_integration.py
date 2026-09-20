@@ -124,9 +124,7 @@ class GuardIntegrationTest(unittest.TestCase):
                 {"path": "blocked.py", "content": "VALUE = 1\n"},
             ),
             completion("blocked by protected branch guard"),
-            completion(
-                "IMPLEMENTATION_IMPOSSIBLE: write blocked by protected branch policy."
-            ),
+            tool_call("impossible", "implementation_impossible", {"reason": "write blocked by protected branch policy."}),
         ])
 
         with FakeLlamaServer(responder=responder) as server:
@@ -135,9 +133,10 @@ class GuardIntegrationTest(unittest.TestCase):
                 "--implement",
                 "create blocked.py",
                 allow_protected_writes=False,
+                check=False,
             )
 
-        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 2)
         self.assertFalse((self.repo / "blocked.py").exists())
         self.assertEqual(
             result.stdout.strip(),
@@ -235,18 +234,16 @@ class GuardIntegrationTest(unittest.TestCase):
 
     def test_write_modes_use_expanded_initial_response_budgets(self):
         expected = {
-            "--implement": 2048,
-            "--fix": 2048,
-            "--refactor": 1536,
-            "--ci-fix": 1536,
+            "--implement": 512,
+            "--fix": 512,
+            "--refactor": 512,
+            "--ci-fix": 512,
         }
 
         for command, max_tokens in expected.items():
             with self.subTest(command=command):
                 responder = SequenceResponder([
-                    completion(
-                        "IMPLEMENTATION_IMPOSSIBLE: synthetic budget probe."
-                    ),
+                    tool_call("impossible", "implementation_impossible", {"reason": "synthetic budget probe."}),
                 ])
 
                 with FakeLlamaServer(responder=responder) as server:
@@ -254,9 +251,10 @@ class GuardIntegrationTest(unittest.TestCase):
                         server,
                         command,
                         "Synthetic write-mode response budget probe.",
+                        check=False,
                     )
 
-                self.assertEqual(result.returncode, 0)
+                self.assertEqual(result.returncode, 2)
                 self.assertEqual(
                     responder.payloads[0]["max_tokens"],
                     max_tokens,
@@ -270,7 +268,7 @@ class GuardIntegrationTest(unittest.TestCase):
         partial = "PARTIAL_OUTPUT_MUST_NOT_ENTER_HISTORY"
 
         responder = SequenceResponder([
-            truncated_completion(partial, tokens=2048),
+            truncated_completion(partial, tokens=512),
             tool_call(
                 "create",
                 "create",
@@ -305,11 +303,11 @@ class GuardIntegrationTest(unittest.TestCase):
 
         self.assertEqual(
             responder.payloads[0]["max_tokens"],
-            2048,
+            512,
         )
         self.assertEqual(
             responder.payloads[1]["max_tokens"],
-            4096,
+            1536,
         )
 
         retry_messages = responder.payloads[1]["messages"]
@@ -320,7 +318,11 @@ class GuardIntegrationTest(unittest.TestCase):
         ))
 
         self.assertIn(
-            "RESPONSE TRUNCATED",
+            "PRE-WRITE EXPLORATION TRUNCATED",
+            retry_messages[-1]["content"],
+        )
+        self.assertIn(
+            "implementation_impossible",
             retry_messages[-1]["content"],
         )
 
@@ -480,7 +482,7 @@ class GuardIntegrationTest(unittest.TestCase):
 
     def test_separate_rounds_each_get_one_truncation_retry(self):
         responder = SequenceResponder([
-            truncated_completion("partial create", tokens=2048),
+            truncated_completion("partial create", tokens=512),
             tool_call(
                 "create",
                 "create",
@@ -515,7 +517,7 @@ class GuardIntegrationTest(unittest.TestCase):
 
         self.assertEqual(
             [payload["max_tokens"] for payload in responder.payloads],
-            [2048, 4096, 2048, 4096, 2048],
+            [512, 1536, 2048, 4096, 2048],
         )
 
     def test_forced_write_phase_gets_larger_token_budget(self):
@@ -529,13 +531,14 @@ class GuardIntegrationTest(unittest.TestCase):
         ]
 
         def assert_write_budget(payload):
-            self.assertEqual(payload["max_tokens"], 2048)
+            self.assertEqual(payload["max_tokens"], 1536)
 
+            self.assertEqual(payload.get("tool_choice"), "required")
             offered = {
                 tool["function"]["name"]
                 for tool in payload.get("tools", [])
             }
-            self.assertEqual(offered, {"patch", "create", "rewrite"})
+            self.assertEqual(offered, {"patch", "create", "rewrite", "inspect", "implementation_impossible"})
 
             return tool_call(
                 "create",
@@ -573,7 +576,7 @@ class GuardIntegrationTest(unittest.TestCase):
             "implemented with write-phase budget",
         )
 
-    def test_forced_write_phase_truncation_retries_at_4096(self):
+    def test_forced_write_phase_truncation_retry_is_bounded(self):
         calls = [
             tool_call(
                 f"search-{index}",
@@ -615,17 +618,73 @@ class GuardIntegrationTest(unittest.TestCase):
 
         self.assertEqual(
             responder.payloads[6]["max_tokens"],
-            2048,
+            1536,
         )
         self.assertEqual(
             responder.payloads[7]["max_tokens"],
+            2048,
+        )
+
+    def test_pre_write_action_retry_uses_qwen_sized_budget(self):
+        responder = SequenceResponder([
+            completion("I need to stop analyzing."),
+            truncated_completion(
+                "partial governed action",
+                tokens=1536,
+            ),
+            tool_call(
+                "create",
+                "create",
+                {
+                    "path": "result.py",
+                    "content": "value = 1\n",
+                },
+            ),
+            tool_call(
+                "validate",
+                "bash",
+                {
+                    "command": "python3 -m py_compile result.py",
+                },
+            ),
+            completion("implemented after bounded action retry"),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--implement",
+                "Create result.py with value = 1.",
+            )
+
+        self.assertEqual(result.returncode, 0)
+
+        self.assertEqual(
+            responder.payloads[0]["max_tokens"],
+            512,
+        )
+        self.assertEqual(
+            responder.payloads[1]["max_tokens"],
+            1536,
+        )
+        self.assertEqual(
+            responder.payloads[2]["max_tokens"],
             4096,
+        )
+
+        self.assertEqual(
+            responder.payloads[1].get("tool_choice"),
+            "required",
+        )
+        self.assertEqual(
+            responder.payloads[2].get("tool_choice"),
+            "required",
         )
 
     def test_second_truncation_fails_cleanly(self):
         responder = SequenceResponder([
-            truncated_completion("first partial", tokens=2048),
-            truncated_completion("second partial", tokens=4096),
+            truncated_completion("first partial", tokens=512),
+            truncated_completion("second partial", tokens=1536),
         ])
 
         with FakeLlamaServer(responder=responder) as server:
@@ -662,12 +721,12 @@ class GuardIntegrationTest(unittest.TestCase):
         self.assertEqual(len(truncations), 2)
         self.assertTrue(truncations[0]["retry"])
         self.assertFalse(truncations[1]["retry"])
-        self.assertEqual(truncations[0]["max_tokens"], 2048)
+        self.assertEqual(truncations[0]["max_tokens"], 512)
         self.assertEqual(
             truncations[0]["retry_max_tokens"],
-            4096,
+            1536,
         )
-        self.assertEqual(truncations[1]["max_tokens"], 4096)
+        self.assertEqual(truncations[1]["max_tokens"], 1536)
 
     def test_assertion_failure_blocks_test_weakening_until_source_repair(self):
         responder = SequenceResponder([
@@ -1019,7 +1078,7 @@ class GuardIntegrationTest(unittest.TestCase):
             completion("implemented and validated"),
         ])
         with FakeLlamaServer(responder=responder) as server:
-            result = self.run_agent(server, "--fix", "create a minimal result module")
+            result = self.run_agent(server, "--implement", "create a minimal result module")
         reminder_payload = responder.payloads[2]
         self.assertIn("VALIDATION REQUIRED", reminder_payload["messages"][-1]["content"])
         self.assertEqual(result.stdout.strip(), "implemented and validated")
@@ -1248,10 +1307,10 @@ class GuardIntegrationTest(unittest.TestCase):
             tool_call("inspect-1", "inspect", repeated),
             tool_call("inspect-2", "inspect", repeated),
             completion("implemented successfully"),
-            completion("IMPLEMENTATION_IMPOSSIBLE: the target file is absent."),
+            tool_call("impossible", "implementation_impossible", {"reason": "the target file is absent."}),
         ])
         with FakeLlamaServer(responder=responder) as server:
-            result = self.run_agent(server, "--implement", "change missing.py")
+            result = self.run_agent(server, "--implement", "change missing.py", check=False)
 
         self.assertEqual(result.stderr.count("\n[inspect] "), 1)
         prompt_text = "\n".join(
@@ -1271,7 +1330,7 @@ class GuardIntegrationTest(unittest.TestCase):
             tool["function"]["name"]
             for tool in responder.payloads[2].get("tools", [])
         }
-        self.assertEqual(offered, {"patch", "create", "rewrite"})
+        self.assertEqual(offered, {"patch", "create", "rewrite", "inspect", "implementation_impossible"})
         self.assertIn(
             "PRE-WRITE PROGRESS REQUIRED",
             responder.payloads[3]["messages"][-1]["content"],
@@ -1279,6 +1338,361 @@ class GuardIntegrationTest(unittest.TestCase):
         self.assertEqual(
             result.stdout.strip(),
             "IMPLEMENTATION_IMPOSSIBLE: the target file is absent.",
+        )
+
+    def test_identical_edit_does_not_count_as_successful_write(self):
+        (self.repo / "AGENTS.md").write_text("instructions\n")
+        (self.repo / "target.py").write_text("VALUE = 1\n")
+
+        responder = SequenceResponder([
+            tool_call(
+                "read-agents",
+                "read",
+                {"path": "AGENTS.md"},
+            ),
+            tool_call(
+                "noop-edit",
+                "edit",
+                {
+                    "path": "target.py",
+                    "old": "VALUE = 1",
+                    "new": "VALUE = 1",
+                },
+            ),
+            tool_call(
+                "real-edit",
+                "edit",
+                {
+                    "path": "target.py",
+                    "old": "VALUE = 1",
+                    "new": "VALUE = 2",
+                },
+            ),
+            tool_call(
+                "validate",
+                "bash",
+                {
+                    "command": "python3 -m py_compile target.py",
+                },
+            ),
+            completion("implemented"),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--fix",
+                "Change target.py VALUE from 1 to 2.",
+            )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            (self.repo / "target.py").read_text(),
+            "VALUE = 2\n",
+        )
+
+        noop_history = str(responder.payloads[2]["messages"])
+        self.assertIn("NO_CHANGE:", noop_history)
+
+        # The no-op did not enter post-write validation state:
+        offered = {
+            tool["function"]["name"]
+            for tool in responder.payloads[2].get("tools", [])
+        }
+        self.assertIn("edit", offered)
+
+    def test_identical_rewrite_returns_no_change(self):
+        (self.repo / "AGENTS.md").write_text("instructions\n")
+        (self.repo / "target.py").write_text("VALUE = 1\n")
+
+        responder = SequenceResponder([
+            tool_call(
+                "read-agents",
+                "inspect",
+                {"paths": ["AGENTS.md"]},
+            ),
+            tool_call(
+                "read-target",
+                "inspect",
+                {"paths": ["target.py"]},
+            ),
+            tool_call(
+                "noop-rewrite",
+                "rewrite",
+                {
+                    "path": "target.py",
+                    "content": "VALUE = 1\n",
+                },
+            ),
+            tool_call(
+                "real-edit",
+                "patch",
+                {
+                    "changes": [{"path": "target.py", "old": "VALUE = 1", "new": "VALUE = 2"}],
+                },
+            ),
+            completion("CLEAN"),
+            tool_call(
+                "validate",
+                "bash",
+                {
+                    "command": "python3 -m py_compile target.py",
+                },
+            ),
+            completion("implemented"),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--implement",
+                "Change target.py VALUE from 1 to 2.",
+            )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertIn(
+            "NO_CHANGE:",
+            str(responder.payloads[3]["messages"]),
+        )
+
+    def test_local_write_mode_requires_structured_tool_progress_before_write(self):
+        def inspect_turn(payload):
+            self.assertEqual(payload.get("tool_choice"), "required")
+            offered = {
+                tool["function"]["name"]
+                for tool in payload.get("tools", [])
+            }
+            self.assertIn("inspect", offered)
+            self.assertIn("create", offered)
+
+            return tool_call(
+                "inspect-target",
+                "inspect",
+                {"paths": ["target.py"]},
+            )
+
+        def write_turn(payload):
+            self.assertEqual(payload.get("tool_choice"), "required")
+
+            return tool_call(
+                "create-target",
+                "create",
+                {
+                    "path": "target.py",
+                    "content": "VALUE = 1\n",
+                },
+            )
+
+        responder = SequenceResponder([
+            inspect_turn,
+            write_turn,
+            tool_call(
+                "validate-target",
+                "bash",
+                {
+                    "command": "python3 -m py_compile target.py",
+                },
+            ),
+            completion("implemented and validated"),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--implement",
+                "Create target.py with VALUE = 1 and validate it.",
+            )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            (self.repo / "target.py").read_text(),
+            "VALUE = 1\n",
+        )
+        self.assertEqual(
+            result.stdout.strip(),
+            "implemented and validated",
+        )
+
+        # After a successful write the normal post-write validation state
+        # is no longer forced through pre-write tool_choice=required.
+        self.assertEqual(
+            responder.payloads[2].get("tool_choice"),
+            "auto",
+        )
+
+    def test_pre_write_correction_offers_bounded_prerequisites_and_recovers(self):
+        def corrective_write(payload):
+            self.assertEqual(payload.get("tool_choice"), "required")
+            offered = {
+                tool["function"]["name"]
+                for tool in payload.get("tools", [])
+            }
+            self.assertEqual(
+                offered,
+                {"patch", "create", "rewrite", "inspect", "implementation_impossible"},
+            )
+            return tool_call(
+                "create-after-correction",
+                "create",
+                {
+                    "path": "result.py",
+                    "content": "value = 1\n",
+                },
+            )
+
+        responder = SequenceResponder([
+            completion("I will explain before editing."),
+            corrective_write,
+            tool_call(
+                "validate",
+                "bash",
+                {
+                    "command": "python3 -m py_compile result.py",
+                },
+            ),
+            completion("implemented and validated"),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--implement",
+                "Create result.py with value = 1 and validate it.",
+            )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            (self.repo / "result.py").read_text(),
+            "value = 1\n",
+        )
+        self.assertEqual(
+            result.stdout.strip(),
+            "implemented and validated",
+        )
+        self.assertIn(
+            "PRE-WRITE PROGRESS REQUIRED",
+            responder.payloads[1]["messages"][-1]["content"],
+        )
+
+    def test_pre_write_correction_can_conclude_impossible_structured(self):
+        def structured_conclusion(payload):
+            self.assertEqual(payload.get("tool_choice"), "required")
+            offered = {
+                tool["function"]["name"]
+                for tool in payload.get("tools", [])
+            }
+            self.assertEqual(
+                offered,
+                {
+                    "patch",
+                    "create",
+                    "rewrite",
+                    "implementation_impossible",
+                    "inspect",
+                },
+            )
+            return tool_call(
+                "impossible",
+                "implementation_impossible",
+                {
+                    "reason": (
+                        "the collected repository evidence does not contain "
+                        "a safe writable target"
+                    ),
+                },
+            )
+
+        responder = SequenceResponder([
+            completion("I cannot decide yet."),
+            structured_conclusion,
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--implement",
+                "Change the unknown target.",
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "IMPLEMENTATION_IMPOSSIBLE:",
+            result.stdout,
+        )
+
+        events = [
+            json.loads(line)
+            for line in (
+                self.data / "metrics" / "events.jsonl"
+            ).read_text().splitlines()
+        ]
+        outcomes = [
+            event
+            for event in events
+            if event.get("type") == "run_outcome"
+        ]
+        self.assertEqual(
+            outcomes[-1]["outcome"],
+            "implementation_impossible",
+        )
+
+    def test_read_only_tool_call_does_not_refresh_pre_write_correction(self):
+        (self.repo / "one.py").write_text("ONE = 1\n")
+
+        def unoffered_read(payload):
+            offered = {
+                tool["function"]["name"]
+                for tool in payload.get("tools", [])
+            }
+            self.assertEqual(
+                offered,
+                {"patch", "create", "rewrite", "inspect", "implementation_impossible"},
+            )
+            return tool_call(
+                "inspect-after-correction",
+                "inspect",
+                {"paths": ["one.py"]},
+            )
+
+        responder = SequenceResponder([
+            completion("I need more analysis."),
+            unoffered_read,
+            completion("Still analyzing."),
+        ])
+
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(
+                server,
+                "--implement",
+                "Change one.py.",
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "pre-write no progress",
+            result.stderr,
+        )
+        self.assertEqual(len(responder.payloads), 3)
+
+        second_correction_tools = {
+            tool["function"]["name"]
+            for tool in responder.payloads[2].get("tools", [])
+        }
+        self.assertEqual(
+            second_correction_tools,
+            {
+                "patch",
+                "create",
+                "rewrite",
+                "implementation_impossible",
+                "inspect",
+            },
+        )
+        self.assertEqual(
+            responder.payloads[2].get("tool_choice"),
+            "required",
         )
 
     def test_pre_write_no_progress_stops_before_test_acceptance_loop(self):
@@ -1299,10 +1713,32 @@ class GuardIntegrationTest(unittest.TestCase):
         self.assertEqual(len(responder.payloads), 2)
 
         corrective_prompt = responder.payloads[1]["messages"][-1]["content"]
-        self.assertIn("IMPLEMENTATION_IMPOSSIBLE:", corrective_prompt)
-        self.assertTrue(
-            "write" in corrective_prompt.lower()
-            or "edit/create/patch" in corrective_prompt.lower()
+        self.assertIn(
+            "implementation_impossible",
+            corrective_prompt,
+        )
+        self.assertIn(
+            "required structured tool decision",
+            corrective_prompt,
+        )
+
+        offered = {
+            tool["function"]["name"]
+            for tool in responder.payloads[1].get("tools", [])
+        }
+        self.assertEqual(
+            offered,
+            {
+                "patch",
+                "create",
+                "rewrite",
+                "implementation_impossible",
+                "inspect",
+            },
+        )
+        self.assertEqual(
+            responder.payloads[1].get("tool_choice"),
+            "required",
         )
 
         events = [
@@ -1349,12 +1785,10 @@ class GuardIntegrationTest(unittest.TestCase):
             tool_call("inspect-1", "inspect", {"paths": ["one.py"]}),
             tool_call("inspect-2", "inspect", {"paths": ["two.py"]}),
             completion("No change is needed."),
-            completion(
-                "IMPLEMENTATION_IMPOSSIBLE: inspection found no required change."
-            ),
+            tool_call("impossible", "implementation_impossible", {"reason": "inspection found no required change."}),
         ])
         with FakeLlamaServer(responder=responder) as server:
-            result = self.run_agent(server, "--implement", "inspect both files")
+            result = self.run_agent(server, "--implement", "inspect both files", check=False)
 
         self.assertEqual(result.stderr.count("\n[inspect] "), 2)
         self.assertNotIn("PRE-WRITE EXPLORATION ENDED", str(responder.payloads))
@@ -1489,12 +1923,10 @@ class GuardIntegrationTest(unittest.TestCase):
         ]
         responder = SequenceResponder([
             *calls,
-            completion(
-                "IMPLEMENTATION_IMPOSSIBLE: no target was found in the collected evidence."
-            ),
+            tool_call("impossible", "implementation_impossible", {"reason": "no target was found in the collected evidence."}),
         ])
         with FakeLlamaServer(responder=responder) as server:
-            self.run_agent(server, "--implement", "find a target and change it")
+            self.run_agent(server, "--implement", "find a target and change it", check=False)
 
         metric_events = [
             json.loads(line)
@@ -1673,6 +2105,112 @@ class GuardIntegrationTest(unittest.TestCase):
         with FakeLlamaServer(responder=responder) as server:
             result = self.run_agent(server, "--security", "review this hypothetical boundary")
         self.assertEqual(result.stdout.strip(), "Nenhum problema concreto encontrado no escopo revisado.")
+
+
+
+    def test_forced_action_recovers_missing_agents_and_target_context(self):
+        (self.repo / "AGENTS.md").write_text("Preserve tests and validate changes.\n")
+        (self.repo / "target.py").write_text("VALUE = 1\n")
+        responder = SequenceResponder([
+            completion("I need to act."),
+            tool_call("early", "patch", {"changes": [{"path": "target.py", "old": "VALUE = 1", "new": "VALUE = 2"}]}),
+            tool_call("prerequisites", "inspect", {"paths": ["AGENTS.md", "target.py"]}),
+            tool_call("write", "patch", {"changes": [{"path": "target.py", "old": "VALUE = 1", "new": "VALUE = 2\n# validated change"}]}),
+            completion("CLEAN"),
+            tool_call("validate", "bash", {"command": "python3 -m py_compile target.py"}),
+            completion("implemented and validated"),
+        ])
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(server, "--implement", "Update target.py VALUE to 2 and validate.")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("VALUE = 2", (self.repo / "target.py").read_text())
+        self.assertIn("AGENTS.md exists", str(responder.payloads[2]["messages"]))
+        self.assertEqual(responder.payloads[2]["tool_choice"], "required")
+
+    def test_net_zero_patch_does_not_touch_bytes_or_count_as_progress(self):
+        target = self.repo / "target.py"
+        target.write_text("VALUE = 1\n")
+        before = target.stat().st_mtime_ns
+        noop = {"changes": [
+            {"path": "target.py", "old": "VALUE = 1", "new": "VALUE = 2"},
+            {"path": "target.py", "old": "VALUE = 2", "new": "VALUE = 1"},
+        ]}
+        responder = SequenceResponder([
+            tool_call("noop", "patch", noop),
+            tool_call("noop-repeat", "patch", noop),
+            tool_call("noop-stop", "patch", noop),
+        ])
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(server, "--implement", "Change target.py.", check=False)
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(len(responder.payloads), 3)
+        self.assertEqual(target.stat().st_mtime_ns, before)
+        self.assertIn("NO_CHANGE", str(responder.payloads[1]["messages"]))
+        self.assertEqual(responder.payloads[1]["tool_choice"], "required")
+        self.assertIn("repeated failed tool", result.stderr)
+
+    def test_identical_patch_is_semantically_no_change(self):
+        target = self.repo / "target.py"
+        target.write_text("VALUE = 1\n")
+        before = target.stat().st_mtime_ns
+        responder = SequenceResponder([
+            tool_call("noop", "patch", {"changes": [{"path": "target.py", "old": "VALUE = 1", "new": "VALUE = 1"}]}),
+            tool_call("stop", "implementation_impossible", {"reason": "No requested change can be established."}),
+        ])
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(server, "--implement", "Change the target.", check=False)
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(target.stat().st_mtime_ns, before)
+        self.assertIn("NO_CHANGE", str(responder.payloads[1]["messages"]))
+
+    def test_non_object_tool_arguments_can_recover(self):
+        invalid = tool_call("invalid", "create", {})
+        invalid["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"] = "[]"
+        responder = SequenceResponder([
+            invalid,
+            tool_call("write", "create", {"path": "target.py", "content": "VALUE = 2\n"}),
+            tool_call("validate", "bash", {"command": "python3 -m py_compile target.py"}),
+            completion("implemented and validated"),
+        ])
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(server, "--implement", "Create target.py and validate.")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("arguments must be an object", str(responder.payloads[1]["messages"]))
+
+    def test_remote_child_cannot_invoke_unoffered_host_shell(self):
+        responder = SequenceResponder([
+            tool_call("escape", "bash", {"command": "touch escaped.txt"}),
+            completion("Still thinking."), completion("Still thinking."),
+        ])
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(server, "--implement", "Make a change.", check=False,
+                                    extra_env={"LAI_CONTROL_RUN_CHILD": "1", "LAI_SANDBOX_EXECUTOR_VERIFIED": "1"})
+        self.assertEqual(result.returncode, 2)
+        self.assertFalse((self.repo / "escaped.txt").exists())
+        for payload in responder.payloads:
+            names = {t["function"]["name"] for t in payload.get("tools", [])}
+            self.assertNotIn("bash", names)
+            self.assertNotIn("implementation_impossible", names)
+            self.assertEqual(payload["tool_choice"], "required")
+        self.assertEqual(responder.payloads[0]["max_tokens"], 512)
+        self.assertGreaterEqual(responder.payloads[-1]["max_tokens"], 1536)
+
+    def test_validation_failure_allows_bounded_source_read_and_correction(self):
+        (self.repo / "target.py").write_text("VALUE = 0\n")
+        (self.repo / "test_target.py").write_text("import unittest\nfrom target import VALUE\nclass T(unittest.TestCase):\n    def test_value(self): self.assertEqual(VALUE, 22)\n")
+        responder = SequenceResponder([
+            tool_call("edit", "edit", {"path": "target.py", "old": "VALUE = 0", "new": "VALUE = 1"}),
+            tool_call("fail", "bash", {"command": "python3 -m unittest -v"}),
+            tool_call("inspect-failure", "read", {"path": "target.py"}),
+            tool_call("repair", "edit", {"path": "target.py", "old": "VALUE = 1", "new": "VALUE = 22"}),
+            tool_call("pass", "bash", {"command": "python3 -m unittest -v"}),
+            completion("implemented and validated"),
+        ])
+        with FakeLlamaServer(responder=responder) as server:
+            result = self.run_agent(server, "--fix", "Fix target.py to meet the existing tests.")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("VALUE = 22", (self.repo / "target.py").read_text())
+        self.assertIn("read", {t["function"]["name"] for t in responder.payloads[2]["tools"]})
 
 
 if __name__ == "__main__":
