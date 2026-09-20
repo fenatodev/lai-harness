@@ -2528,6 +2528,27 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertNotIn("control-api-key", rendered)
         self.assertNotIn("/var/run/docker.sock", rendered)
 
+    def test_model_bridge_socket_is_accessible_to_non_root_container_user(self):
+        socket_path = self.root / ".lai-model-bridge.sock"
+        close_bridge = agent.start_control_model_bridge(socket_path, "127.0.0.1", port=9, api_key_file=None)
+        try:
+            self.assertEqual(socket_path.stat().st_mode & 0o777, 0o600)
+        finally:
+            close_bridge()
+
+    def test_remote_work_runtime_root_is_prepared_for_rootless_docker(self):
+        runtime_root = self.root / "work-runtime"
+        argv = agent.remote_project_sandbox_docker_argv(
+            (agent.REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT, agent.REMOTE_SANDBOX_WORKSPACE_ENTRYPOINT),
+            workspace=self.root,
+            source_root=self.root,
+            runtime_root=runtime_root,
+        )
+        self.assertIn(f"type=bind,src={runtime_root.resolve()},dst=/lai-runtime", argv)
+        for path in (runtime_root, runtime_root / "state", runtime_root / "metrics", runtime_root / "audit"):
+            self.assertTrue(path.is_dir())
+            self.assertEqual(path.stat().st_mode & 0o777, 0o700)
+
     def test_remote_sandbox_container_python_rejects_paths_or_shell_words(self):
         for value in ("/usr/bin/python3", "python3 -m", "../python", "-python", "python3:bad", "python@bad"):
             with mock.patch.dict(os.environ, {agent.REMOTE_SANDBOX_CONTAINER_PYTHON_ENV: value}, clear=False):
@@ -2535,6 +2556,33 @@ class ControlPlaneTest(unittest.TestCase):
                     agent.remote_sandbox_container_python(),
                     agent.REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT,
                 )
+
+    def test_remote_docker_rootless_is_explicit_and_does_not_probe_subprocess(self):
+        with mock.patch.object(
+            agent.subprocess,
+            "run",
+            side_effect=AssertionError("rootless detection must not probe Docker"),
+        ):
+            with mock.patch.dict(
+                os.environ,
+                {agent.REMOTE_DOCKER_ROOTLESS_ENV: "1"},
+                clear=False,
+            ):
+                self.assertTrue(agent.remote_docker_is_rootless())
+            with mock.patch.dict(
+                os.environ,
+                {agent.REMOTE_DOCKER_ROOTLESS_ENV: "0"},
+                clear=False,
+            ):
+                self.assertFalse(agent.remote_docker_is_rootless())
+            with mock.patch.dict(
+                os.environ,
+                {agent.REMOTE_DOCKER_ROOTLESS_ENV: "invalid"},
+                clear=False,
+            ):
+                self.assertFalse(agent.remote_docker_is_rootless())
+            with mock.patch.dict(os.environ, {}, clear=True):
+                self.assertFalse(agent.remote_docker_is_rootless())
 
     def test_remote_sandbox_requires_digest_pinned_image_and_no_host_runtime_mounts(self):
         self.assertTrue(
@@ -2547,9 +2595,11 @@ class ControlPlaneTest(unittest.TestCase):
             self.assertFalse(agent.remote_validation_sandbox_available("alpine:latest"))
             run.assert_not_called()
 
-        argv = agent.remote_validation_docker_argv(
-            ("make", "test"), workspace=self.root, source_root=self.root,
-        )
+        with mock.patch.object(agent, "remote_docker_is_rootless", return_value=False):
+            argv = agent.remote_validation_docker_argv(
+                ("make", "test"), workspace=self.root, source_root=self.root,
+            )
+            rootful_contract = agent.remote_sandbox_public_contract(ready=True)
         rendered = " ".join(argv)
         for forbidden in ("/var/run/docker.sock", str(Path.home()), "node_modules", ".venv"):
             self.assertNotIn(forbidden, rendered)
@@ -2557,6 +2607,15 @@ class ControlPlaneTest(unittest.TestCase):
             self.assertNotIn(runtime_path, rendered)
         self.assertIn("--user", argv)
         self.assertNotEqual(argv[argv.index("--user") + 1].split(":", 1)[0], "0")
+        self.assertEqual(rootful_contract["user"], "non-root")
+
+        with mock.patch.object(agent, "remote_docker_is_rootless", return_value=True):
+            rootless_argv = agent.remote_validation_docker_argv(
+                ("make", "test"), workspace=self.root, source_root=self.root,
+            )
+            rootless_contract = agent.remote_sandbox_public_contract(ready=True)
+        self.assertEqual(rootless_argv[rootless_argv.index("--user") + 1], "0:0")
+        self.assertEqual(rootless_contract["user"], "rootless-container-root")
 
     def test_work_run_child_is_dispatched_through_verified_sandbox_without_host_fallback(self):
         captured = []
@@ -2636,6 +2695,30 @@ class ControlPlaneTest(unittest.TestCase):
             result = agent.tool_validate({"profile": "test"})
         self.assertIn("sandbox image is unavailable", result)
         run.assert_not_called()
+
+    def test_remote_validate_reuses_verified_control_sandbox_without_nested_docker(self):
+        (self.root / "Makefile").write_text(
+            "test:\n\t@echo ok\n", encoding="utf-8"
+        )
+        completed = mock.Mock(returncode=0, stdout="ok\n", stderr="")
+        with mock.patch.dict(
+            os.environ,
+            {
+                agent.CONTROL_RUN_CHILD_ENV: "1",
+                agent.SANDBOX_EXEC_VERIFIED_ENV: "1",
+            },
+            clear=False,
+        ), mock.patch.object(
+            agent, "remote_validation_sandbox_available"
+        ) as sandbox_available, mock.patch.object(
+            agent.subprocess, "run", return_value=completed
+        ) as run:
+            result = agent.tool_validate({"profile": "test"})
+
+        sandbox_available.assert_not_called()
+        self.assertNotIn("ERROR:", result)
+        command = run.call_args.args[0]
+        self.assertNotEqual(command[0], "docker")
 
     def test_work_run_requires_sandbox_and_records_work_profile(self):
         with mock.patch.object(agent, "remote_validation_sandbox_available", return_value=False):
@@ -3812,7 +3895,9 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertIn("image inspect " + agent.REMOTE_VALIDATION_SANDBOX_IMAGE, log)
         self.assertIn("--network=none", log)
         self.assertIn("--pull=never", log)
-        self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " make test", log)
+        # A verified Work child is already inside the project sandbox.
+        # Validation must not create a second Docker layer.
+        self.assertNotIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " make test", log)
         self.assertIn(agent.REMOTE_VALIDATION_SANDBOX_IMAGE + " " + agent.REMOTE_SANDBOX_CONTAINER_PYTHON_DEFAULT + " " + agent.REMOTE_SANDBOX_WORKSPACE_ENTRYPOINT, log)
         self.assertIn("LAI_SKILLS_DIR=" + agent.REMOTE_SANDBOX_SKILLS_DIR, log)
         self.assertIn(agent.CONTROL_MODEL_BRIDGE_SOCKET_ENV + "=" + agent.CONTROL_MODEL_BRIDGE_CONTAINER_SOCKET, log)

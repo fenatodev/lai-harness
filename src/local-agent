@@ -3938,9 +3938,11 @@ CONTROL_MODEL_BRIDGE_CONTAINER_SOCKET = "/workspace/.lai-model-bridge.sock"
 CONTROL_MODEL_BRIDGE_SCHEMA_VERSION = 1
 CONTROL_MODEL_BRIDGE_REQUEST_LIMIT_BYTES = 1_000_000
 CONTROL_MODEL_BRIDGE_RESPONSE_LIMIT_BYTES = 8_000_000
+CONTROL_MODEL_BRIDGE_TIMEOUT_SECONDS = 600
 REMOTE_VALIDATION_SOURCE_ROOT_ENV = "LAI_CONTROL_SOURCE_ROOT"
 REMOTE_SANDBOX_SCHEMA_VERSION = 1
 REMOTE_SANDBOX_BACKEND = "docker"
+REMOTE_DOCKER_ROOTLESS_ENV = "LAI_REMOTE_DOCKER_ROOTLESS"
 REMOTE_SANDBOX_USER_FALLBACK = "65532:65532"
 REMOTE_SANDBOX_MEMORY_LIMIT = "1g"
 REMOTE_SANDBOX_CPU_LIMIT = "2"
@@ -4074,7 +4076,27 @@ def remote_sandbox_container_python():
     return value
 
 
+def remote_docker_is_rootless():
+    # Executor topology is operator configuration, not model-derived state.
+    # Keep this pure: execution/status paths must not launch Docker probes.
+    value = os.environ.get(REMOTE_DOCKER_ROOTLESS_ENV)
+    if value is None:
+        return False
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off", ""}:
+        return False
+    # Unknown values fail closed to the rootful/non-root execution profile.
+    return False
+
+
 def remote_sandbox_non_root_user():
+    # Rootless Docker maps container UID 0 to the unprivileged daemon user on
+    # the host. Host UID/GID values inside that namespace map to subordinate
+    # IDs and cannot write bind mounts owned by the daemon user.
+    if remote_docker_is_rootless():
+        return "0:0"
     uid = os.getuid() if hasattr(os, "getuid") else 1000
     gid = os.getgid() if hasattr(os, "getgid") else 1000
     if uid == 0:
@@ -4101,7 +4123,7 @@ def remote_sandbox_public_contract(*, ready=None):
         "root_filesystem": "read-only",
         "capabilities": "drop-all",
         "no_new_privileges": True,
-        "user": "non-root",
+        "user": "rootless-container-root" if remote_docker_is_rootless() else "non-root",
         "limits": {
             "cpus": REMOTE_SANDBOX_CPU_LIMIT,
             "memory": REMOTE_SANDBOX_MEMORY_LIMIT,
@@ -4161,6 +4183,16 @@ def _remote_sandbox_base_argv(*, workspace=None, source_root=None, model_bridge_
         # but control work-runs pass an external per-run runtime root.
         pass
     runtime_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # In rootless mode container UID 0 maps to the unprivileged Docker daemon
+    # user on the host, so per-run telemetry does not need world-writable
+    # permissions. Normalize existing runtime paths to owner-only access.
+    runtime_root.chmod(0o700)
+    for runtime_child in ("state", "metrics", "audit"):
+        child_path = runtime_root / runtime_child
+        if child_path.is_symlink():
+            raise RuntimeError("remote sandbox runtime child must not be a symlink")
+        child_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        child_path.chmod(0o700)
     source_root = _remote_sandbox_checked_root(
         source_root
         or os.environ.get(REMOTE_VALIDATION_SOURCE_ROOT_ENV)
@@ -4270,7 +4302,13 @@ def tool_validate(args):
     argv = select_validation_command(profile)
     if argv is None:
         return f"ERROR: no recognized validation command for profile={profile}"
-    remote = os.environ.get("LAI_CONTROL_RUN_CHILD") == "1"
+    control_child = os.environ.get(CONTROL_RUN_CHILD_ENV) == "1"
+    verified_sandbox = os.environ.get(SANDBOX_EXEC_VERIFIED_ENV) == "1"
+    # A verified Work child is already inside the project sandbox. Wrapping
+    # validation in another Docker invocation would require a Docker socket
+    # inside the sandbox, which is intentionally absent. An unverified child
+    # still uses the fail-closed remote validation path.
+    remote = control_child and not verified_sandbox
     return _run_validation_argv(argv, profile, remote=remote)
 
 
@@ -13377,7 +13415,7 @@ def model_bridge_chat_completion(payload):
     if len(body) > CONTROL_MODEL_BRIDGE_REQUEST_LIMIT_BYTES:
         raise ModelAPIError("model bridge request is too large")
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-        client.settimeout(180)
+        client.settimeout(CONTROL_MODEL_BRIDGE_TIMEOUT_SECONDS)
         client.connect(socket_path)
         client.sendall(len(body).to_bytes(4, "big") + body)
         size = int.from_bytes(_recv_exact(client, 4), "big")
@@ -13412,7 +13450,7 @@ def control_model_bridge_call_model(host, port, api_key_file, payload):
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=180) as response:
+        with urllib.request.urlopen(request, timeout=CONTROL_MODEL_BRIDGE_TIMEOUT_SECONDS) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         raise ModelAPIError(model_api_http_error_message(exc, api_key=key)) from None
