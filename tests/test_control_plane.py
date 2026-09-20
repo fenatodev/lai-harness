@@ -2482,7 +2482,14 @@ class ControlPlaneTest(unittest.TestCase):
         self.assertNotIn(",rw", workspace_mounts[0])
         self.assertIn("--security-opt=no-new-privileges", argv)
         self.assertNotIn("/var/run/docker.sock", rendered)
-        self.assertNotIn(str(Path.home()), rendered)
+        bind_sources = [
+            item.split(",src=", 1)[1].split(",dst=", 1)[0]
+            for item in argv
+            if item.startswith("type=bind,src=")
+        ]
+        # Trusted Harness files may live below the runner/user home, but the
+        # sandbox must never bind the entire home directory.
+        self.assertNotIn(str(Path.home()), bind_sources)
         self.assertEqual(argv[-3:], [agent.REMOTE_VALIDATION_SANDBOX_IMAGE, "make", "test"])
 
     def test_remote_sandbox_image_can_be_operator_configured_by_digest(self):
@@ -2584,7 +2591,7 @@ class ControlPlaneTest(unittest.TestCase):
             with mock.patch.dict(os.environ, {}, clear=True):
                 self.assertFalse(agent.remote_docker_is_rootless())
 
-    def test_remote_sandbox_requires_digest_pinned_image_and_no_host_runtime_mounts(self):
+    def test_remote_sandbox_requires_digest_pinned_image_and_no_broad_host_runtime_mounts(self):
         self.assertTrue(
             agent.remote_sandbox_image_is_digest_pinned(
                 agent.REMOTE_VALIDATION_SANDBOX_IMAGE
@@ -2601,8 +2608,16 @@ class ControlPlaneTest(unittest.TestCase):
             )
             rootful_contract = agent.remote_sandbox_public_contract(ready=True)
         rendered = " ".join(argv)
-        for forbidden in ("/var/run/docker.sock", str(Path.home()), "node_modules", ".venv"):
+        for forbidden in ("/var/run/docker.sock", "node_modules", ".venv"):
             self.assertNotIn(forbidden, rendered)
+        bind_sources = [
+            item.split(",src=", 1)[1].split(",dst=", 1)[0]
+            for item in argv
+            if item.startswith("type=bind,src=")
+        ]
+        # Specific trusted files below HOME are allowed read-only; binding the
+        # HOME root itself remains forbidden.
+        self.assertNotIn(str(Path.home()), bind_sources)
         for runtime_path in ("src=/usr", "src=/bin", "src=/lib", "src=/lib64"):
             self.assertNotIn(runtime_path, rendered)
         self.assertIn("--user", argv)
