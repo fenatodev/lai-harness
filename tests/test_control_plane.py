@@ -61,6 +61,34 @@ class ControlPlaneTest(unittest.TestCase):
         self.thread.join(timeout=2)
         self.temp.cleanup()
 
+    def test_qwen_style_text_tool_call_is_coerced_when_tool_is_offered(self):
+        inspect_tool = {"type": "function", "function": {"name": "inspect"}}
+        message = {
+            "role": "assistant",
+            "content": "```xml\n" + json.dumps({
+                "name": "inspect",
+                "arguments": {"path": "AGENTS.md"},
+            }) + "\n```",
+        }
+        agent.coerce_text_tool_calls(message, [inspect_tool])
+
+        self.assertEqual(message["content"], "")
+        self.assertEqual(message["tool_calls"][0]["function"]["name"], "inspect")
+        self.assertEqual(
+            json.loads(message["tool_calls"][0]["function"]["arguments"]),
+            {"path": "AGENTS.md"},
+        )
+
+    def test_qwen_style_text_tool_call_ignores_unoffered_tool(self):
+        inspect_tool = {"type": "function", "function": {"name": "inspect"}}
+        message = {
+            "role": "assistant",
+            "content": json.dumps({"name": "bash", "arguments": {"command": "true"}}),
+        }
+        agent.coerce_text_tool_calls(message, [inspect_tool])
+
+        self.assertNotIn("tool_calls", message)
+
     def request(self, path, *, method="GET", token=None, body=None, content_type="application/json", headers_extra=None):
         headers = {}
         if token is not None:

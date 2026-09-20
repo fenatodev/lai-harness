@@ -625,7 +625,7 @@ class GuardIntegrationTest(unittest.TestCase):
             2048,
         )
 
-    def test_pre_write_action_retry_is_capped_at_2048(self):
+    def test_pre_write_action_retry_uses_qwen_sized_budget(self):
         responder = SequenceResponder([
             completion("I need to stop analyzing."),
             truncated_completion(
@@ -669,7 +669,7 @@ class GuardIntegrationTest(unittest.TestCase):
         )
         self.assertEqual(
             responder.payloads[2]["max_tokens"],
-            2048,
+            4096,
         )
 
         self.assertEqual(

@@ -288,7 +288,7 @@ PRELOADED_AGENTS_MAX_CHARS = 2200
 PRE_WRITE_EXPLORATION_BUDGET = 6
 PRE_WRITE_EXPLORATION_MAX_TOKENS = 512
 PRE_WRITE_ACTION_MAX_TOKENS = 1536
-PRE_WRITE_ACTION_RETRY_MAX_TOKENS = 2048
+PRE_WRITE_ACTION_RETRY_MAX_TOKENS = 4096
 
 SANDBOX_EXEC_TIMEOUT_SECONDS = 30
 SANDBOX_EXEC_OUTPUT_LIMIT_BYTES = 12000
@@ -17219,6 +17219,43 @@ def _compact_tool_result_for_model(message):
     return f"[{name}]\n{content}"
 
 
+def coerce_text_tool_calls(message, tools):
+    if message.get("tool_calls"):
+        return
+    content = message.get("content")
+    if not isinstance(content, str):
+        return
+    text = content.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if len(lines) >= 3 and lines[0].startswith("```") and lines[-1].strip() == "```":
+            text = "\n".join(lines[1:-1]).strip()
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return
+    if not isinstance(parsed, dict):
+        return
+    name = parsed.get("name")
+    arguments = parsed.get("arguments")
+    offered = {
+        tool["function"]["name"]
+        for tool in tools
+        if isinstance(tool, dict) and isinstance(tool.get("function"), dict)
+    }
+    if not isinstance(name, str) or name not in offered or not isinstance(arguments, dict):
+        return
+    message["content"] = ""
+    message["tool_calls"] = [{
+        "id": "text-tool-1",
+        "type": "function",
+        "function": {
+            "name": name,
+            "arguments": json.dumps(arguments, ensure_ascii=False, sort_keys=True),
+        },
+    }]
+
+
 def normalize_messages_for_strict_chat_template(messages):
     """Render prior tool-call exchanges as alternating text messages.
 
@@ -17289,18 +17326,24 @@ def api_call(
     tools=None,
     tool_choice="auto",
 ):
-    payload = {
-        "model": MODEL,
-        "messages": normalize_messages_for_strict_chat_template(messages),
-        "temperature": 0,
-        "max_tokens": max_tokens,
-    }
-
     selected_tools = (
         TOOLS
         if tools is None
         else tools
     )
+    request_messages = normalize_messages_for_strict_chat_template(messages)
+
+    # Native tool schemas and tool_choice are rendered by the model's
+    # llama.cpp chat template. Do not add a competing textual JSON tool
+    # protocol to the prompt. coerce_text_tool_calls() remains a defensive
+    # fallback for model responses that still arrive as textual JSON.
+
+    payload = {
+        "model": MODEL,
+        "messages": request_messages,
+        "temperature": 0,
+        "max_tokens": max_tokens,
+    }
 
     if use_tools and selected_tools:
         if tool_choice not in {"auto", "required"}:
@@ -23050,23 +23093,27 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
             )
 
             if promote_pre_write_to_action:
-                # A truncated exploration response produced no usable
-                # structured evidence. End exploration immediately and retry
-                # as a governed write/impossible action.
+                # A truncated compact exploration response is a phase
+                # transition. Retry once at the normal action budget.
                 pre_write_correction_required = True
                 active_tools = pre_write_action_tools()
                 round_tool_choice = "required"
                 retry_max_tokens = PRE_WRITE_ACTION_MAX_TOKENS
             elif local_pre_write:
-                # Before the first successful write, never escalate to the
-                # global 4096-token retry ceiling.
-                retry_max_tokens = min(
-                    PRE_WRITE_ACTION_RETRY_MAX_TOKENS,
-                    max(
-                        call_max_tokens * 2,
-                        call_max_tokens + 256,
-                    ),
-                )
+                if pre_write_correction_required:
+                    # A correction turn already started at the normal action
+                    # budget. Give Qwen one larger bounded retry.
+                    retry_max_tokens = PRE_WRITE_ACTION_RETRY_MAX_TOKENS
+                else:
+                    # Exploration exhaustion forced the action phase. Keep the
+                    # historical bounded retry instead of jumping to 4096.
+                    retry_max_tokens = min(
+                        2048,
+                        max(
+                            call_max_tokens * 2,
+                            call_max_tokens + 256,
+                        ),
+                    )
             else:
                 retry_max_tokens = min(
                     4096,
@@ -23134,6 +23181,7 @@ Answer in at most 60 words unless the user explicitly requests more detail."""
             call_max_tokens = retry_max_tokens
 
         message = choice["message"]
+        coerce_text_tool_calls(message, active_tools)
         tool_calls = message.get("tool_calls") or []
 
         messages.append(message)
