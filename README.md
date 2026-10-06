@@ -9,6 +9,49 @@
 
 The public command is `lai`. Compatibility identifiers such as `local-agent`, `lai-chat`, and `lai-local-agent` remain where they are part of the installer, VS Code extension identity, or repository history.
 
+
+## Portfolio case study
+
+This repository is also a practical case study in **coding-agent engineering and evaluation**. The core question is not just whether an LLM can produce code, but whether its work can be constrained, inspected, validated, and promoted without treating model output as trusted authority.
+
+### Engineering problems addressed
+
+| Problem | Approach |
+| --- | --- |
+| Large or ambiguous repository context | Deterministic repository maps, bounded context, code-graph signals and explicit mode-specific inputs. |
+| Overpowered coding agents | Small tool schemas, policy classification and explicit ALLOW / ASK / DENY decisions. |
+| Unsafe source mutation | Safe workspaces and hash-bound review/promotion instead of direct source-checkout writes. |
+| Unverifiable agent claims | Structured trajectories, run records, receipts, budgets and validation evidence. |
+| Risky execution | Digest-pinned Docker sandbox with no network, no Docker socket, non-root execution and bounded resources. |
+| Regression risk | Risk-proportional tests plus Ruff, pytest, unittest, strict mypy, publication scans and milestone gates. |
+
+### What this demonstrates
+
+- designing agent boundaries instead of relying only on prompts;
+- evaluating model/tool behavior against deterministic contracts;
+- reproducing and isolating failure modes;
+- building review and approval workflows for AI-generated changes;
+- writing adversarial, regression and boundary tests;
+- separating retrieved/model content from authorization;
+- documenting limitations without overstating implemented capability.
+
+### Validation evidence
+
+The repository exposes reproducible local quality gates rather than relying on screenshots or narrative claims:
+
+```bash
+make check
+make lint
+make test
+make test-dev
+make typecheck
+make validate
+make milestone-gate
+```
+
+See [Architecture](docs/ARCHITECTURE.md), [Testing and validation](docs/TESTING-VALIDATION.md), [Security model](docs/SECURITY-MODEL.md), and [Authority and approvals](docs/AUTHORITY-APPROVALS.md) for the underlying contracts.
+
+
 ## What problem it solves
 
 Local models are useful for coding work, but they fail quickly when a repository requires too much context, too many tools, or vague safety boundaries. `lai harness` narrows the job:
